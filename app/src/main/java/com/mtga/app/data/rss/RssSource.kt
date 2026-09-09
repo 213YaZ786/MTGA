@@ -5,7 +5,6 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.data.instances.InstancePool
-import com.mtga.app.data.instances.InstanceProbe
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -22,6 +21,32 @@ class RssSource(
     private val parser: RssFeedParser
 ) {
 
+    /**
+     * Detects the "RSS reader not yet whitelisted" notice some instances serve.
+     * It is valid RSS with a 200, so nothing else in the stack would catch it,
+     * and treating it as a feed means showing the reader a non post.
+     */
+    private fun gateRequestId(body: String): String? {
+        if ("not yet whitelist" !in body.lowercase()) return null
+        return longestHexRun(body).takeIf { it.length >= 32 } ?: ""
+    }
+
+    /** The operator's ID is a long hex string, so find the longest one present. */
+    private fun longestHexRun(body: String): String {
+        var best = ""
+        var current = StringBuilder()
+        for (c in body) {
+            if (c.isDigit() || c in 'a'..'f') {
+                current.append(c)
+            } else {
+                if (current.length > best.length) best = current.toString()
+                current = StringBuilder()
+            }
+        }
+        if (current.length > best.length) best = current.toString()
+        return best
+    }
+
     suspend fun fetchFeed(handle: String): Outcome<Feed> = pool.withInstance { instance ->
         withContext(Dispatchers.IO) {
             try {
@@ -36,11 +61,15 @@ class RssSource(
                 )
                 if (transportError != null) return@withContext Outcome.Failure(transportError)
 
+                gateRequestId(body)?.let { id ->
+                    return@withContext Outcome.Failure(AppError.FeedGated(instance.host, id))
+                }
+
                 val feed = parser.parse(body, handle, instance.host)
                     ?: return@withContext Outcome.Failure(
                         AppError.ParseFailure(
                             host = instance.host,
-                            selectorSetVersion = InstanceProbe.SELECTOR_SET_VERSION,
+                            selectorSetVersion = RSS_SELECTOR_SET_VERSION,
                             snippet = body.take(200)
                         )
                     )
@@ -50,5 +79,9 @@ class RssSource(
                 Outcome.Failure(ErrorMapper.fromThrowable(instance.host, t))
             }
         }
+    }
+
+    private companion object {
+        const val RSS_SELECTOR_SET_VERSION = 1
     }
 }

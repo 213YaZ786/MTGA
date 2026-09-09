@@ -81,6 +81,14 @@ fun AppError.present(): ErrorPresentation = when (this) {
         action = ErrorAction.OPEN_FALLBACK_VIEWER
     )
 
+    is AppError.FeedGated -> ErrorPresentation(
+        headline = "$host does not serve feeds to this app",
+        explanation = "The instance restricts RSS to clients it has approved, so MTGA reads " +
+            "the web pages instead. If you want the faster feed path, its operator asks for " +
+            "an email with the ID in the diagnostic report.",
+        action = ErrorAction.NONE
+    )
+
     is AppError.StorageFailure -> ErrorPresentation(
         headline = "Local storage error",
         explanation = detail ?: "MTGA could not read or write its local database.",

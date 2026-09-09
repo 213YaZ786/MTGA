@@ -5,27 +5,35 @@ Nitter front ends such as xcancel.com. No account, no tracking, no ads.
 
 ## Status
 
-Step 3 of 7. MTGA now reads. Follow handles locally, open one, and its recent
-posts are fetched over RSS from whichever instance in the pool is healthiest,
-with automatic failover. No merged timeline or offline cache yet.
+Step 3.5 of 7. MTGA now reads. Follow handles locally, open one, and its recent
+posts are fetched from whichever instance in the pool is healthiest, with
+automatic failover. No merged timeline or offline cache yet.
 
 | Step | Content | State |
 | --- | --- | --- |
 | 1 | Shell, theme, navigation, error model, CI | done |
 | 2 | Instance pool, health probes, live Diagnostics | done |
 | 3 | RSS source, follow handles, single account feed | done |
+| 3.5 | HTML source promoted to primary, gated feed detection | done |
 | 4 | Room cache, merged timeline, Paging 3 | next |
-| 5 | HTML source, profiles, stats, deep pagination | |
+| 5 | Profile header, deep pagination via cursor | |
 | 6 | Threads, quotes, media viewer with video | |
 | 7 | Notifications, local search, import and export | |
 
 ## Design decisions
 
-**Hybrid data strategy.** RSS is the cheap refresh path, one request per handle
-or one batched request per group using Nitter's comma separated multi account
-URL form. HTML parsing runs only on demand, when a profile or a single post is
-opened, to add stats, threads and media. Both normalise into one domain model,
-so a new source plugs in without touching the UI.
+**HTML first, RSS second.** This reverses the original plan. RSS looked like the
+cheap, stable path until testing showed the one surviving instance restricts
+feeds to clients it has approved, answering 200 with well formed RSS whose only
+item is a whitelist notice. Its web pages remain open, so HTML parsing is the
+path that actually returns posts. RSS stays wired up behind it, because a
+different instance makes it the better path again with no change above the
+repository. Both sources normalise into one domain model.
+
+**No single instance gets a veto.** A Nitter instance with a broken upstream
+session returns 404 for real accounts. MTGA reports "account not found" only
+when every instance that actually answered agrees, and probes the profile page
+rather than a cheap endpoint, so a green light means posts came back.
 
 **No hero behaviour on failure.** Nitter instances are under legal pressure from
 X Corp and go down without warning. MTGA never shows a generic spinner. Every

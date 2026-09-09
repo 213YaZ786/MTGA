@@ -5,7 +5,10 @@ import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
 import com.mtga.app.data.accounts.AccountStore
+import com.mtga.app.data.html.HtmlSource
+import com.mtga.app.data.html.HtmlTimelineParser
 import com.mtga.app.data.instances.InstanceStore
+import com.mtga.app.data.repository.FeedRepository
 import com.mtga.app.data.rss.RssFeedParser
 import com.mtga.app.data.rss.RssSource
 import com.mtga.app.feature.accounts.AccountsViewModel
@@ -30,7 +33,8 @@ val appModule = module {
     single { HttpClientFactory.create() }
     single { ConnectivityMonitor(androidContext()) }
     single { InstanceStore(androidContext()) }
-    single { InstanceProbe(get(), get()) }
+    single { HtmlTimelineParser() }
+    single { InstanceProbe(get(), get(), get()) }
 
     single {
         InstancePool(
@@ -44,6 +48,8 @@ val appModule = module {
     single { AccountStore(androidContext()) }
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
+    single { HtmlSource(get(), get()) }
+    single { FeedRepository(get(), get(), get()) }
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get()) }

@@ -6,7 +6,7 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Feed
 import com.mtga.app.data.accounts.AccountStore
-import com.mtga.app.data.rss.RssSource
+import com.mtga.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +20,7 @@ data class FeedUiState(
 )
 
 class FeedViewModel(
-    private val source: RssSource,
+    private val repository: FeedRepository,
     private val accounts: AccountStore
 ) : ViewModel() {
 
@@ -39,7 +39,7 @@ class FeedViewModel(
 
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
-            when (val outcome = source.fetchFeed(handle)) {
+            when (val outcome = repository.loadFeed(handle)) {
                 is Outcome.Success -> {
                     // Cache the display name so the accounts list stops showing
                     // bare handles once a feed has been read at least once.

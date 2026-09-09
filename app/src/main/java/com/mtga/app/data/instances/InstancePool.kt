@@ -131,6 +131,9 @@ class InstancePool(
 
         val tried = mutableListOf<String>()
         var lastError: AppError? = null
+        var notFoundVotes = 0
+        var answered = 0
+        var notFound: AppError? = null
 
         for (instance in candidates) {
             tried += instance.host
@@ -140,20 +143,43 @@ class InstancePool(
                     return outcome
                 }
                 is Outcome.Failure -> {
-                    lastError = outcome.error
-                    record(ProbeResult(instance.id, 0, null, outcome.error))
-                    // Upstream problems are not the instance's fault, so trying
-                    // another host would only repeat the same answer.
-                    if (outcome.error is AppError.AccountNotFound ||
-                        outcome.error is AppError.AccountUnavailable
-                    ) {
-                        return outcome
+                    val error = outcome.error
+                    lastError = error
+                    record(ProbeResult(instance.id, 0, null, error))
+
+                    // A suspended or protected account is a statement about X
+                    // that any working instance would repeat, so stop.
+                    if (error is AppError.AccountUnavailable) return outcome
+
+                    if (spokeForUpstream(error)) answered++
+                    if (error is AppError.AccountNotFound) {
+                        notFoundVotes++
+                        notFound = error
                     }
                 }
             }
         }
 
-        return Outcome.Failure(lastError ?: AppError.NoHealthyInstance(tried))
+        // "Not found" is only believed when every instance that actually
+        // answered agrees. A Nitter instance with a broken upstream session
+        // returns 404 for perfectly real accounts, and one dead host must not
+        // be able to veto the whole pool.
+        if (notFound != null && notFoundVotes == answered && answered > 0) {
+            return Outcome.Failure(notFound)
+        }
+
+        return Outcome.Failure(
+            lastError?.takeUnless { it is AppError.AccountNotFound }
+                ?: AppError.NoHealthyInstance(tried)
+        )
+    }
+
+    /** Did the instance actually respond, as opposed to failing in transport. */
+    private fun spokeForUpstream(error: AppError): Boolean = when (error) {
+        is AppError.AccountNotFound,
+        is AppError.ParseFailure,
+        is AppError.FeedGated -> true
+        else -> false
     }
 
     // ---- editing -----------------------------------------------------------

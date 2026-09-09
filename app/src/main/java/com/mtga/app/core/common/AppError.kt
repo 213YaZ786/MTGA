@@ -97,6 +97,17 @@ sealed interface AppError {
         override val retryable = false
     }
 
+    /**
+     * The instance answered with well formed RSS whose only content is a notice
+     * that this client is not on its allow list. xcancel does this. It is not a
+     * network failure and not a parse failure, it is a door with a lock on it,
+     * so it gets its own case and carries the ID the operator asks for.
+     */
+    data class FeedGated(val host: String, val requestId: String?) : AppError {
+        override val blame = Blame.INSTANCE
+        override val retryable = false
+    }
+
     /** Local storage failed. */
     data class StorageFailure(val detail: String?) : AppError {
         override val blame = Blame.APP

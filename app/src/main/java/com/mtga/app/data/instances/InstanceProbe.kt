@@ -4,9 +4,11 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HttpClientFactory
+import com.mtga.app.data.html.HtmlTimelineParser
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,13 +23,14 @@ data class ProbeResult(
 /**
  * One request against an instance, timed and classified.
  *
- * Probes the RSS host when the instance has one, since that is the endpoint
- * MTGA actually depends on. An instance whose web front end is up but whose
- * feeds are blocked is not useful to us, and this surfaces that.
+ * Probes the profile page, because that is the path MTGA actually reads. An
+ * earlier version probed RSS and reported xcancel as healthy while its feeds
+ * were serving nothing but a whitelist notice. Probe what you depend on.
  */
 class InstanceProbe(
     private val client: HttpClient,
-    private val connectivity: ConnectivityMonitor
+    private val connectivity: ConnectivityMonitor,
+    private val parser: HtmlTimelineParser
 ) {
 
     suspend fun probe(instance: NitterInstance): ProbeResult = withContext(Dispatchers.IO) {
@@ -35,17 +38,19 @@ class InstanceProbe(
             return@withContext ProbeResult(instance.id, 0, null, AppError.Offline)
         }
 
-        val target = instance.rssUrlFor(PROBE_HANDLE)
         val started = System.nanoTime()
 
         try {
-            val response = client.get(target) {
+            val response = client.get(instance.profileUrlFor(PROBE_HANDLE)) {
+                header("User-Agent", PROBE_USER_AGENT)
+                header("Accept", "text/html,application/xhtml+xml")
                 timeout { requestTimeoutMillis = HttpClientFactory.PROBE_TIMEOUT_MS }
             }
             val body = runCatching { response.bodyAsText() }.getOrDefault("")
             val elapsed = elapsedMillis(started)
+
             val error = ErrorMapper.fromResponse(instance.host, response, body, PROBE_HANDLE)
-                ?: verifyFeedShape(instance, body)
+                ?: verifyTimeline(instance, body)
 
             ProbeResult(instance.id, elapsed, response.status.value, error)
         } catch (t: Throwable) {
@@ -59,18 +64,20 @@ class InstanceProbe(
     }
 
     /**
-     * A 200 with no RSS in it means the instance answered but is not serving
-     * feeds, which is a parse level failure rather than a network one.
+     * A 200 that yields no parseable posts means the instance answered but is
+     * not serving content, which is a parse level failure rather than a
+     * network one, and the reason "green" must mean "posts came back".
      */
-    private fun verifyFeedShape(instance: NitterInstance, body: String): AppError? {
-        val head = body.take(1_000)
-        val looksLikeFeed = "<rss" in head || "<feed" in head || "<?xml" in head
-        return if (looksLikeFeed) null else AppError.ParseFailure(
-            host = instance.host,
-            selectorSetVersion = SELECTOR_SET_VERSION,
-            snippet = head.take(200)
-        )
-    }
+    private fun verifyTimeline(instance: NitterInstance, body: String): AppError? =
+        if (parser.parse(body, PROBE_HANDLE, instance.host) != null) {
+            null
+        } else {
+            AppError.ParseFailure(
+                host = instance.host,
+                selectorSetVersion = HtmlTimelineParser.SELECTOR_SET_VERSION,
+                snippet = body.take(200)
+            )
+        }
 
     private fun elapsedMillis(startedNanos: Long): Long =
         (System.nanoTime() - startedNanos) / 1_000_000
@@ -79,7 +86,8 @@ class InstanceProbe(
         /** A high profile handle that exists on any working instance. */
         const val PROBE_HANDLE = "nytimes"
 
-        /** Bumped whenever the parsing expectations change. */
-        const val SELECTOR_SET_VERSION = 1
+        private const val PROBE_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/124.0.0.0 Mobile Safari/537.36"
     }
 }
