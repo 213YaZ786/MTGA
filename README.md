@@ -5,14 +5,15 @@ Nitter front ends such as xcancel.com. No account, no tracking, no ads.
 
 ## Status
 
-Step 1 of 7. App shell, Material 3 Expressive theme, navigation, error taxonomy
-and CI. No content fetching yet.
+Step 2 of 7. App shell, error taxonomy, and a live instance pool with health
+probes. No posts are displayed yet, but MTGA can now tell you exactly which
+Nitter instances are reachable from your device and why the others are not.
 
 | Step | Content | State |
 | --- | --- | --- |
 | 1 | Shell, theme, navigation, error model, CI | done |
-| 2 | Instance pool, health probes, live Diagnostics | next |
-| 3 | RSS source, follow handles, single account feed | |
+| 2 | Instance pool, health probes, live Diagnostics | done |
+| 3 | RSS source, follow handles, single account feed | next |
 | 4 | Room cache, merged timeline, Paging 3 | |
 | 5 | HTML source, profiles, stats, deep pagination | |
 | 6 | Threads, quotes, media viewer with video | |
