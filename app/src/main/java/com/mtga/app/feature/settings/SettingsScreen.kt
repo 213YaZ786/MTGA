@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -32,14 +32,14 @@ fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
         ListItem(
             headlineContent = { Text("Diagnostics") },
             supportingContent = { Text("Instance health, last errors, connectivity report") },
-            leadingContent = { Icon(Icons.Outlined.MonitorHeart, contentDescription = null) },
+            leadingContent = { Icon(Icons.Default.Warning, contentDescription = null) },
             modifier = Modifier.clickable(onClick = onOpenDiagnostics)
         )
 
         ListItem(
             headlineContent = { Text("Version") },
             supportingContent = { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
-            leadingContent = { Icon(Icons.Outlined.Info, contentDescription = null) }
+            leadingContent = { Icon(Icons.Default.Info, contentDescription = null) }
         )
     }
 }
