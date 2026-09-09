@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mtga.app.core.common.Blame
+import com.mtga.app.ui.icon.MtgaIcons
 
 /**
  * Step 1 renders the shell and the legend. Step 2 fills it with live probe
@@ -37,7 +36,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                 title = { Text("Diagnostics") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
                     }
                 }
             )

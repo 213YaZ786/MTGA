@@ -1,12 +1,7 @@
 package com.mtga.app.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.mtga.app.ui.icon.MtgaIcons
 
 /** Top level destinations, the ones reachable from the bar or rail. */
 enum class TopDestination(
@@ -14,14 +9,14 @@ enum class TopDestination(
     val label: String,
     val icon: ImageVector
 ) {
-    TIMELINE("timeline", "Timeline", Icons.Default.Home),
-    ACCOUNTS("accounts", "Accounts", Icons.Default.Person),
-    SEARCH("search", "Search", Icons.Default.Search),
-    SETTINGS("settings", "Settings", Icons.Default.Settings)
+    TIMELINE("timeline", "Timeline", MtgaIcons.Home),
+    ACCOUNTS("accounts", "Accounts", MtgaIcons.Person),
+    SEARCH("search", "Search", MtgaIcons.Search),
+    SETTINGS("settings", "Settings", MtgaIcons.Settings)
 }
 
 /** Destinations pushed on top, not part of the bar. */
 object Routes {
     const val DIAGNOSTICS = "diagnostics"
-    val diagnosticsIcon = Icons.Default.Warning
+    val diagnosticsIcon: ImageVector = MtgaIcons.Pulse
 }

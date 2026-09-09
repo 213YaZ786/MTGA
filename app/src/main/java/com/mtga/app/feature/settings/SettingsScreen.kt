@@ -6,9 +6,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
+import com.mtga.app.ui.icon.MtgaIcons
 
 @Composable
 fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
@@ -32,14 +30,14 @@ fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
         ListItem(
             headlineContent = { Text("Diagnostics") },
             supportingContent = { Text("Instance health, last errors, connectivity report") },
-            leadingContent = { Icon(Icons.Default.Warning, contentDescription = null) },
+            leadingContent = { Icon(MtgaIcons.Pulse, contentDescription = null) },
             modifier = Modifier.clickable(onClick = onOpenDiagnostics)
         )
 
         ListItem(
             headlineContent = { Text("Version") },
             supportingContent = { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
-            leadingContent = { Icon(Icons.Default.Info, contentDescription = null) }
+            leadingContent = { Icon(MtgaIcons.Info, contentDescription = null) }
         )
     }
 }
