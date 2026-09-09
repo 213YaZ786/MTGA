@@ -18,5 +18,9 @@ enum class TopDestination(
 /** Destinations pushed on top, not part of the bar. */
 object Routes {
     const val DIAGNOSTICS = "diagnostics"
+    const val FEED_PATTERN = "feed/{handle}"
+
+    fun feed(handle: String): String = "feed/$handle"
+
     val diagnosticsIcon: ImageVector = MtgaIcons.Pulse
 }

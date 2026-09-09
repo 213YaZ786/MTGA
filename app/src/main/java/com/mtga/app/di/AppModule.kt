@@ -4,8 +4,13 @@ import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
+import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.instances.InstanceStore
+import com.mtga.app.data.rss.RssFeedParser
+import com.mtga.app.data.rss.RssSource
+import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
+import com.mtga.app.feature.feed.FeedViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,5 +41,11 @@ val appModule = module {
         )
     }
 
+    single { AccountStore(androidContext()) }
+    single { RssFeedParser() }
+    single { RssSource(get(), get(), get()) }
+
     viewModel { DiagnosticsViewModel(get()) }
+    viewModel { AccountsViewModel(get()) }
+    viewModel { FeedViewModel(get(), get()) }
 }

@@ -7,6 +7,6 @@ import com.mtga.app.ui.component.Placeholder
 fun TimelineScreen(onOpenDiagnostics: () -> Unit) {
     Placeholder(
         title = "Timeline",
-        subtitle = "Lands in step 3, once the RSS source is wired up."
+        subtitle = "The merged timeline lands in step 4. For now, open Accounts, follow a handle, and tap it to read that feed."
     )
 }

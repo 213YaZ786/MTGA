@@ -5,16 +5,16 @@ Nitter front ends such as xcancel.com. No account, no tracking, no ads.
 
 ## Status
 
-Step 2 of 7. App shell, error taxonomy, and a live instance pool with health
-probes. No posts are displayed yet, but MTGA can now tell you exactly which
-Nitter instances are reachable from your device and why the others are not.
+Step 3 of 7. MTGA now reads. Follow handles locally, open one, and its recent
+posts are fetched over RSS from whichever instance in the pool is healthiest,
+with automatic failover. No merged timeline or offline cache yet.
 
 | Step | Content | State |
 | --- | --- | --- |
 | 1 | Shell, theme, navigation, error model, CI | done |
 | 2 | Instance pool, health probes, live Diagnostics | done |
-| 3 | RSS source, follow handles, single account feed | next |
-| 4 | Room cache, merged timeline, Paging 3 | |
+| 3 | RSS source, follow handles, single account feed | done |
+| 4 | Room cache, merged timeline, Paging 3 | next |
 | 5 | HTML source, profiles, stats, deep pagination | |
 | 6 | Threads, quotes, media viewer with video | |
 | 7 | Notifications, local search, import and export | |

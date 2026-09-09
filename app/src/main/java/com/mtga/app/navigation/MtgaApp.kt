@@ -15,9 +15,12 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavType
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.mtga.app.feature.accounts.AccountsScreen
 import com.mtga.app.feature.diagnostics.DiagnosticsScreen
+import com.mtga.app.feature.feed.FeedScreen
 import com.mtga.app.feature.search.SearchScreen
 import com.mtga.app.feature.settings.SettingsScreen
 import com.mtga.app.feature.timeline.TimelineScreen
@@ -65,10 +68,24 @@ fun MtgaApp() {
             composable(TopDestination.TIMELINE.route) {
                 TimelineScreen(onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) })
             }
-            composable(TopDestination.ACCOUNTS.route) { AccountsScreen() }
+            composable(TopDestination.ACCOUNTS.route) {
+                AccountsScreen(
+                    onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) }
+                )
+            }
             composable(TopDestination.SEARCH.route) { SearchScreen() }
             composable(TopDestination.SETTINGS.route) {
                 SettingsScreen(onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) })
+            }
+            composable(
+                route = Routes.FEED_PATTERN,
+                arguments = listOf(navArgument("handle") { type = NavType.StringType })
+            ) { entry ->
+                FeedScreen(
+                    handle = entry.arguments?.getString("handle").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) }
+                )
             }
             composable(Routes.DIAGNOSTICS) {
                 DiagnosticsScreen(onBack = { navController.popBackStack() })
