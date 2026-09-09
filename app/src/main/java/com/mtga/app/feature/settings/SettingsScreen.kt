@@ -1,0 +1,45 @@
+package com.mtga.app.feature.settings
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.mtga.app.BuildConfig
+
+@Composable
+fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.displaySmall,
+            modifier = Modifier.padding(24.dp)
+        )
+
+        ListItem(
+            headlineContent = { Text("Diagnostics") },
+            supportingContent = { Text("Instance health, last errors, connectivity report") },
+            leadingContent = { Icon(Icons.Outlined.MonitorHeart, contentDescription = null) },
+            modifier = Modifier.clickable(onClick = onOpenDiagnostics)
+        )
+
+        ListItem(
+            headlineContent = { Text("Version") },
+            supportingContent = { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
+            leadingContent = { Icon(Icons.Outlined.Info, contentDescription = null) }
+        )
+    }
+}
