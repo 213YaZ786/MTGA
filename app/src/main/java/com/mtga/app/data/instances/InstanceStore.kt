@@ -14,10 +14,14 @@ import java.io.File
 class InstanceStore(context: Context) {
 
     private val file = File(context.filesDir, "instances.json")
+    private val revisionFile = File(context.filesDir, "instances.revision")
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
     fun load(): List<NitterInstance> {
-        if (!file.exists()) return NitterInstance.defaults
+        if (!file.exists()) {
+            writeRevision()
+            return NitterInstance.defaults
+        }
         val stored = runCatching {
             json.decodeFromString<List<NitterInstance>>(file.readText())
         }.getOrElse { emptyList() }
@@ -34,11 +38,16 @@ class InstanceStore(context: Context) {
     private fun migrate(stored: List<NitterInstance>): List<NitterInstance> {
         val storedById = stored.associateBy { it.id }
 
+        // A pool revision resets the enabled state of built ins once, because
+        // the old choices were made against a pool that no longer works. Your
+        // custom instances and anything you change afterwards are untouched.
+        val resetting = readRevision() < NitterInstance.POOL_REVISION
+
         val builtIns = NitterInstance.defaults.map { fresh ->
             val previous = storedById[fresh.id]
             // Your enable and disable choices survive. Everything else, the
             // URL especially, comes from the new list.
-            if (previous != null) fresh.copy(enabled = previous.enabled) else fresh
+            if (previous != null && !resetting) fresh.copy(enabled = previous.enabled) else fresh
         }
 
         val custom = stored.filterNot { it.builtIn }
@@ -46,13 +55,23 @@ class InstanceStore(context: Context) {
 
         // Preserve the order you set for instances that are still around,
         // then append anything newly added.
-        val orderedIds = stored.map { it.id }
+        // On a reset, the new default order wins as well, so the one working
+        // instance is tried first instead of last.
+        val orderedIds = if (resetting) NitterInstance.defaults.map { it.id } else stored.map { it.id }
         val merged = (builtIns + custom).sortedBy { instance ->
             orderedIds.indexOf(instance.id).takeIf { it >= 0 } ?: Int.MAX_VALUE
         }
 
-        if (merged.map { it.id } != stored.map { it.id }) save(merged)
+        if (resetting || merged.map { it.id } != stored.map { it.id }) save(merged)
+        if (resetting) writeRevision()
         return merged
+    }
+
+    private fun readRevision(): Int =
+        runCatching { revisionFile.readText().trim().toInt() }.getOrDefault(0)
+
+    private fun writeRevision() {
+        runCatching { revisionFile.writeText(NitterInstance.POOL_REVISION.toString()) }
     }
 
     fun save(instances: List<NitterInstance>) {

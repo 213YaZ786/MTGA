@@ -9,6 +9,7 @@ import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.web.ChallengeGateway
 import com.mtga.app.data.instances.NitterInstance
 import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -149,6 +150,9 @@ class HtmlSource(
             )
             Outcome.Success(feed)
         } catch (t: Throwable) {
+            // Leaving the screen cancels the read. That is not a failure of
+            // the host and must not be logged or recorded as one.
+            if (t is CancellationException) throw t
             log.record(
                 kind = kind,
                 url = url,

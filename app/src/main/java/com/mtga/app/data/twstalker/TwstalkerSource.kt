@@ -21,6 +21,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -111,6 +112,9 @@ class TwstalkerSource(
             )
             Outcome.Success(feed)
         } catch (t: Throwable) {
+            // Leaving the screen cancels the read. That is not a failure of
+            // the host and must not be logged or recorded as one.
+            if (t is CancellationException) throw t
             log.record(
                 RequestLog.Kind.PROFILE, url, "transport failure",
                 durationMillis = (System.nanoTime() - startedAt) / 1_000_000,
@@ -196,6 +200,9 @@ class TwstalkerSource(
                     )
                 )
             } catch (t: Throwable) {
+            // Leaving the screen cancels the read. That is not a failure of
+            // the host and must not be logged or recorded as one.
+            if (t is CancellationException) throw t
                 log.record(
                     RequestLog.Kind.PAGE, url, "transport failure",
                     durationMillis = (System.nanoTime() - startedAt) / 1_000_000,

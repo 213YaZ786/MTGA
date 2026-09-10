@@ -62,7 +62,7 @@ class ChallengeGateway(
         val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
         val native = Page(status, body, retryAfter, Via.NATIVE)
 
-        val challenge = ChallengeDetector.detect(status, body) ?: return native
+        val challenge = ChallengeDetector.inspect(status, body) ?: return native
 
         val hadCookie = session.isCleared(host)
         if (hadCookie) session.markNativeRejected(host)
@@ -72,9 +72,10 @@ class ChallengeGateway(
             outcome = "bot check detected",
             httpStatus = status,
             bodyBytes = body.length,
-            detail = "${challenge.name}, " +
-                (if (hadCookie) "cookie was sent and refused, " else "") +
-                "trying the offscreen browser"
+            detail = "${challenge.kind.name} matched ${challenge.reason}" +
+                " | title: ${challenge.title ?: "none"}" +
+                (if (hadCookie) " | cookie was sent and refused" else "") +
+                " | trying the offscreen browser"
         )
         return viaWebView(url, host, kind, alreadyPaced = false) ?: native
     }
@@ -85,12 +86,12 @@ class ChallengeGateway(
         kind: RequestLog.Kind,
         alreadyPaced: Boolean
     ): Page? {
-        if (!session.mayAutoSolve(host)) {
+        session.autoSolveSkipReason(host)?.let { reason ->
             log.record(
                 kind = kind,
                 url = url,
                 outcome = "browser check skipped",
-                detail = "failed recently on $host, waiting for a manual check"
+                detail = "$reason, waiting for a manual check"
             )
             return null
         }

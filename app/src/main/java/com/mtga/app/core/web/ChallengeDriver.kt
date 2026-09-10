@@ -56,10 +56,10 @@ class ChallengeDriver(
         settings.setSupportMultipleWindows(false)
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.mediaPlaybackRequiresUserGesture = true
-        // Offscreen, nobody looks at pictures. Interactive checks may be
-        // image puzzles, so those keep them.
-        settings.blockNetworkImage = !task.interactive
-        settings.loadsImagesAutomatically = task.interactive
+        // Images stay on. Some checks load their own. Post media is refused
+        // in shouldInterceptRequest instead, which is where it can be told apart.
+        settings.blockNetworkImage = false
+        settings.loadsImagesAutomatically = true
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -150,6 +150,10 @@ class ChallengeDriver(
     private inner class Client : WebViewClient() {
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            // Frames must be free to load. The Cloudflare check widget lives in
+            // an iframe on its own domain, and blocking it was why 1.1.0 never
+            // got past a single check. Only the top page is kept on the host.
+            if (!request.isForMainFrame) return false
             val url: Uri = request.url
             val allowed = url.scheme == "https" && onTaskHost(url.host)
             return !allowed
@@ -160,8 +164,13 @@ class ChallengeDriver(
             request: WebResourceRequest
         ): WebResourceResponse? {
             val host = request.url.host.orEmpty()
+            val path = request.url.path.orEmpty()
             val tracker = BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }
-            return if (tracker) {
+            // Post media is never part of a check. Refusing it keeps a page
+            // read through the browser as light as the native read.
+            val media = MEDIA_HOSTS.any { host == it } ||
+                (onTaskHost(host) && MEDIA_PATHS.any { path.startsWith(it) })
+            return if (tracker || media) {
                 WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
             } else {
                 null
@@ -207,6 +216,9 @@ class ChallengeDriver(
 
         const val READ_DOCUMENT_JS =
             "document.documentElement ? document.documentElement.outerHTML : null"
+
+        val MEDIA_HOSTS = listOf("pbs.twimg.com", "video.twimg.com", "abs.twimg.com")
+        val MEDIA_PATHS = listOf("/pic/", "/video/")
 
         /** Answered with an empty body. Never needed to pass a check. */
         val BLOCKED_HOSTS = listOf(

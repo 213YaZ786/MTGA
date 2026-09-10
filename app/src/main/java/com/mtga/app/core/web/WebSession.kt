@@ -23,6 +23,9 @@ class WebSession {
 
     private val failedAt = ConcurrentHashMap<String, Long>()
 
+    @Volatile
+    private var anyFailureAt = 0L
+
     /**
      * The WebView's own User-Agent, captured the first time one is created.
      * Clearance cookies are commonly bound to the User-Agent that earned them,
@@ -48,6 +51,9 @@ class WebSession {
     fun markCleared(host: String) {
         cleared += host
         failedAt.remove(host)
+        // A check was passed, so the wall is passable. Other hosts deserve
+        // their own attempt again.
+        anyFailureAt = 0L
     }
 
     fun markNativeRejected(host: String) {
@@ -58,17 +64,29 @@ class WebSession {
     fun prefersWebView(host: String): Boolean = host in nativeRejected
 
     fun recordFailure(host: String) {
-        failedAt[host] = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        failedAt[host] = now
+        anyFailureAt = now
     }
 
     /**
-     * A host whose check could not be passed in the background is not retried
-     * automatically for a while. Otherwise every read would burn twenty seconds
-     * on the same wall. The user can still complete it by hand at any time.
+     * Returns why a background attempt should be skipped, or null to go ahead.
+     *
+     * A host that failed is left alone for ten minutes. And after any failure,
+     * the other hosts are left alone for two, because the pool sits behind one
+     * shared WAF product. Without this, 1.1.0 spent twenty seconds per server
+     * on the same wall, one after the other. The user can still complete a
+     * check by hand at any time.
      */
-    fun mayAutoSolve(host: String): Boolean {
-        val last = failedAt[host] ?: return true
-        return System.currentTimeMillis() - last > AUTO_RETRY_AFTER_MS
+    fun autoSolveSkipReason(host: String): String? {
+        val now = System.currentTimeMillis()
+        failedAt[host]?.let { last ->
+            if (now - last < HOST_RETRY_AFTER_MS) return "failed recently on $host"
+        }
+        if (now - anyFailureAt < POOL_RETRY_AFTER_MS) {
+            return "a check just failed on another server behind the same wall"
+        }
+        return null
     }
 
     private fun chromiumAcceptLanguage(): String {
@@ -93,6 +111,7 @@ class WebSession {
     }
 
     private companion object {
-        const val AUTO_RETRY_AFTER_MS = 10 * 60_000L
+        const val HOST_RETRY_AFTER_MS = 10 * 60_000L
+        const val POOL_RETRY_AFTER_MS = 2 * 60_000L
     }
 }

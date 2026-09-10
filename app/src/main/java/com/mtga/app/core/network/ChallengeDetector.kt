@@ -14,7 +14,12 @@ import com.mtga.app.core.common.ChallengeKind
  */
 object ChallengeDetector {
 
-    fun detect(status: Int, body: String): ChallengeKind? {
+    /** What was found and why, for the request log. */
+    data class Verdict(val kind: ChallengeKind, val reason: String, val title: String?)
+
+    fun detect(status: Int, body: String): ChallengeKind? = inspect(status, body)?.kind
+
+    fun inspect(status: Int, body: String): Verdict? {
         // A page carrying posts is content, whatever else it says. A tweet that
         // happens to quote "not a bot" must not trip the detector.
         if (CONTENT_MARKERS.any { it in body }) return null
@@ -24,15 +29,35 @@ object ChallengeDetector {
         // only the head is inspected, where a title or a script tag would sit.
         val scope = (if (small) body else body.take(HEAD_CHARS)).lowercase()
 
-        return when {
-            BLOCK_MARKERS.any { it in scope } -> ChallengeKind.WAF_BLOCK
-            POW_MARKERS.any { it in scope } -> ChallengeKind.PROOF_OF_WORK
-            JS_MARKERS.any { it in scope } -> ChallengeKind.JS_INTERSTITIAL
-            // The four 403 bodies seen in the field were within 200 bytes of
-            // each other, one WAF product. A small 403 is that wall.
-            status == 403 && small -> ChallengeKind.WAF_BLOCK
-            else -> null
+        val title = titleOf(body)
+        BLOCK_MARKERS.firstOrNull { it in scope }?.let {
+            return Verdict(ChallengeKind.WAF_BLOCK, "\"$it\"", title)
         }
+        POW_MARKERS.firstOrNull { it in scope }?.let {
+            return Verdict(ChallengeKind.PROOF_OF_WORK, "\"$it\"", title)
+        }
+        JS_MARKERS.firstOrNull { it in scope }?.let {
+            return Verdict(ChallengeKind.JS_INTERSTITIAL, "\"$it\"", title)
+        }
+        // The four 403 bodies seen in the field were within 200 bytes of each
+        // other, one WAF product. A small 403 with no marker is that wall.
+        if (status == 403 && small) {
+            return Verdict(ChallengeKind.WAF_BLOCK, "small 403, no marker", title)
+        }
+        return null
+    }
+
+    private fun titleOf(body: String): String? = runCatching { findTitle(body) }.getOrNull()
+
+    private fun findTitle(body: String): String? {
+        val lower = body.take(HEAD_CHARS * 2).lowercase()
+        val open = lower.indexOf("<title")
+        if (open < 0) return null
+        val start = lower.indexOf('>', open)
+        val end = lower.indexOf("</title>", start)
+        if (start < 0 || end < 0) return null
+        return body.substring(start + 1, end).replace(Regex("\\s+"), " ").trim().take(80)
+            .ifBlank { null }
     }
 
     private const val SMALL_PAGE_CHARS = 40_000

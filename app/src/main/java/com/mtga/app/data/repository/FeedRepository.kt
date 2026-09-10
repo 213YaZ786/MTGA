@@ -76,8 +76,10 @@ class FeedRepository(
     }
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
+        // A check is deliberately absent. The feed host of a checked instance
+        // is either behind the same check or gated, as rss.xcancel.com is, so
+        // trying it only spends a request against a fragile host.
         is AppError.ParseFailure,
-        is AppError.ChallengeRequired,
         is AppError.ClientRefused,
         is AppError.InstanceError,
         is AppError.Timeout -> true

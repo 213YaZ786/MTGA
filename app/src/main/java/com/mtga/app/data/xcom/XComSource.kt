@@ -12,6 +12,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.withContext
 
 /**
@@ -63,6 +64,9 @@ class XComSource(
             }
             text
         } catch (t: Throwable) {
+            // Leaving the screen cancels the read. That is not a failure of
+            // the host and must not be logged or recorded as one.
+            if (t is CancellationException) throw t
             log.record(
                 RequestLog.Kind.PROFILE, url, "transport failure",
                 durationMillis = (System.nanoTime() - startedAt) / 1_000_000,
