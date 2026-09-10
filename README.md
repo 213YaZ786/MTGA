@@ -15,9 +15,10 @@ automatic failover. No merged timeline or offline cache yet.
 | 2 | Instance pool, health probes, live Diagnostics | done |
 | 3 | RSS source, follow handles, single account feed | done |
 | 3.5 | HTML source promoted to primary, gated feed detection | done |
-| 4 | Room cache, merged timeline, Paging 3 | next |
+| 4 | Parser rewritten from Nitter templates, media, downloads | done |
+| 4.5 | Room cache, merged timeline, Paging 3 | next |
 | 5 | Profile header, deep pagination via cursor | |
-| 6 | Threads, quotes, media viewer with video | |
+| 6 | Full screen media viewer, video playback, threads | |
 | 7 | Notifications, local search, import and export | |
 
 ## Design decisions

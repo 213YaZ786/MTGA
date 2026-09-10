@@ -23,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import com.mtga.app.core.media.MediaDownloader
+import org.koin.compose.koinInject
 import androidx.compose.ui.unit.dp
 import com.mtga.app.ui.component.ErrorPanel
 import com.mtga.app.ui.component.PostCard
@@ -39,6 +41,7 @@ fun FeedScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val uriHandler = LocalUriHandler.current
+    val downloader: MediaDownloader = koinInject()
 
     LaunchedEffect(handle) { viewModel.load(handle) }
 
@@ -90,12 +93,11 @@ fun FeedScreen(
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 state.error?.let { error ->
                     item {
                         ErrorPanel(
+                            modifier = Modifier.padding(16.dp),
                             error = error,
                             onRetry = viewModel::refresh,
                             onOpenDiagnostics = onOpenDiagnostics
@@ -104,14 +106,19 @@ fun FeedScreen(
                 }
 
                 items(feed.posts, key = { it.id }) { post ->
-                    PostCard(post = post, onClick = { uriHandler.openUri(post.permalink) })
+                    PostCard(
+                        post = post,
+                        onClick = { uriHandler.openUri(post.permalink) },
+                        onOpenLink = { uriHandler.openUri(it) },
+                        onDownload = { downloader.download(it, post.authorHandle) }
+                    )
                 }
 
                 item {
                     Text(
-                        "Served by ${feed.fetchedFromHost}. RSS carries roughly the last " +
-                            "20 posts and no like or repost counts. Deeper history and stats " +
-                            "arrive with the HTML source in step 5.",
+                        modifier = Modifier.padding(16.dp),
+                        text = "Served by ${feed.fetchedFromHost}. This page holds the most " +
+                            "recent posts. Loading further back arrives with cursor paging.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

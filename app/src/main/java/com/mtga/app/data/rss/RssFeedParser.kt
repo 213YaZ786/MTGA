@@ -3,6 +3,8 @@ package com.mtga.app.data.rss
 import android.util.Xml
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.MediaItem
+import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.PostKind
 import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
@@ -118,7 +120,9 @@ class RssFeedParser {
             permalink = link,
             kind = kind,
             relatedHandle = related,
-            mediaUrls = extractImages(item.description.orEmpty(), host)
+            media = extractImages(item.description.orEmpty(), host).map {
+                MediaItem(previewUrl = it, downloadUrl = it, type = MediaType.PHOTO)
+            }
         )
     }
 

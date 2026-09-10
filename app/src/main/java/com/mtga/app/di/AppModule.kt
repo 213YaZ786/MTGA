@@ -1,5 +1,6 @@
 package com.mtga.app.di
 
+import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.data.instances.InstancePool
@@ -32,6 +33,7 @@ val appModule = module {
 
     single { HttpClientFactory.create() }
     single { ConnectivityMonitor(androidContext()) }
+    single { MediaDownloader(androidContext()) }
     single { InstanceStore(androidContext()) }
     single { HtmlTimelineParser() }
     single { InstanceProbe(get(), get(), get()) }

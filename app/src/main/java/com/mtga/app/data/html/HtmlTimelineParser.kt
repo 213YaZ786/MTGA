@@ -1,9 +1,13 @@
 package com.mtga.app.data.html
 
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.LinkCard
+import com.mtga.app.core.model.MediaItem
+import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
+import com.mtga.app.core.model.QuotedPost
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -12,95 +16,243 @@ import java.util.Locale
 /**
  * Parses a Nitter profile page into the domain model.
  *
- * Hand written rather than jsoup on purpose. Nitter's markup is small and
- * predictable, this needs no external artifact, and every helper here is
- * tolerant: a missing field yields null rather than throwing, so one markup
- * change costs a field instead of the whole page.
+ * Written against Nitter's own view templates rather than guessed from a
+ * rendered page, so the markers below are the real ones: timeline-item carries
+ * data-username, tweet text lives in a div classed "tweet-content media-body",
+ * stats sit inside icon-container after an icon span, photos expose their
+ * original through a still-image anchor, and videos ship a ready made
+ * video-download link.
  *
- * Bump SELECTOR_SET_VERSION whenever these expectations change. It travels in
- * ParseFailure so a user can tell us which parser generation broke.
+ * Every extractor returns null rather than throwing. One markup change should
+ * cost a field, not a page.
  */
 class HtmlTimelineParser {
 
     fun parse(html: String, handle: String, host: String): Feed? {
-        val chunks = html.split("timeline-item")
+        val chunks = html.split("class=\"timeline-item")
         if (chunks.size <= 1) return null
 
-        val posts = chunks.drop(1).mapNotNull { chunk -> parseItem(chunk, handle, host) }
-        if (posts.isEmpty()) return null
+        val parsed = chunks.drop(1).mapNotNull { chunk -> parseItem(chunk, handle, host) }
+        if (parsed.isEmpty()) return null
+
+        // Nitter serves the pinned post first regardless of age. Keep it first
+        // but label it, and order the rest newest first, because a feed sorted
+        // by whatever the server happened to emit reads as broken.
+        val ordered = parsed.filter { it.isPinned } +
+            parsed.filterNot { it.isPinned }.sortedByDescending { it.publishedAtMillis }
 
         return Feed(
             handle = handle,
             displayName = extractProfileName(html) ?: handle,
-            posts = posts,
+            posts = ordered,
             fetchedFromHost = host,
-            fetchedAtMillis = System.currentTimeMillis()
+            fetchedAtMillis = System.currentTimeMillis(),
+            avatarUrl = extractProfileAvatar(html, host),
+            bio = extractProfileBio(html),
+            nextCursor = extractCursor(html)
         )
     }
 
-    /** The cursor for the next page, when the page offers one. */
-    fun extractCursor(html: String): String? =
-        html.substringAfterKeyOrNull("show-more")
-            ?.substringAfterKeyOrNull("href=\"")
-            ?.substringBefore('"')
-            ?.substringAfter("cursor=", "")
-            ?.takeIf { it.isNotBlank() }
-            ?.let(::decodeEntities)
+    fun extractCursor(html: String): String? {
+        val showMoreAt = html.lastIndexOf("class=\"show-more\"").takeIf { it >= 0 } ?: return null
+        val hrefAt = html.indexOf("href=\"", showMoreAt).takeIf { it >= 0 } ?: return null
+        val end = html.indexOf('"', hrefAt + 6).takeIf { it >= 0 } ?: return null
+        return decodeEntities(html.substring(hrefAt + 6, end))
+            .substringAfter("cursor=", "")
+            .takeIf { it.isNotBlank() }
+    }
 
-    // ---- item ---------------------------------------------------------------
+    // ---- one item -----------------------------------------------------------
 
     private fun parseItem(chunk: String, feedHandle: String, host: String): Post? {
-        // Everything after the stats block belongs to the next item.
-        val body = chunk.substringBefore("</div>\n    </div>\n  </div>", chunk)
+        val permalinkPath = chunk.attributeNear("class=\"tweet-link\"", "href=\"", 200)
+            ?: chunk.attributeNear("class=\"tweet-date\"", "href=\"", 400)
+            ?: return null
 
-        val permalinkPath = body.attributeAfter("tweet-link", "href=\"") ?: return null
-        val text = body.between("tweet-content", ">", "</div>")
-            ?.let(::stripTags)
-            ?.let(::decodeEntities)
-            ?.trim()
-            .orEmpty()
+        // The quote block repeats tweet-name-row and tweet-date, so the main
+        // body is everything before it.
+        val quoteAt = chunk.indexOf("class=\"quote")
+        val body = if (quoteAt > 0) chunk.substring(0, quoteAt) else chunk
 
-        val author = body.attributeAfter("class=\"username\"", "title=\"")
-            ?.removePrefix("@")
+        val handle = chunk.attributeNear("data-username=\"", "", 0)
+            ?: body.attributeNear("class=\"username\"", "title=\"", 300)?.removePrefix("@")
             ?: feedHandle
 
-        val isRepost = "retweet-header" in chunk
-        val replyTo = body.between("replying-to", ">", "</div>")
-            ?.let(::stripTags)
+        val name = body.attributeNear("class=\"fullname\"", "title=\"", 300)
             ?.let(::decodeEntities)
+            ?: handle
+
+        val contentHtml = body.tagContent("class=\"tweet-content")
+        val text = contentHtml?.let(::htmlToText).orEmpty()
+
+        val isRepost = "class=\"retweet-header\"" in chunk
+        val replyTo = body.tagContent("class=\"replying-to\"")
+            ?.let(::htmlToText)
             ?.substringAfter('@', "")
+            ?.substringBefore(' ')
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-
-        val kind = when {
-            isRepost -> PostKind.REPOST
-            replyTo != null -> PostKind.REPLY
-            else -> PostKind.ORIGINAL
-        }
-
-        val absolute = "https://$host" + permalinkPath.ensureLeadingSlash()
 
         return Post(
             id = permalinkPath.substringBefore("#").trimEnd('/'),
-            authorHandle = author,
-            authorName = author,
+            authorHandle = handle,
+            authorName = name,
+            avatarUrl = body.attributeNear("class=\"tweet-avatar\"", "src=\"", 300)
+                ?.let { absolute(it, host) },
             text = text,
+            links = contentHtml?.let(::extractLinks).orEmpty(),
             publishedAtMillis = parseTimestamp(body),
-            permalink = absolute.substringBefore("#"),
-            kind = kind,
-            relatedHandle = replyTo ?: if (isRepost) feedHandle else null,
-            mediaUrls = extractMedia(body, host),
-            stats = extractStats(body)
+            permalink = absolute(permalinkPath.substringBefore("#"), host),
+            kind = when {
+                isRepost -> PostKind.REPOST
+                replyTo != null -> PostKind.REPLY
+                quoteAt > 0 -> PostKind.QUOTE
+                else -> PostKind.ORIGINAL
+            },
+            relatedHandle = replyTo ?: if (isRepost) retweeterOf(chunk) else null,
+            isPinned = "class=\"pinned\"" in chunk,
+            media = extractMedia(body, host),
+            quoted = if (quoteAt > 0) parseQuote(chunk.substring(quoteAt), host) else null,
+            card = parseCard(body, host),
+            stats = extractStats(chunk)
         )
     }
 
+    private fun retweeterOf(chunk: String): String? =
+        chunk.tagContent("class=\"retweet-header\"")
+            ?.let(::htmlToText)
+            ?.substringBefore(" retweeted")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    private fun parseQuote(quoteChunk: String, host: String): QuotedPost? {
+        val link = quoteChunk.attributeNear("class=\"quote-link\"", "href=\"", 200) ?: return null
+        return QuotedPost(
+            handle = quoteChunk.attributeNear("class=\"username\"", "title=\"", 400)
+                ?.removePrefix("@").orEmpty(),
+            name = quoteChunk.attributeNear("class=\"fullname\"", "title=\"", 400)
+                ?.let(::decodeEntities).orEmpty(),
+            text = quoteChunk.tagContent("class=\"quote-text\"")?.let(::htmlToText).orEmpty(),
+            permalink = absolute(link.substringBefore("#"), host)
+        )
+    }
+
+    private fun parseCard(body: String, host: String): LinkCard? {
+        if ("class=\"card" !in body) return null
+        val title = body.tagContent("class=\"card-title\"")?.let(::htmlToText)?.takeIf {
+            it.isNotBlank()
+        } ?: return null
+        return LinkCard(
+            title = title,
+            description = body.tagContent("class=\"card-description\"")?.let(::htmlToText),
+            destination = body.tagContent("class=\"card-destination\"")?.let(::htmlToText),
+            imageUrl = body.attributeNear("class=\"card-image\"", "src=\"", 300)
+                ?.let { absolute(it, host) },
+            url = body.attributeNear("class=\"card-container\"", "href=\"", 200)
+                ?.let(::decodeEntities)
+        )
+    }
+
+    // ---- media --------------------------------------------------------------
+
     /**
-     * The date anchor carries an absolute timestamp in its title, which is far
-     * better than the "2h" shown to the reader.
+     * Photos, videos and gifs each announce themselves differently. Nitter
+     * generously provides a download URL for video, which is the hard part.
      */
+    private fun extractMedia(body: String, host: String): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+
+        var cursor = 0
+        while (true) {
+            val at = body.indexOf("class=\"still-image\"", cursor).takeIf { it >= 0 } ?: break
+            val original = body.attributeBackwardsOrForward(at, "href=\"")
+            val preview = body.attributeNear(at, "src=\"", 400)
+            if (original != null || preview != null) {
+                val full = original ?: preview!!
+                items += MediaItem(
+                    previewUrl = absolute(preview ?: full, host),
+                    downloadUrl = absolute(full, host),
+                    type = MediaType.PHOTO
+                )
+            }
+            cursor = at + 20
+        }
+
+        cursor = 0
+        while (true) {
+            val at = body.indexOf("<video", cursor, ignoreCase = true).takeIf { it >= 0 } ?: break
+            val isGif = body.attributeNear(at, "class=\"", 60)?.contains("gif") == true
+            val poster = body.attributeNear(at, "poster=\"", 300)
+            val source = body.sourceAfter(at) ?: body.attributeNear(at, "data-url=\"", 300)
+            val download = body.attributeNear("class=\"video-download\"", "href=\"", 300)
+
+            if (poster != null || source != null) {
+                items += MediaItem(
+                    previewUrl = absolute(poster ?: source!!, host),
+                    downloadUrl = absolute(download ?: source ?: poster!!, host),
+                    type = if (isGif) MediaType.GIF else MediaType.VIDEO,
+                    durationLabel = body.tagContent("class=\"overlay-duration\"")?.let(::htmlToText)
+                )
+            }
+            cursor = at + 6
+        }
+
+        return items.distinctBy { it.downloadUrl }
+    }
+
+    private fun String.sourceAfter(from: Int): String? {
+        val at = indexOf("<source", from).takeIf { it >= 0 && it - from < 400 } ?: return null
+        return attributeNear(at, "src=\"", 200)
+    }
+
+    // ---- stats --------------------------------------------------------------
+
+    private fun extractStats(chunk: String): PostStats? {
+        val at = chunk.indexOf("class=\"tweet-stats\"").takeIf { it >= 0 } ?: return null
+        val block = chunk.substring(at, minOf(at + 1_500, chunk.length))
+        val stats = PostStats(
+            replies = block.statAfter("icon-comment"),
+            reposts = block.statAfter("icon-retweet"),
+            likes = block.statAfter("icon-heart"),
+            views = block.statAfter("icon-views")
+        )
+        return stats.takeIf {
+            it.replies != null || it.reposts != null || it.likes != null || it.views != null
+        }
+    }
+
+    /**
+     * The count is the text node right after the icon span closes, and Nitter
+     * emits an empty string for zero.
+     */
+    private fun String.statAfter(iconClass: String): Int? {
+        val at = indexOf(iconClass).takeIf { it >= 0 } ?: return null
+        val spanEnd = indexOf("</span>", at).takeIf { it >= 0 } ?: return null
+        val stop = indexOf('<', spanEnd + 7).takeIf { it >= 0 } ?: return null
+        return substring(spanEnd + 7, stop).replace(",", "").trim().toIntOrNull()
+    }
+
+    // ---- profile ------------------------------------------------------------
+
+    private fun extractProfileName(html: String): String? =
+        html.attributeNear("class=\"profile-card-fullname\"", "title=\"", 300)
+            ?.let(::decodeEntities)
+            ?: html.tagContent("class=\"profile-card-fullname\"")?.let(::htmlToText)
+
+    private fun extractProfileAvatar(html: String, host: String): String? =
+        html.attributeNear("class=\"profile-card-avatar\"", "src=\"", 300)?.let { absolute(it, host) }
+
+    private fun extractProfileBio(html: String): String? =
+        html.tagContent("class=\"profile-bio\"")?.let(::htmlToText)?.takeIf { it.isNotBlank() }
+
+    // ---- time ---------------------------------------------------------------
+
     private fun parseTimestamp(body: String): Long {
-        val raw = body.attributeAfter("tweet-date", "title=\"") ?: return 0L
-        val cleaned = decodeEntities(raw).replace("·", "").replace(Regex("\\s+"), " ").trim()
+        val raw = body.attributeNear("class=\"tweet-date\"", "title=\"", 300) ?: return 0L
+        val cleaned = decodeEntities(raw)
+            .replace("·", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
         for (pattern in TIMESTAMP_PATTERNS) {
             val parsed = runCatching {
                 LocalDateTime.parse(cleaned, DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH))
@@ -112,91 +264,99 @@ class HtmlTimelineParser {
         return 0L
     }
 
-    private fun extractStats(body: String): PostStats? {
-        val block = body.substringAfterKeyOrNull("tweet-stats") ?: return null
-        val stats = PostStats(
-            replies = block.statAfter("icon-comment"),
-            reposts = block.statAfter("icon-retweet"),
-            likes = block.statAfter("icon-heart")
-        )
-        return if (stats.replies == null && stats.reposts == null && stats.likes == null) {
-            null
-        } else {
-            stats
+    // ---- html helpers -------------------------------------------------------
+
+    /**
+     * Content of the element whose opening tag contains [marker], balancing
+     * nested divs so a quote or a card inside the body does not truncate it.
+     */
+    private fun String.tagContent(marker: String): String? {
+        val markerAt = indexOf(marker).takeIf { it >= 0 } ?: return null
+        val open = indexOf('>', markerAt).takeIf { it >= 0 } ?: return null
+        var depth = 1
+        var cursor = open + 1
+        while (cursor < length && depth > 0) {
+            val nextOpen = indexOf("<div", cursor)
+            val nextClose = indexOf("</div", cursor)
+            if (nextClose < 0) return substring(open + 1)
+            if (nextOpen in 0 until nextClose) {
+                depth++
+                cursor = nextOpen + 4
+            } else {
+                depth--
+                if (depth == 0) return substring(open + 1, nextClose)
+                cursor = nextClose + 5
+            }
         }
+        return substring(open + 1)
     }
 
-    /** Counts sit as bare text just after the icon span, sometimes with separators. */
-    private fun String.statAfter(iconClass: String): Int? {
-        val at = indexOf(iconClass).takeIf { it >= 0 } ?: return null
-        val window = substring(at, minOf(at + 200, length))
-        val digits = stripTags(window).filter { it.isDigit() || it == ',' }.replace(",", "")
-        return digits.takeIf { it.isNotBlank() }?.toIntOrNull()
+    private fun String.attributeNear(marker: String, attribute: String, window: Int): String? {
+        val markerAt = indexOf(marker).takeIf { it >= 0 } ?: return null
+        if (attribute.isEmpty()) {
+            val start = markerAt + marker.length
+            val end = indexOf('"', start).takeIf { it >= 0 } ?: return null
+            return substring(start, end)
+        }
+        return attributeNear(markerAt, attribute, window)
     }
 
-    private fun extractMedia(body: String, host: String): List<String> {
+    private fun String.attributeNear(from: Int, attribute: String, window: Int): String? {
+        val attrAt = indexOf(attribute, from).takeIf { it >= 0 } ?: return null
+        if (attrAt - from > window) return null
+        val start = attrAt + attribute.length
+        val end = indexOf('"', start).takeIf { it >= 0 } ?: return null
+        return decodeEntities(substring(start, end))
+    }
+
+    /** still-image puts href before the img, so look back a little then ahead. */
+    private fun String.attributeBackwardsOrForward(at: Int, attribute: String): String? {
+        val from = maxOf(0, at - 200)
+        val slice = substring(from, minOf(length, at + 300))
+        val attrAt = slice.indexOf(attribute).takeIf { it >= 0 } ?: return null
+        val start = attrAt + attribute.length
+        val end = slice.indexOf('"', start).takeIf { it >= 0 } ?: return null
+        return decodeEntities(slice.substring(start, end))
+    }
+
+    private fun extractLinks(html: String): List<String> {
         val results = mutableListOf<String>()
         var cursor = 0
         while (true) {
-            val at = body.indexOf("<img", cursor, ignoreCase = true)
-            if (at < 0) break
-            val srcAt = body.indexOf("src=\"", at)
-            if (srcAt < 0) break
-            val end = body.indexOf('"', srcAt + 5)
-            if (end < 0) break
-            val raw = decodeEntities(body.substring(srcAt + 5, end))
-            // Avatars are chrome, not content.
-            if ("profile_images" !in raw && "avatar" !in raw) {
-                results += if (raw.startsWith("http")) raw else "https://$host${raw.ensureLeadingSlash()}"
-            }
+            val at = html.indexOf("href=\"", cursor).takeIf { it >= 0 } ?: break
+            val end = html.indexOf('"', at + 6).takeIf { it >= 0 } ?: break
+            val href = decodeEntities(html.substring(at + 6, end))
+            if (href.startsWith("http")) results += href
             cursor = end
         }
         return results.distinct()
     }
 
-    private fun extractProfileName(html: String): String? =
-        html.between("profile-card-fullname", ">", "</a>")
-            ?.let(::stripTags)
-            ?.let(::decodeEntities)
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-
-    // ---- tolerant string helpers -------------------------------------------
-
-    private fun String.substringAfterKeyOrNull(key: String): String? {
-        val at = indexOf(key)
-        return if (at < 0) null else substring(at + key.length)
-    }
-
-    /** Value of an attribute appearing shortly after a marker. */
-    private fun String.attributeAfter(marker: String, attribute: String): String? {
-        val markerAt = indexOf(marker).takeIf { it >= 0 } ?: return null
-        val attrAt = indexOf(attribute, markerAt).takeIf { it >= 0 } ?: return null
-        // Guard against matching an attribute belonging to a far away element.
-        if (attrAt - markerAt > 400) return null
-        val start = attrAt + attribute.length
-        val end = indexOf('"', start).takeIf { it >= 0 } ?: return null
-        return substring(start, end)
-    }
-
-    private fun String.between(marker: String, open: String, close: String): String? {
-        val markerAt = indexOf(marker).takeIf { it >= 0 } ?: return null
-        val openAt = indexOf(open, markerAt).takeIf { it >= 0 } ?: return null
-        val closeAt = indexOf(close, openAt).takeIf { it >= 0 } ?: return null
-        return substring(openAt + open.length, closeAt)
-    }
-
-    private fun stripTags(input: String): String {
-        val out = StringBuilder(input.length)
+    /** Tag stripper that preserves the line structure Nitter expresses as br and p. */
+    private fun htmlToText(html: String): String {
+        val out = StringBuilder(html.length)
+        var index = 0
         var inTag = false
-        for (c in input) {
+        while (index < html.length) {
+            val c = html[index]
             when {
-                c == '<' -> inTag = true
+                c == '<' -> {
+                    val lower = html.substring(index, minOf(index + 4, html.length)).lowercase()
+                    if (lower.startsWith("<br") || lower.startsWith("<p") || lower.startsWith("</p")) {
+                        out.append('\n')
+                    }
+                    inTag = true
+                }
                 c == '>' -> inTag = false
                 !inTag -> out.append(c)
             }
+            index++
         }
-        return out.toString()
+        return decodeEntities(out.toString())
+            .lines()
+            .joinToString("\n") { it.trim() }
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
     }
 
     private fun decodeEntities(input: String): String = input
@@ -208,16 +368,21 @@ class HtmlTimelineParser {
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
 
-    private fun String.ensureLeadingSlash(): String = if (startsWith("/")) this else "/$this"
+    private fun absolute(raw: String, host: String): String = when {
+        raw.startsWith("http") -> raw
+        raw.startsWith("/") -> "https://$host$raw"
+        else -> "https://$host/$raw"
+    }
 
     companion object {
-        const val SELECTOR_SET_VERSION = 2
+        const val SELECTOR_SET_VERSION = 3
 
         private val TIMESTAMP_PATTERNS = listOf(
             "MMM d, yyyy h:mm a zzz",
             "MMM d, yyyy h:mm a",
             "d MMM yyyy h:mm a zzz",
-            "MMM d, yyyy HH:mm zzz"
+            "MMM d, yyyy HH:mm zzz",
+            "MMM d, yyyy HH:mm"
         )
     }
 }
