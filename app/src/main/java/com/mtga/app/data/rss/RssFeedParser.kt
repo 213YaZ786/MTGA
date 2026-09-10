@@ -3,6 +3,7 @@ package com.mtga.app.data.rss
 import android.util.Xml
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.PostId
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.PostKind
@@ -111,7 +112,7 @@ class RssFeedParser {
             ?: title.substringAfter(':', title).trim()
 
         return Post(
-            id = (item.guid ?: link).substringBefore("#"),
+            id = PostId.normalize(item.guid ?: link),
             authorHandle = item.creator?.removePrefix("@")?.trim().orEmpty()
                 .ifBlank { feedHandle },
             authorName = feedHandle,

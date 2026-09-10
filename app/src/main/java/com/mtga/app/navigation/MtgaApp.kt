@@ -77,7 +77,11 @@ fun MtgaApp() {
                     onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) }
                 )
             }
-            composable(TopDestination.SEARCH.route) { SearchScreen() }
+            composable(TopDestination.SEARCH.route) {
+                SearchScreen(
+                    onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) }
+                )
+            }
             composable(TopDestination.SETTINGS.route) {
                 SettingsScreen(
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },

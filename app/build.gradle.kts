@@ -13,8 +13,8 @@ android {
         applicationId = "com.mtga.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.1.2"
+        versionCode = 20
+        versionName = "1.1.5"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -80,6 +80,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
 
     implementation(platform(libs.androidx.compose.bom))
@@ -99,6 +100,9 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)

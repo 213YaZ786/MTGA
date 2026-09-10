@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +35,10 @@ import org.koin.compose.koinInject
 import androidx.compose.ui.unit.dp
 import com.mtga.app.ui.component.ErrorPanel
 import com.mtga.app.ui.component.PostCard
+import com.mtga.app.core.model.Post
+import com.mtga.app.feature.media.MediaViewer
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
 
@@ -45,8 +51,20 @@ fun FeedScreen(
     viewModel: FeedViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val followed by viewModel.followed.collectAsState()
+    val isFollowing = followed.any { it.handle.equals(handle, ignoreCase = true) }
     val uriHandler = LocalUriHandler.current
     val downloader: MediaDownloader = koinInject()
+    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
+
+    viewing?.let { (post, index) ->
+        MediaViewer(
+            media = post.media,
+            startIndex = index,
+            onDownload = { downloader.download(it, post.authorHandle) },
+            onDismiss = { viewing = null }
+        )
+    }
 
     LaunchedEffect(handle) { viewModel.load(handle) }
 
@@ -62,6 +80,11 @@ fun FeedScreen(
                     }
                 },
                 actions = {
+                    if (isFollowing) {
+                        OutlinedButton(onClick = viewModel::toggleFollow) { Text("Following") }
+                    } else {
+                        FilledTonalButton(onClick = viewModel::toggleFollow) { Text("Follow") }
+                    }
                     IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                         if (state.loading) {
                             CircularProgressIndicator(
@@ -130,7 +153,8 @@ fun FeedScreen(
                         post = post,
                         onClick = { uriHandler.openUri(post.permalink) },
                         onOpenLink = { uriHandler.openUri(it) },
-                        onDownload = { downloader.download(it, post.authorHandle) }
+                        onDownload = { downloader.download(it, post.authorHandle) },
+                        onOpenMedia = { index -> viewing = post to index }
                     )
                 }
 

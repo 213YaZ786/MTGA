@@ -5,6 +5,7 @@ import com.mtga.app.core.model.LinkCard
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.PostId
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
@@ -94,7 +95,7 @@ class HtmlTimelineParser {
             ?.takeIf { it.isNotBlank() }
 
         return Post(
-            id = permalinkPath.substringBefore("#").trimEnd('/'),
+            id = PostId.normalize(permalinkPath),
             authorHandle = handle,
             authorName = name,
             avatarUrl = body.attributeNear("class=\"tweet-avatar\"", "src=\"", 300)

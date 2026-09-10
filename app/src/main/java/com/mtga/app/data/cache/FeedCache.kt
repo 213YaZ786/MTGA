@@ -2,6 +2,7 @@ package com.mtga.app.data.cache
 
 import android.content.Context
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.PostId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -27,7 +28,7 @@ class FeedCache(context: Context) {
     suspend fun read(handle: String): Feed? = withContext(Dispatchers.IO) {
         val file = fileFor(handle)
         if (!file.exists()) return@withContext null
-        runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull()
+        runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull()?.let(::canonical)
     }
 
     suspend fun write(feed: Feed) = withContext(Dispatchers.IO) {
@@ -43,25 +44,26 @@ class FeedCache(context: Context) {
      * boundary and a repeated post breaks LazyColumn's key contract.
      */
     suspend fun append(page: Feed, isPagedFetch: Boolean = false): Feed = withContext(Dispatchers.IO) {
-        val existing = read(page.handle)
+        val incoming = canonical(page)
+        val existing = read(incoming.handle)
         if (existing == null) {
-            write(page)
-            return@withContext page
+            write(incoming)
+            return@withContext incoming
         }
 
         val known = existing.posts.map { it.id }.toSet()
-        val newPosts = page.posts.filterNot { it.id in known }
+        val newPosts = incoming.posts.filterNot { it.id in known }
 
         // A paged fetch that brings back nothing new means the cursor did not
         // advance. Continuing would loop forever on the same page, so stop
         // offering to load more rather than spinning against the instance.
         val exhausted = isPagedFetch && newPosts.isEmpty()
 
-        val combined = page.copy(
+        val combined = incoming.copy(
             posts = (existing.posts + newPosts).sortedByDescending { it.publishedAtMillis },
-            displayName = page.displayName.ifBlank { existing.displayName },
-            avatarUrl = page.avatarUrl ?: existing.avatarUrl,
-            nextCursor = if (exhausted) null else page.nextCursor ?: existing.nextCursor
+            displayName = incoming.displayName.ifBlank { existing.displayName },
+            avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
+            nextCursor = if (exhausted) null else incoming.nextCursor ?: existing.nextCursor
         )
         write(combined)
         combined
@@ -79,6 +81,18 @@ class FeedCache(context: Context) {
 
     suspend fun sizeBytes(): Long = withContext(Dispatchers.IO) {
         directory.listFiles()?.sumOf { it.length() } ?: 0L
+    }
+
+    /**
+     * Rewrites ids to their canonical form and drops duplicates. Also repairs
+     * caches written before 1.1.3, where the same post could be stored twice
+     * under two id formats. The cleaned version is persisted on the next write.
+     */
+    private fun canonical(feed: Feed): Feed {
+        val posts = feed.posts
+            .map { post -> PostId.normalize(post.id).let { if (it == post.id) post else post.copy(id = it) } }
+            .distinctBy { it.id }
+        return if (posts == feed.posts) feed else feed.copy(posts = posts)
     }
 
     /** Caps what a single account can occupy, so the cache cannot grow without bound. */

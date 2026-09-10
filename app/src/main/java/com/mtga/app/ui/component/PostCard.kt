@@ -46,6 +46,7 @@ fun PostCard(
     onClick: () -> Unit,
     onOpenLink: (String) -> Unit,
     onDownload: (MediaItem) -> Unit,
+    onOpenMedia: (index: Int) -> Unit = {},
     showStats: Boolean = true,
     modifier: Modifier = Modifier
 ) {
@@ -73,7 +74,7 @@ fun PostCard(
                     }
 
                     if (post.media.isNotEmpty()) {
-                        MediaBlock(post = post, onDownload = onDownload)
+                        MediaBlock(post = post, onDownload = onDownload, onOpen = onOpenMedia)
                     }
 
                     post.quoted?.let { quote ->
@@ -166,14 +167,15 @@ private fun ContextLine(text: String) {
 }
 
 @Composable
-private fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit) {
+private fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        post.media.forEach { item ->
+        post.media.forEachIndexed { index, item ->
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { onOpen(index) }
             ) {
                 AsyncImage(
                     model = item.previewUrl,

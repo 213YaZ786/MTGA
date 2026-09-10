@@ -6,6 +6,7 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.common.valueOrNull
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.FollowedAccount
 import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.cache.FeedCache
@@ -35,6 +36,25 @@ class FeedViewModel(
 
     private val _state = MutableStateFlow(FeedUiState())
     val state: StateFlow<FeedUiState> = _state.asStateFlow()
+
+    /** Followed accounts, so the screen can show Follow or Following. */
+    val followed: StateFlow<List<FollowedAccount>> = accounts.accounts
+
+    /**
+     * Follows or unfollows the account on screen. A feed can now be opened
+     * from Search without following it, so this is where following happens.
+     */
+    fun toggleFollow() {
+        val handle = _state.value.handle
+        if (handle.isBlank()) return
+        if (accounts.accounts.value.any { it.handle.equals(handle, ignoreCase = true) }) {
+            accounts.remove(handle)
+        } else if (accounts.add(handle)) {
+            _state.value.feed?.displayName
+                ?.takeIf { it.isNotBlank() && it != handle }
+                ?.let { accounts.updateDisplayName(handle, it) }
+        }
+    }
 
     fun load(handle: String) {
         if (_state.value.handle == handle && _state.value.feed != null) return

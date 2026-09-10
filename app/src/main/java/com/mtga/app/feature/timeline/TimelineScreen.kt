@@ -32,6 +32,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.ui.component.PostCard
+import com.mtga.app.core.model.Post
+import com.mtga.app.feature.media.MediaViewer
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -46,6 +50,16 @@ fun TimelineScreen(
     val state by viewModel.state.collectAsState()
     val uriHandler = LocalUriHandler.current
     val downloader: MediaDownloader = koinInject()
+    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
+
+    viewing?.let { (post, index) ->
+        MediaViewer(
+            media = post.media,
+            startIndex = index,
+            onDownload = { downloader.download(it, post.authorHandle) },
+            onDismiss = { viewing = null }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -122,7 +136,8 @@ fun TimelineScreen(
                         post = post,
                         onClick = { uriHandler.openUri(post.permalink) },
                         onOpenLink = { uriHandler.openUri(it) },
-                        onDownload = { downloader.download(it, post.authorHandle) }
+                        onDownload = { downloader.download(it, post.authorHandle) },
+                        onOpenMedia = { index -> viewing = post to index }
                     )
                 }
 
