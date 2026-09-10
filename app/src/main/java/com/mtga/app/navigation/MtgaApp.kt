@@ -66,7 +66,10 @@ fun MtgaApp() {
             modifier = Modifier.fillMaxSize().padding(innerPadding)
         ) {
             composable(TopDestination.TIMELINE.route) {
-                TimelineScreen(onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) })
+                TimelineScreen(
+                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                    onOpenAccounts = { navController.navigate(TopDestination.ACCOUNTS.route) }
+                )
             }
             composable(TopDestination.ACCOUNTS.route) {
                 AccountsScreen(

@@ -6,15 +6,18 @@ import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
 import com.mtga.app.data.accounts.AccountStore
+import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.html.HtmlTimelineParser
 import com.mtga.app.data.instances.InstanceStore
 import com.mtga.app.data.repository.FeedRepository
+import com.mtga.app.data.repository.TimelineRepository
 import com.mtga.app.data.rss.RssFeedParser
 import com.mtga.app.data.rss.RssSource
 import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
 import com.mtga.app.feature.feed.FeedViewModel
+import com.mtga.app.feature.timeline.TimelineViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,8 +55,11 @@ val appModule = module {
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get()) }
     single { FeedRepository(get(), get(), get()) }
+    single { FeedCache(androidContext()) }
+    single { TimelineRepository(get(), get(), get()) }
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get()) }
     viewModel { FeedViewModel(get(), get()) }
+    viewModel { TimelineViewModel(get(), get()) }
 }

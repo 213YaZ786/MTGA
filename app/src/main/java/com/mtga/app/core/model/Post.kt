@@ -1,5 +1,7 @@
 package com.mtga.app.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * One post, normalised.
  *
@@ -8,6 +10,7 @@ package com.mtga.app.core.model
  * than being faked, so the UI can hide what it does not have instead of showing
  * a plausible lie.
  */
+@Serializable
 data class Post(
     val id: String,
     val authorHandle: String,
@@ -26,8 +29,10 @@ data class Post(
     val stats: PostStats? = null
 )
 
+@Serializable
 enum class PostKind { ORIGINAL, REPOST, REPLY, QUOTE }
 
+@Serializable
 enum class MediaType { PHOTO, VIDEO, GIF }
 
 /**
@@ -35,6 +40,7 @@ enum class MediaType { PHOTO, VIDEO, GIF }
  * original. Nitter serves both, and conflating them means either a blurry
  * gallery or a very slow timeline.
  */
+@Serializable
 data class MediaItem(
     val previewUrl: String,
     val downloadUrl: String,
@@ -42,6 +48,7 @@ data class MediaItem(
     val durationLabel: String? = null
 )
 
+@Serializable
 data class QuotedPost(
     val handle: String,
     val name: String,
@@ -49,6 +56,7 @@ data class QuotedPost(
     val permalink: String
 )
 
+@Serializable
 data class LinkCard(
     val title: String,
     val description: String?,
@@ -57,6 +65,7 @@ data class LinkCard(
     val url: String?
 )
 
+@Serializable
 data class PostStats(
     val replies: Int? = null,
     val reposts: Int? = null,
@@ -65,6 +74,7 @@ data class PostStats(
 )
 
 /** A single account's feed as fetched from one instance. */
+@Serializable
 data class Feed(
     val handle: String,
     val displayName: String,
