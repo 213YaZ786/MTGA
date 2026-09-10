@@ -1,5 +1,6 @@
 package com.mtga.app.data.html
 
+import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.LinkCard
 import com.mtga.app.core.model.MediaItem
@@ -53,6 +54,49 @@ class HtmlTimelineParser {
             nextCursor = extractCursor(html)
         )
     }
+
+    /**
+     * Parses a post's own page: the posts it answers, the post, the author's
+     * thread under it, then the replies. Section markers come from Nitter's
+     * status.nim: "main-thread" holds "before-tweet", "main-tweet" and
+     * "after-tweet", then "replies" holds one "reply thread" per chain, and
+     * "related-tweets" (ignored here) may follow.
+     */
+    fun parseConversation(html: String, host: String): Conversation? {
+        val mainAt = html.indexOf("class=\"main-tweet\"").takeIf { it >= 0 } ?: return null
+        val repliesAt = html.indexOf("class=\"replies\"").takeIf { it >= 0 }
+        val relatedAt = html.indexOf("class=\"related-tweets\"").takeIf { it >= 0 }
+        val threadEnd = listOfNotNull(repliesAt, relatedAt).minOrNull() ?: html.length
+
+        val before = itemsIn(html.substring(0, mainAt), host)
+        val fromMain = itemsIn(html.substring(mainAt, threadEnd), host)
+        val main = fromMain.firstOrNull()
+
+        val replies = if (repliesAt == null) {
+            emptyList()
+        } else {
+            html.substring(repliesAt, relatedAt?.takeIf { it > repliesAt } ?: html.length)
+                .split("class=\"reply thread")
+                .drop(1)
+                .map { itemsIn(it, host) }
+                .filter { it.isNotEmpty() }
+        }
+
+        if (main == null && before.isEmpty() && replies.isEmpty()) return null
+        return Conversation(
+            ancestors = before,
+            main = main,
+            continuation = fromMain.drop(1),
+            replies = replies,
+            host = host
+        )
+    }
+
+    private fun itemsIn(section: String, host: String): List<Post> =
+        section.split("class=\"timeline-item").drop(1).mapNotNull { chunk ->
+            val author = chunk.substringAfter("data-username=\"", "").substringBefore('"')
+            parseItem(chunk, author, host)
+        }
 
     fun extractCursor(html: String): String? {
         val showMoreAt = html.lastIndexOf("class=\"show-more\"").takeIf { it >= 0 } ?: return null

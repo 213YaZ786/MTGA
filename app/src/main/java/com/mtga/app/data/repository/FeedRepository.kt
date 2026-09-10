@@ -2,6 +2,7 @@ package com.mtga.app.data.repository
 
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
+import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.instances.InstancePool
@@ -35,6 +36,10 @@ class FeedRepository(
      */
     suspend fun loadHead(handle: String): Outcome<Feed>? =
         if (settings.current.useXcomDirect) xcom.fetchLatest(handle) else null
+
+    /** A post's conversation, from whichever Nitter server is healthy. Never cached. */
+    suspend fun loadConversation(handle: String, id: String): Outcome<Conversation> =
+        pool.withInstance { instance -> html.fetchConversation(instance, handle, id) }
 
     suspend fun loadFeed(handle: String, cursor: String? = null): Outcome<Feed> {
         // A twstalker cursor can only be continued by twstalker. Cursors are not

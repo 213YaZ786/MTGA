@@ -3,6 +3,7 @@ package com.mtga.app.data.html
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.debug.RequestLog
+import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HostThrottle
@@ -157,6 +158,85 @@ class HtmlSource(
                 kind = kind,
                 url = url,
                 outcome = "transport failure",
+                durationMillis = (System.nanoTime() - startedAt) / 1_000_000,
+                detail = "${t::class.java.simpleName}: ${t.message}"
+            )
+            Outcome.Failure(ErrorMapper.fromThrowable(instance.host, t))
+        }
+    }
+
+    /**
+     * Reads a post's own page for its conversation. Same path as a profile:
+     * throttled, through the bot check gateway, and fully logged.
+     */
+    suspend fun fetchConversation(
+        instance: NitterInstance,
+        handle: String,
+        id: String
+    ): Outcome<Conversation> = withContext(Dispatchers.IO) {
+        val url = "${instance.profileUrlFor(handle)}/status/$id"
+        val kind = RequestLog.Kind.THREAD
+        val startedAt = System.nanoTime()
+
+        if (!throttle.acquire(instance.host)) {
+            val remaining = throttle.cooldownRemainingMs(instance.host) / 1_000
+            log.record(kind = kind, url = url, outcome = "skipped, cooling down", detail = "${remaining}s left on this host")
+            return@withContext Outcome.Failure(AppError.RateLimited(instance.host, remaining))
+        }
+
+        try {
+            val page = gateway.getPage(
+                url = url,
+                host = instance.host,
+                kind = kind,
+                requestHeaders = mapOf(
+                    "User-Agent" to BROWSER_USER_AGENT,
+                    "Accept" to "text/html,application/xhtml+xml"
+                )
+            )
+            val body = page.body
+            val elapsed = (System.nanoTime() - startedAt) / 1_000_000
+
+            if (error429(page.status)) throttle.penalise(instance.host, page.retryAfterSeconds) else throttle.clear(instance.host)
+
+            ErrorMapper.fromStatus(
+                host = instance.host,
+                url = url,
+                code = page.status,
+                retryAfterSeconds = page.retryAfterSeconds,
+                bodyHint = body,
+                handle = handle
+            )?.let { error ->
+                log.record(
+                    kind = kind, url = url, outcome = "HTTP error", httpStatus = page.status,
+                    bodyBytes = body.length, durationMillis = elapsed,
+                    detail = error::class.java.simpleName + " via " + page.via.name
+                )
+                return@withContext Outcome.Failure(error)
+            }
+
+            val conversation = parser.parseConversation(body, instance.host)
+            if (conversation == null) {
+                log.record(
+                    kind = kind, url = url, outcome = "parse found no conversation", httpStatus = page.status,
+                    bodyBytes = body.length, durationMillis = elapsed, detail = "page text: " + plainSummary(body)
+                )
+                return@withContext Outcome.Failure(
+                    AppError.ParseFailure(instance.host, HtmlTimelineParser.SELECTOR_SET_VERSION, plainSummary(body))
+                )
+            }
+
+            log.record(
+                kind = kind, url = url, outcome = "ok", httpStatus = page.status,
+                bodyBytes = body.length, durationMillis = elapsed,
+                detail = "before: ${conversation.ancestors.size} | thread: ${conversation.continuation.size}" +
+                    " | reply chains: ${conversation.replies.size} | via ${page.via.name}"
+            )
+            Outcome.Success(conversation)
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            log.record(
+                kind = kind, url = url, outcome = "transport failure",
                 durationMillis = (System.nanoTime() - startedAt) / 1_000_000,
                 detail = "${t::class.java.simpleName}: ${t.message}"
             )

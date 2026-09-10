@@ -85,3 +85,19 @@ data class Feed(
     val bio: String? = null,
     val nextCursor: String? = null
 )
+
+/**
+ * A post with its surroundings, as read from its own page. Not cached: replies
+ * change constantly and are only worth reading fresh.
+ *
+ * [ancestors] are the posts it answers, oldest first. [continuation] is the
+ * author's own thread under it. [replies] are grouped in the small chains the
+ * server shows, a reply followed by the answers to it.
+ */
+data class Conversation(
+    val ancestors: List<Post>,
+    val main: Post?,
+    val continuation: List<Post>,
+    val replies: List<List<Post>>,
+    val host: String
+)

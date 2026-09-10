@@ -59,7 +59,7 @@ fun DiagnosticsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Diagnostics") },
+                title = { Text("Connection check") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
@@ -105,7 +105,7 @@ fun DiagnosticsScreen(
                     TextButton(onClick = {
                         clipboard.setText(AnnotatedString(viewModel.report()))
                     }) { Text("Copy report") }
-                    TextButton(onClick = viewModel::restoreDefaults) { Text("Restore defaults") }
+                    TextButton(onClick = viewModel::restoreDefaults) { Text("Reset list") }
                 }
             }
 
@@ -137,13 +137,13 @@ fun DiagnosticsScreen(
 private fun OverallBanner(state: DiagnosticsUiState) {
     val (headline, detail) = when {
         state.probing && state.rows.none { it.health?.lastCheckedAt != null } ->
-            "Checking instances" to "Timing a feed request against each one."
+            "Checking servers" to "Measuring how each server responds."
         state.anyHealthy ->
-            "At least one instance is serving feeds" to "MTGA will use the fastest healthy one first."
+            "Reading works" to "MTGA uses the fastest working server first."
         state.allChecked ->
-            "No instance is reachable" to "Every enabled instance failed its last check. Details below."
+            "No server is reachable" to "Every server failed its last check. Details below."
         else ->
-            "Not checked yet" to "Pull the refresh button to time each instance."
+            "Not checked yet" to "Tap refresh to check each server."
     }
 
     Card(
@@ -209,7 +209,7 @@ private fun InstanceCard(
 
                 (row.health?.lastError as? AppError.ParseFailure)?.snippet?.let { snippet ->
                     Text(
-                        "Page said: $snippet",
+                        "The server said: $snippet",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
@@ -255,13 +255,13 @@ private fun StatusDot(status: HealthStatus) {
 private fun statusLine(status: HealthStatus, row: InstanceRow): String {
     val latency = row.health?.latencyMillis?.let { " · ${it}ms" }.orEmpty()
     return when (status) {
-        HealthStatus.HEALTHY -> "Serving feeds$latency"
+        HealthStatus.HEALTHY -> "Working$latency"
         HealthStatus.SLOW -> "Slow but working$latency"
-        HealthStatus.DEGRADED -> "Failing$latency"
-        HealthStatus.DOWN -> "Down after ${row.health?.consecutiveFailures ?: 0} tries"
-        HealthStatus.DISABLED -> "Disabled, not used"
+        HealthStatus.DEGRADED -> "Having trouble$latency"
+        HealthStatus.DOWN -> "Not responding after ${row.health?.consecutiveFailures ?: 0} tries"
+        HealthStatus.DISABLED -> "Turned off"
         HealthStatus.UNKNOWN -> "Not checked yet"
-        HealthStatus.CHALLENGED -> "Behind a bot check"
+        HealthStatus.CHALLENGED -> "Asks for a quick check"
     }
 }
 
@@ -275,21 +275,21 @@ private fun AddInstanceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add an instance") },
+        title = { Text("Add a server") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
                     singleLine = true,
-                    label = { Text("Host") },
+                    label = { Text("Address") },
                     placeholder = { Text("nitter.example.com") }
                 )
                 OutlinedTextField(
                     value = rssUrl,
                     onValueChange = { rssUrl = it },
                     singleLine = true,
-                    label = { Text("Feed host, if different") },
+                    label = { Text("Feed address, if different") },
                     placeholder = { Text("optional") }
                 )
                 Text(

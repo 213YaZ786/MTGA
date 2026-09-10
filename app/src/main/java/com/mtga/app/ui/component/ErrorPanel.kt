@@ -47,14 +47,14 @@ fun ErrorPanel(
                 ErrorAction.RETRY -> TextButton(onClick = onRetry) { Text("Try again") }
                 ErrorAction.OPEN_DIAGNOSTICS,
                 ErrorAction.CHANGE_INSTANCE -> TextButton(onClick = onOpenDiagnostics) {
-                    Text("Open Diagnostics")
+                    Text("Check connection")
                 }
                 ErrorAction.OPEN_FALLBACK_VIEWER -> {
                     val check = error as? AppError.ChallengeRequired
                     if (check != null && onVerify != null) {
-                        TextButton(onClick = { onVerify(check) }) { Text("Complete the check") }
+                        TextButton(onClick = { onVerify(check) }) { Text("Do the check") }
                     } else {
-                        TextButton(onClick = onOpenDiagnostics) { Text("Open Diagnostics") }
+                        TextButton(onClick = onOpenDiagnostics) { Text("Check connection") }
                     }
                 }
                 ErrorAction.NONE -> Unit

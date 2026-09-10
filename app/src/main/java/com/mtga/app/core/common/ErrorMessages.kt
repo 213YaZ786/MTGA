@@ -14,103 +14,105 @@ enum class ErrorAction { RETRY, OPEN_DIAGNOSTICS, CHANGE_INSTANCE, OPEN_FALLBACK
 
 fun AppError.present(): ErrorPresentation = when (this) {
     AppError.Offline -> ErrorPresentation(
-        headline = "You are offline",
-        explanation = "MTGA found no network connection. Cached posts are still readable below.",
+        headline = "No internet connection",
+        explanation = "Saved posts are still readable. New ones load as soon as you are back online.",
         action = ErrorAction.RETRY
     )
 
     is AppError.DnsFailure -> ErrorPresentation(
-        headline = "Cannot find $host",
-        explanation = "The address did not resolve. The instance may be gone, or your DNS or network is blocking it.",
+        headline = "Can't reach $host",
+        explanation = "This server can't be found from your network right now. MTGA uses the other servers meanwhile.",
         action = ErrorAction.CHANGE_INSTANCE
     )
 
     is AppError.TlsFailure -> ErrorPresentation(
-        headline = "Secure connection to $host failed",
-        explanation = "The TLS handshake was rejected. Something is intercepting the connection, or the certificate is invalid. MTGA will not fall back to plain HTTP.",
+        headline = "Connection to $host is not secure",
+        explanation = "The connection could not be verified, so MTGA stopped rather than take a risk. " +
+            "This can happen on public or work Wi-Fi.",
         action = ErrorAction.OPEN_DIAGNOSTICS
     )
 
     is AppError.Timeout -> ErrorPresentation(
-        headline = "$host did not answer",
-        explanation = "No response within ${millis / 1000} seconds. The instance is likely overloaded.",
+        headline = "$host is too slow",
+        explanation = "It did not answer within ${millis / 1000} seconds, probably because it is busy. Try again in a moment.",
         action = ErrorAction.RETRY
     )
 
     is AppError.ClientRefused -> ErrorPresentation(
-        headline = "$host refused MTGA",
-        explanation = "The instance returned $status and blocked the request, usually a bot challenge. Another instance may work.",
+        headline = "$host turned MTGA away",
+        explanation = "This server is refusing requests right now. MTGA uses the other servers meanwhile.",
         action = ErrorAction.CHANGE_INSTANCE
     )
 
     is AppError.ChallengeRequired -> when (kind) {
         ChallengeKind.WAF_BLOCK -> ErrorPresentation(
-            headline = "$host blocks MTGA",
-            explanation = "Its firewall refused the request outright ($status). There is no check to pass here, so MTGA relies on the other servers.",
+            headline = "$host is blocking MTGA",
+            explanation = "There is nothing to do on your side. MTGA uses the other servers meanwhile.",
             action = ErrorAction.CHANGE_INSTANCE
         )
         else -> ErrorPresentation(
-            headline = "$host wants a browser check",
-            explanation = "MTGA could not pass it in the background. Complete it once yourself and MTGA reuses the result for the following reads.",
+            headline = "$host asks for a quick check",
+            explanation = "It wants to make sure a real person is reading. Do it once and MTGA remembers it.",
             action = ErrorAction.OPEN_FALLBACK_VIEWER
         )
     }
 
     is AppError.RateLimited -> ErrorPresentation(
-        headline = "Slow down",
+        headline = "Too many requests",
         explanation = retryAfterSeconds
-            ?.let { "$host is rate limiting MTGA. It asked us to wait $it seconds." }
-            ?: "$host is rate limiting MTGA. Backing off automatically.",
+            ?.let { "$host asked MTGA to wait $it seconds. It will try again on its own." }
+            ?: "$host asked MTGA to slow down. It will try again on its own.",
         action = ErrorAction.RETRY
     )
 
     is AppError.InstanceError -> ErrorPresentation(
-        headline = "$host is having a bad day",
-        explanation = "The instance answered $status. This is a problem on their side, not yours.",
+        headline = "$host has a problem",
+        explanation = "The server itself failed, not your phone or your connection. Try again later.",
         action = ErrorAction.RETRY
     )
 
     is AppError.NoHealthyInstance -> ErrorPresentation(
-        headline = "No instance is reachable",
-        explanation = "MTGA tried ${tried.size} instance(s) and none answered. Nitter instances are under legal pressure from X Corp and can go down without warning. This is not a fault in the app.",
+        headline = "No server available right now",
+        explanation = "MTGA tried ${tried.size} server(s) and none answered. They are run by volunteers " +
+            "and sometimes go offline. Saved posts are still readable.",
         action = ErrorAction.OPEN_DIAGNOSTICS
     )
 
     is AppError.AccountNotFound -> ErrorPresentation(
-        headline = "@$handle not found",
-        explanation = "The handle does not exist on X, or it was renamed.",
+        headline = "@$handle doesn't exist",
+        explanation = "Check the spelling. The account may also have been renamed or deleted.",
         action = ErrorAction.NONE
     )
 
     is AppError.AccountUnavailable -> ErrorPresentation(
-        headline = "@$handle is not viewable",
-        explanation = reason ?: "X has suspended or protected this account, so no front end can show it.",
+        headline = "Can't show @$handle",
+        explanation = reason ?: "This account is private or suspended, so its posts are not public.",
         action = ErrorAction.NONE
     )
 
     is AppError.ParseFailure -> ErrorPresentation(
-        headline = "MTGA could not read this page",
-        explanation = "$host answered normally but the layout no longer matches what MTGA expects (selector set v$selectorSetVersion). The app needs an update.",
+        headline = "This page can't be read",
+        explanation = "$host changed its layout and MTGA can't read it yet. An app update will fix it. " +
+            "Other servers may still work.",
         action = ErrorAction.OPEN_DIAGNOSTICS
     )
 
     is AppError.FeedGated -> ErrorPresentation(
-        headline = "$host does not serve feeds to this app",
-        explanation = "The instance restricts RSS to clients it has approved, so MTGA reads " +
-            "the web pages instead. If you want the faster feed path, its operator asks for " +
-            "an email with the ID in the diagnostic report.",
+        headline = "$host limits access",
+        explanation = "Its fast feed is reserved for approved apps. MTGA reads its normal pages instead, " +
+            "so there is nothing to do.",
         action = ErrorAction.NONE
     )
 
     is AppError.StorageFailure -> ErrorPresentation(
-        headline = "Local storage error",
-        explanation = detail ?: "MTGA could not read or write its local database.",
+        headline = "Couldn't save on this phone",
+        explanation = "MTGA could not read or write its saved posts. Check that the phone has free space.",
         action = ErrorAction.RETRY
     )
 
     is AppError.Unknown -> ErrorPresentation(
-        headline = "Unexpected error",
-        explanation = detail ?: "MTGA hit a case it does not recognise. Please report it.",
+        headline = "Something went wrong",
+        explanation = "MTGA ran into something unexpected. The Activity log in Settings has details you can share.",
         action = ErrorAction.OPEN_DIAGNOSTICS
     )
 }

@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.ui.component.LocalDockPadding
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -168,7 +169,7 @@ fun SettingsScreen(
             )
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(24.dp + LocalDockPadding.current))
     }
 
     when (dialog) {

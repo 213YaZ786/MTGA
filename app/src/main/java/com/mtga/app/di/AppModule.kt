@@ -27,6 +27,7 @@ import com.mtga.app.data.twstalker.TwstalkerParser
 import com.mtga.app.data.twstalker.TwstalkerSource
 import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.post.PostDetailViewModel
+import com.mtga.app.feature.search.SearchViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
 import com.mtga.app.feature.settings.SettingsViewModel
 import com.mtga.app.feature.feed.FeedViewModel
@@ -84,7 +85,8 @@ val appModule = module {
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get(), get()) }
-    viewModel { PostDetailViewModel(get()) }
+    viewModel { PostDetailViewModel(get(), get(), get()) }
+    viewModel { SearchViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), androidContext()) }

@@ -3,7 +3,7 @@ package com.mtga.app.navigation
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.mtga.app.ui.icon.MtgaIcons
 
-/** Top level destinations, the ones reachable from the bar or rail. */
+/** The tabs, in dock order. */
 enum class TopDestination(
     val route: String,
     val label: String,
@@ -16,9 +16,12 @@ enum class TopDestination(
 
 /** Destinations pushed on top, not part of the bar. */
 object Routes {
+    /** The three tabs, hosted together in one pager. */
+    const val MAIN = "main"
     const val DIAGNOSTICS = "diagnostics"
     const val FEED_PATTERN = "feed/{handle}"
     const val DEBUG_LOG = "debuglog"
+    const val SEARCH = "search"
 
     const val POST_PATTERN = "post/{id}?from={from}"
 

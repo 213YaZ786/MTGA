@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.LocalDockPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -126,7 +127,7 @@ fun AccountsScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + LocalDockPadding.current),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (candidate != null && !alreadyFollowed) {

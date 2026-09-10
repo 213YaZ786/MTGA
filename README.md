@@ -1,74 +1,53 @@
 # MTGA
 
-Make Twitter Great Again. A native Android reader for X content served through
-Nitter front ends such as xcancel.com. No account, no tracking, no ads.
+Read public X (Twitter) posts on Android, with no account, no tracking and no ads.
 
-## Status
+## What you can do
 
-Step 3.5 of 7. MTGA now reads. Follow handles locally, open one, and its recent
-posts are fetched from whichever instance in the pool is healthiest, with
-automatic failover. No merged timeline or offline cache yet.
+- **Follow accounts** without an X account. Your list stays on your phone.
+- **Read everything in one place.** Home shows all the accounts you follow, newest first. Pull down to refresh.
+- **Filter Home**: media only, hide replies, hide reposts.
+- **Look up any account** from the Accounts tab before deciding to follow it.
+- **Open a post** to read it in full, copy its text, share it or open it on X.
+- **View photos and videos** full screen, zoom in, and save them to your phone.
+- **Read offline.** Posts you have seen are saved on the phone and stay readable without a connection.
+- **Choose your look**: light, dark, pure black, and colours that follow your wallpaper.
 
-| Step | Content | State |
-| --- | --- | --- |
-| 1 | Shell, theme, navigation, error model, CI | done |
-| 2 | Instance pool, health probes, live Diagnostics | done |
-| 3 | RSS source, follow handles, single account feed | done |
-| 3.5 | HTML source promoted to primary, gated feed detection | done |
-| 4 | Parser rewritten from Nitter templates, media, downloads | done |
-| 4.5 | Room cache, merged timeline, Paging 3 | next |
-| 5 | Profile header, deep pagination via cursor | |
-| 6 | Full screen media viewer, video playback, threads | |
-| 7 | Notifications, local search, import and export | |
+## Privacy
 
-## Design decisions
+- No account, no sign in, no ads, no analytics, no crash reporting.
+- Only two permissions: internet access and network status.
+- The accounts you follow and the posts you saved never leave your phone.
+- Posts are read from public servers (see below). The option "Newest posts from X" in Settings reads the latest posts straight from X, which is faster but lets X see your IP address. You can turn it off.
 
-**HTML first, RSS second.** This reverses the original plan. RSS looked like the
-cheap, stable path until testing showed the one surviving instance restricts
-feeds to clients it has approved, answering 200 with well formed RSS whose only
-item is a whitelist notice. Its web pages remain open, so HTML parsing is the
-path that actually returns posts. RSS stays wired up behind it, because a
-different instance makes it the better path again with no change above the
-repository. Both sources normalise into one domain model.
+## Where the posts come from
 
-**No single instance gets a veto.** A Nitter instance with a broken upstream
-session returns 404 for real accounts. MTGA reports "account not found" only
-when every instance that actually answered agrees, and probes the profile page
-rather than a cheap endpoint, so a green light means posts came back.
+X no longer lets anyone read without an account. MTGA reads the same public posts through independent servers run by volunteers (Nitter servers such as xcancel.com), and directly from X for the newest posts when you allow it.
 
-**No hero behaviour on failure.** Nitter instances are under legal pressure from
-X Corp and go down without warning. MTGA never shows a generic spinner. Every
-failure is classified in `core/common/AppError.kt` and attributed to a layer:
-your device, your network, the instance, X itself, or MTGA. The Diagnostics
-screen makes that visible.
+These servers sometimes slow down or go offline. When that happens, MTGA tells you which one and why, keeps showing your saved posts, and switches to another server. **Settings > Connection check** shows the state of each server.
 
-**minSdk 31.** Material You dynamic colour needs API 31. Supporting less means a
-second theming path and older TLS stacks, which trades security and consistency
-for a shrinking pool of devices.
+Some servers occasionally ask for a **quick check** to confirm a real person is reading. MTGA usually does it by itself. If it can't, tap "Do the check" once and it is remembered.
 
-**Single Gradle module, strict package layering.** Package boundaries mirror what
-would otherwise be modules, and can be extracted later without moving classes.
+## Install
 
-## Building
+Download the latest APK from the [Actions](https://github.com/213YaZ786/MTGA/actions) tab (open the most recent successful run, then the file under "Artifacts") and install it. Android 12 or newer is required.
 
-Android Studio, or:
+## Having a problem?
+
+Open **Settings > Activity log**, tap "Save to Downloads", and attach the file to an issue. It lists what the app asked each server and what came back. It contains no personal data beyond the accounts you opened.
+
+## For developers
+
+Kotlin and Jetpack Compose, single module. Build with Android Studio or:
 
 ```
 gradle :app:assembleDebug
 ```
 
-CI builds a debug APK on every push and attaches it as an artifact. To get a
-signed release, add repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
-`KEY_ALIAS` and `KEY_PASSWORD`.
+Gradle 9.5.1 and AGP 8.13 are pinned on purpose. Do not accept Android Studio's upgrade prompts. CI builds a debug APK on every push. For a signed release, add the repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
 
-The version catalogue in `gradle/libs.versions.toml` pins a few libraries
-optimistically. If the first CI run fails to resolve one, the log names the exact
-artifact and the fix is a one line change there.
+## Thanks
 
-## Credits
-
-Thanks to the Nitter maintainers and the people running instances. Parts of the
-approach are informed by [Nitterium](https://github.com/kaleedtc/Nitterium) (MIT),
-a WebView based Nitter client.
+To the Nitter maintainers and the people who run its servers. Parts of the approach were inspired by [Nitterium](https://github.com/kaleedtc/Nitterium) (MIT).
 
 MIT licensed.

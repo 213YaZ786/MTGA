@@ -1,83 +1,159 @@
 package com.mtga.app.feature.search
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.mtga.app.core.model.FollowedAccount
+import com.mtga.app.core.media.MediaDownloader
+import com.mtga.app.core.model.Post
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.feature.media.MediaViewer
+import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.icon.MtgaIcons
+import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
-/**
- * Opens any public account by handle, without following it. The feed screen
- * then offers Follow. Searching post text over the saved history comes later
- * (roadmap step 6), which is why this screen only takes a handle for now.
- */
+/** Search through every post saved on this phone, instantly and offline. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(onOpenFeed: (String) -> Unit) {
-    var input by rememberSaveable { mutableStateOf("") }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
+fun SearchScreen(
+    onBack: () -> Unit,
+    onOpenPost: (Post) -> Unit,
+    viewModel: SearchViewModel = koinViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    val typed by viewModel.typed.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    val focus = LocalFocusManager.current
+    val downloader: MediaDownloader = koinInject()
+    val settingsStore: SettingsStore = koinInject()
+    val settings by settingsStore.settings.collectAsState()
+    val focusRequester = remember { FocusRequester() }
+    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
 
-    fun submit() {
-        if (input.isBlank()) return
-        val handle = FollowedAccount.normalise(input)
-        if (handle == null) {
-            error = "Not a valid handle. Letters, digits and underscores, 15 at most."
-        } else {
-            error = null
-            onOpenFeed(handle)
-        }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    viewing?.let { (post, index) ->
+        MediaViewer(
+            media = post.media,
+            startIndex = index,
+            onDownload = { downloader.download(it, post.authorHandle) },
+            onDismiss = { viewing = null }
+        )
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            MtgaIcons.Search,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Text("Find an account", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Read any public account before deciding to follow it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it; error = null },
-            singleLine = true,
-            modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth(),
-            label = { Text("Handle") },
-            placeholder = { Text("@nytimes") },
-            isError = error != null,
-            supportingText = { error?.let { Text(it) } },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { submit() })
-        )
-        Button(onClick = ::submit, enabled = input.isNotBlank()) {
-            Text("Open profile")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                title = {
+                    TextField(
+                        value = typed,
+                        onValueChange = viewModel::setQuery,
+                        singleLine = true,
+                        shape = RoundedCornerShape(28.dp),
+                        placeholder = { Text("Search saved posts") },
+                        trailingIcon = {
+                            if (typed.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setQuery("") }) {
+                                    Icon(MtgaIcons.Close, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(end = 12.dp)
+                            .focusRequester(focusRequester)
+                    )
+                }
+            )
+        }
+    ) { padding ->
+        val hint = when {
+            !state.loaded -> null
+            state.savedCount == 0 -> "Nothing saved yet. Posts you read are kept here and can be searched offline."
+            typed.isBlank() -> "Search through ${state.savedCount} posts saved on this phone, offline. " +
+                "Words can be in any order."
+            state.results.isEmpty() -> "No saved post matches."
+            else -> null
+        }
+
+        LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            if (hint != null) {
+                item(key = "hint") {
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(32.dp)
+                    )
+                }
+            } else if (state.results.isNotEmpty()) {
+                item(key = "count") {
+                    Text(
+                        if (state.results.size == 1) "1 post" else "${state.results.size} posts",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            items(state.results, key = { it.id }) { post ->
+                PostCard(
+                    post = post,
+                    onClick = {
+                        focus.clearFocus()
+                        onOpenPost(post)
+                    },
+                    onOpenLink = { uriHandler.openUri(it) },
+                    onDownload = { downloader.download(it, post.authorHandle) },
+                    showStats = settings.showCounts,
+                    onOpenMedia = { index -> viewing = post to index }
+                )
+            }
         }
     }
 }

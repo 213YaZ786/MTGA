@@ -96,7 +96,7 @@ fun ChallengeOverlay(solver: ChallengeSolver = koinInject()) {
                             color = MaterialTheme.colorScheme.inverseOnSurface
                         )
                         Text(
-                            "Passing a bot check on ${current.host}",
+                            "Checking access to ${current.host}",
                             style = MaterialTheme.typography.labelLarge
                         )
                     }
@@ -122,9 +122,9 @@ private fun InteractiveCheck(task: ChallengeSolver.Task, solver: ChallengeSolver
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Bot check", style = MaterialTheme.typography.titleMedium)
+                        Text("Quick check", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "${task.host} asks for it once. MTGA closes this as soon as it passes.",
+                            "${task.host} wants to make sure a real person is reading. This closes by itself once done.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

@@ -1,5 +1,13 @@
 package com.mtga.app.feature.post
 
+import com.mtga.app.ui.component.PostCard
+import com.mtga.app.core.common.present
+import com.mtga.app.core.common.ChallengeKind
+import com.mtga.app.core.common.AppError
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,10 +21,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -78,6 +84,7 @@ fun PostDetailScreen(
     from: String?,
     onBack: () -> Unit,
     onOpenProfile: (String) -> Unit,
+    onOpenPost: (Post) -> Unit,
     viewModel: PostDetailViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -85,7 +92,7 @@ fun PostDetailScreen(
 
     LaunchedEffect(id) { viewModel.load(id, from) }
 
-    val post = (state as? PostDetailState.Ready)?.post
+    val post = state.post
 
     Scaffold(
         topBar = {
@@ -107,44 +114,189 @@ fun PostDetailScreen(
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (val current = state) {
-                PostDetailState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                PostDetailState.Missing -> Text(
-                    "This post is no longer in the local history. Refresh the account it came from.",
+            when {
+                post != null -> ConversationView(
+                    post = post,
+                    thread = state.thread,
+                    onOpenProfile = onOpenProfile,
+                    onOpenPost = onOpenPost,
+                    onRetry = viewModel::retryThread,
+                    onVerify = viewModel::verify
+                )
+                state.missing -> Text(
+                    "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.align(Alignment.Center).padding(32.dp)
                 )
-                is PostDetailState.Ready -> PostBody(current.post, onOpenProfile)
+                else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * The post in the middle of its conversation: what it answers above, then
+ * the post itself in full, the author's own thread, and the replies.
+ */
 @Composable
-private fun PostBody(post: Post, onOpenProfile: (String) -> Unit) {
-    val context = LocalContext.current
+private fun ConversationView(
+    post: Post,
+    thread: ThreadState,
+    onOpenProfile: (String) -> Unit,
+    onOpenPost: (Post) -> Unit,
+    onRetry: () -> Unit,
+    onVerify: (AppError.ChallengeRequired) -> Unit
+) {
     val uriHandler = LocalUriHandler.current
     val downloader: MediaDownloader = koinInject()
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settings.collectAsState()
-    var viewing by remember { mutableStateOf<Int?>(null) }
+    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
+    val conversation = (thread as? ThreadState.Ready)?.conversation
 
-    viewing?.let { index ->
+    viewing?.let { (shown, index) ->
         MediaViewer(
-            media = post.media,
+            media = shown.media,
             startIndex = index,
-            onDownload = { downloader.download(it, post.authorHandle) },
+            onDownload = { downloader.download(it, shown.authorHandle) },
             onDismiss = { viewing = null }
         )
     }
 
+    @Composable
+    fun ReplyCard(item: Post, modifier: Modifier = Modifier) {
+        PostCard(
+            post = item,
+            onClick = { onOpenPost(item) },
+            onOpenLink = { uriHandler.openUri(it) },
+            onDownload = { downloader.download(it, item.authorHandle) },
+            showStats = settings.showCounts,
+            onOpenMedia = { index -> viewing = item to index },
+            modifier = modifier
+        )
+    }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+        val ancestors = conversation?.ancestors.orEmpty()
+        if (ancestors.isNotEmpty()) {
+            item(key = "earlier") { SectionLabel("Earlier in the conversation") }
+            items(ancestors, key = { "a" + it.id }) { ReplyCard(it) }
+        }
+
+        item(key = "main") {
+            PostBody(
+                post = post,
+                showCounts = settings.showCounts,
+                onOpenProfile = onOpenProfile,
+                onOpenMedia = { index -> viewing = post to index }
+            )
+        }
+
+        val continuation = conversation?.continuation.orEmpty()
+        if (continuation.isNotEmpty()) {
+            item(key = "threadlabel") { SectionLabel("Thread") }
+            items(continuation, key = { "t" + it.id }) { ReplyCard(it) }
+        }
+
+        item(key = "replieslabel") { SectionLabel("Replies") }
+
+        when (thread) {
+            ThreadState.Loading -> item(key = "loading") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text("Loading replies", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            is ThreadState.Failed -> item(key = "failed") {
+                val presentation = thread.error.present()
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Replies couldn't be loaded", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        presentation.headline,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    val check = thread.error as? AppError.ChallengeRequired
+                    if (check != null && check.kind != ChallengeKind.WAF_BLOCK) {
+                        TextButton(onClick = { onVerify(check) }) { Text("Do the check") }
+                    } else {
+                        TextButton(onClick = onRetry) { Text("Try again") }
+                    }
+                }
+            }
+
+            is ThreadState.Ready -> {
+                val chains = thread.conversation.replies
+                if (chains.isEmpty()) {
+                    item(key = "noreplies") {
+                        Text(
+                            "No replies yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(24.dp)
+                        )
+                    }
+                } else {
+                    chains.forEachIndexed { chainIndex, chain ->
+                        chain.forEachIndexed { index, reply ->
+                            item(key = "r$chainIndex-${reply.id}") {
+                                // Answers inside a chain sit slightly in, so the
+                                // exchange reads as one conversation.
+                                ReplyCard(reply, if (index > 0) Modifier.padding(start = 24.dp) else Modifier)
+                            }
+                        }
+                    }
+                    item(key = "more") {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            TextButton(onClick = { uriHandler.openUri(xUrl(post)) }) {
+                                Text("See all replies on X")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PostBody(
+    post: Post,
+    showCounts: Boolean,
+    onOpenProfile: (String) -> Unit,
+    onOpenMedia: (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val downloader: MediaDownloader = koinInject()
+
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -195,7 +347,7 @@ private fun PostBody(post: Post, onOpenProfile: (String) -> Unit) {
             MediaBlock(
                 post = post,
                 onDownload = { downloader.download(it, post.authorHandle) },
-                onOpen = { viewing = it }
+                onOpen = onOpenMedia
             )
         }
 
@@ -225,7 +377,7 @@ private fun PostBody(post: Post, onOpenProfile: (String) -> Unit) {
             )
         }
 
-        post.stats?.takeIf { settings.showCounts }?.let { stats ->
+        post.stats?.takeIf { showCounts }?.let { stats ->
             HorizontalDivider()
             StatsLine(stats)
             HorizontalDivider()
@@ -242,6 +394,7 @@ private fun PostBody(post: Post, onOpenProfile: (String) -> Unit) {
             OutlinedButton(onClick = { copy(context, url) }) { Text("Copy link") }
         }
     }
+    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
 }
 
 /** Every count the source gave, spelled out. Counts it did not give are not guessed. */

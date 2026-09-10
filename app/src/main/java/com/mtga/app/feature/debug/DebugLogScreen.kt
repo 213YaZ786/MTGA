@@ -61,7 +61,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("Request log") },
+                title = { Text("Activity log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
@@ -91,15 +91,15 @@ fun DebugLogScreen(onBack: () -> Unit) {
                         val name = "mtga-log-${System.currentTimeMillis()}.txt"
                         exporter.exportText(name, log.render())
                             .onSuccess { snackbar.showSnackbar("Saved to $it") }
-                            .onFailure { snackbar.showSnackbar("Export failed: ${it.message}") }
+                            .onFailure { snackbar.showSnackbar("Could not save the file") }
                     }
-                }) { Text("Save as .txt") }
+                }) { Text("Save to Downloads") }
             }
 
             if (entries.isEmpty()) {
                 Text(
-                    "Nothing recorded yet. Open a feed or scroll for older posts, then come " +
-                        "back here.",
+                    "Nothing recorded yet. Open an account or scroll for older posts, then " +
+                        "come back here.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp)

@@ -1,5 +1,7 @@
 package com.mtga.app.feature.timeline
 
+import com.mtga.app.ui.component.LocalDockPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,6 +68,7 @@ fun TimelineScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenAccounts: () -> Unit,
     onOpenPost: (Post) -> Unit,
+    onOpenSearch: () -> Unit,
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -109,6 +112,9 @@ fun TimelineScreen(
                 },
                 actions = {
                     if (state.followedCount > 0) {
+                        IconButton(onClick = onOpenSearch) {
+                            Icon(MtgaIcons.Search, contentDescription = "Search saved posts")
+                        }
                         IconButton(onClick = onOpenDiagnostics) {
                             Icon(
                                 MtgaIcons.Pulse,
@@ -140,9 +146,9 @@ fun TimelineScreen(
 
             state.isEmpty && state.errors.isNotEmpty() -> EmptyState(
                 title = "Nothing could be loaded",
-                message = "Every followed account failed to fetch. Diagnostics will say which " +
-                    "layer failed and why.",
-                actionLabel = "Open Diagnostics",
+                message = "None of your accounts could be loaded. The connection check shows " +
+                    "which servers are down.",
+                actionLabel = "Check connection",
                 onAction = onOpenDiagnostics,
                 modifier = Modifier.padding(padding)
             )
@@ -164,7 +170,11 @@ fun TimelineScreen(
                     if (shouldLoadMore) viewModel.loadMore()
                 }
 
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(bottom = LocalDockPadding.current),
+                    modifier = Modifier.fillMaxSize()
+                ) {
                     item(key = "filters") {
                         FilterRow(filters = state.filters, onChange = viewModel::setFilters)
                     }
@@ -298,7 +308,7 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
             )
             state.pagingFailed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "Could not load older posts. The instance is rate limiting us, " +
+                    "Couldn't load older posts. The server is busy, " +
                         "which usually clears in a minute.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -308,7 +318,7 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
             }
             state.canLoadMore -> TextButton(onClick = onLoadMore) { Text("Load older posts") }
             else -> Text(
-                "That is as far back as these instances will go.",
+                "No older posts available.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -328,14 +338,14 @@ private fun PartialFailureNotice(failed: List<String>, onOpenDiagnostics: () -> 
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
             text = if (failed.size == 1) {
-                "@${failed.first()} could not be loaded. Showing what was cached."
+                "@${failed.first()} couldn't be updated. Showing saved posts."
             } else {
-                "${failed.size} accounts could not be loaded. Showing what was cached."
+                "${failed.size} accounts couldn't be updated. Showing saved posts."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        TextButton(onClick = onOpenDiagnostics) { Text("Why") }
+        TextButton(onClick = onOpenDiagnostics) { Text("Details") }
     }
 }
 

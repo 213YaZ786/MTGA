@@ -85,6 +85,16 @@ class FeedCache(context: Context) {
             .firstNotNullOfOrNull { feed -> feed.posts.firstOrNull { it.id == wanted } }
     }
 
+    /** Every saved post across all accounts, each once, newest first. */
+    suspend fun allPosts(): List<Post> = withContext(Dispatchers.IO) {
+        directory.listFiles().orEmpty().asSequence()
+            .mapNotNull { file -> runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull() }
+            .flatMap { canonical(it).posts.asSequence() }
+            .distinctBy { it.id }
+            .sortedByDescending { it.publishedAtMillis }
+            .toList()
+    }
+
     suspend fun forget(handle: String) = withContext(Dispatchers.IO) {
         runCatching { fileFor(handle).delete() }
         Unit
