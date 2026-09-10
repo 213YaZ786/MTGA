@@ -4,6 +4,7 @@ import com.mtga.app.core.debug.LogExporter
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
+import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
@@ -16,8 +17,14 @@ import com.mtga.app.data.repository.FeedRepository
 import com.mtga.app.data.repository.TimelineRepository
 import com.mtga.app.data.rss.RssFeedParser
 import com.mtga.app.data.rss.RssSource
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.xcom.SyndicationSource
+import com.mtga.app.data.xcom.XComSource
+import com.mtga.app.data.twstalker.TwstalkerParser
+import com.mtga.app.data.twstalker.TwstalkerSource
 import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
+import com.mtga.app.feature.settings.SettingsViewModel
 import com.mtga.app.feature.feed.FeedViewModel
 import com.mtga.app.feature.timeline.TimelineViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +45,7 @@ val appModule = module {
 
     single { RequestLog() }
     single { LogExporter(androidContext()) }
+    single { HostThrottle() }
     single { HttpClientFactory.create() }
     single { ConnectivityMonitor(androidContext()) }
     single { MediaDownloader(androidContext()) }
@@ -57,13 +65,19 @@ val appModule = module {
 
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
-    single { HtmlSource(get(), get(), get()) }
-    single { FeedRepository(get(), get(), get()) }
+    single { HtmlSource(get(), get(), get(), get()) }
+    single { TwstalkerParser() }
+    single { TwstalkerSource(get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get()) }
     single { FeedCache(androidContext()) }
-    single { TimelineRepository(get(), get(), get()) }
+    single { SettingsStore(androidContext()) }
+    single { SyndicationSource(get(), get()) }
+    single { XComSource(get(), get(), get(), get()) }
+    single { TimelineRepository(get(), get(), get(), get(), get()) }
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get()) }
+    viewModel { SettingsViewModel(get(), androidContext()) }
 }

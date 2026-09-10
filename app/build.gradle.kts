@@ -13,8 +13,8 @@ android {
         applicationId = "com.mtga.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.8.0"
+        versionCode = 14
+        versionName = "1.0.0"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
 
+    implementation(libs.androidx.work.runtime)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 

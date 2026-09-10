@@ -5,6 +5,8 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Post
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.cache.FeedCache
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.xcom.XComSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
@@ -21,7 +23,9 @@ import kotlinx.coroutines.sync.withPermit
 class TimelineRepository(
     private val accounts: AccountStore,
     private val feeds: FeedRepository,
-    private val cache: FeedCache
+    private val cache: FeedCache,
+    private val xcom: XComSource,
+    private val settings: SettingsStore
 ) {
 
     data class Merged(
@@ -66,9 +70,24 @@ class TimelineRepository(
         }.map { it.await() }
 
         val errors = mutableMapOf<String, AppError>()
-        val posts = mutableListOf<Post>()
         var oldest: Long? = null
         var more = false
+
+        // The head of the feed comes from X itself when that is switched on.
+        // It is the only source that cannot be a stale re-serving of someone
+        // else's parse, and the cache merges it with whatever the instances
+        // provide for depth.
+        if (settings.current.useXcomDirect) {
+            for (handle in handles) {
+                when (val head = xcom.fetchLatest(handle)) {
+                    is Outcome.Success -> {
+                        cache.append(head.value)
+                        errors.remove(handle)
+                    }
+                    is Outcome.Failure -> Unit // instances still had their turn
+                }
+            }
+        }
 
         for ((handle, outcome) in results) {
             when (outcome) {
@@ -77,28 +96,28 @@ class TimelineRepository(
                     // away every page the reader already scrolled through.
                     val merged = cache.append(outcome.value)
                     accounts.updateDisplayName(handle, outcome.value.displayName)
-                    posts += merged.posts
                     if (merged.nextCursor != null) more = true
                     oldest = minOf(oldest ?: outcome.value.fetchedAtMillis, outcome.value.fetchedAtMillis)
                 }
                 is Outcome.Failure -> {
                     errors[handle] = outcome.error
-                    // Keep whatever we already had for this account so one bad
-                    // fetch does not blank it out of the merged view.
-                    cache.read(handle)?.let {
-                        posts += it.posts
-                        if (it.nextCursor != null) more = true
-                    }
+                    cache.read(handle)?.let { if (it.nextCursor != null) more = true }
                 }
             }
         }
 
+        // Read back from the cache rather than from this run's results, so the
+        // merged view includes everything ever collected, not only what today's
+        // fetch happened to return. This is what makes background polling
+        // accumulate history instead of replacing it.
+        val stored = handles.mapNotNull { cache.read(it) }
+
         Merged(
-            posts = merge(posts),
+            posts = merge(stored.flatMap { it.posts }),
             errors = errors,
             fromCache = false,
             oldestFetchedAtMillis = oldest,
-            canLoadMore = more
+            canLoadMore = more || stored.any { it.nextCursor != null }
         )
     }
 
@@ -164,7 +183,13 @@ class TimelineRepository(
             .take(MAX_TIMELINE_POSTS)
 
     private companion object {
-        const val MAX_PARALLEL_FETCHES = 3
+        /**
+         * One at a time. With a single healthy instance in the pool, "parallel"
+         * just means several simultaneous requests to the same small server,
+         * which is precisely what earns a 429. The throttle paces them anyway,
+         * so concurrency here would buy nothing.
+         */
+        const val MAX_PARALLEL_FETCHES = 1
         const val MAX_TIMELINE_POSTS = 2_000
     }
 }
