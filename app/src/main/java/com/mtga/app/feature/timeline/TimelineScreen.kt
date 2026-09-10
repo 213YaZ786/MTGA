@@ -100,7 +100,7 @@ fun TimelineScreen(
                         last >= state.posts.size - LOAD_MORE_THRESHOLD
                     }
                 }
-                LaunchedEffect(shouldLoadMore, state.canLoadMore) {
+                LaunchedEffect(shouldLoadMore, state.canLoadMore, state.pagingFailed) {
                     if (shouldLoadMore) viewModel.loadMore()
                 }
 
@@ -126,7 +126,7 @@ fun TimelineScreen(
                     )
                 }
 
-                item { TimelineFooter(state = state, onLoadMore = viewModel::loadMore) }
+                item { TimelineFooter(state = state, onLoadMore = { viewModel.loadMore(manual = true) }) }
                 }
             }
         }
@@ -144,6 +144,16 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.dp
             )
+            state.pagingFailed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Could not load older posts. The instance is rate limiting us, " +
+                        "which usually clears in a minute.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                TextButton(onClick = onLoadMore) { Text("Try again") }
+            }
             state.canLoadMore -> TextButton(onClick = onLoadMore) { Text("Load older posts") }
             else -> Text(
                 "That is as far back as these instances will go.",

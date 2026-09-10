@@ -18,10 +18,41 @@ class InstanceStore(context: Context) {
 
     fun load(): List<NitterInstance> {
         if (!file.exists()) return NitterInstance.defaults
-        return runCatching {
+        val stored = runCatching {
             json.decodeFromString<List<NitterInstance>>(file.readText())
-        }.getOrElse { NitterInstance.defaults }
-            .ifEmpty { NitterInstance.defaults }
+        }.getOrElse { emptyList() }
+
+        return if (stored.isEmpty()) NitterInstance.defaults else migrate(stored)
+    }
+
+    /**
+     * Public instances appear and vanish, so the built in list changes between
+     * app versions. Merging rather than replacing keeps anything you added or
+     * disabled, while still delivering new instances and dropping built ins
+     * that no longer exist.
+     */
+    private fun migrate(stored: List<NitterInstance>): List<NitterInstance> {
+        val storedById = stored.associateBy { it.id }
+
+        val builtIns = NitterInstance.defaults.map { fresh ->
+            val previous = storedById[fresh.id]
+            // Your enable and disable choices survive. Everything else, the
+            // URL especially, comes from the new list.
+            if (previous != null) fresh.copy(enabled = previous.enabled) else fresh
+        }
+
+        val custom = stored.filterNot { it.builtIn }
+            .filterNot { existing -> builtIns.any { it.id == existing.id } }
+
+        // Preserve the order you set for instances that are still around,
+        // then append anything newly added.
+        val orderedIds = stored.map { it.id }
+        val merged = (builtIns + custom).sortedBy { instance ->
+            orderedIds.indexOf(instance.id).takeIf { it >= 0 } ?: Int.MAX_VALUE
+        }
+
+        if (merged.map { it.id } != stored.map { it.id }) save(merged)
+        return merged
     }
 
     fun save(instances: List<NitterInstance>) {

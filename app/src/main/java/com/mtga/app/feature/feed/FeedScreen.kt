@@ -104,7 +104,7 @@ fun FeedScreen(
                         last >= feed.posts.size - 5
                     }
                 }
-                LaunchedEffect(shouldLoadMore, state.canLoadMore) {
+                LaunchedEffect(shouldLoadMore, state.canLoadMore, state.pagingFailed) {
                     if (shouldLoadMore) viewModel.loadMore()
                 }
 
@@ -142,8 +142,8 @@ fun FeedScreen(
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp
                             )
-                            state.canLoadMore -> TextButton(onClick = viewModel::loadMore) {
-                                Text("Load older posts")
+                            state.canLoadMore -> TextButton(onClick = { viewModel.loadMore(manual = true) }) {
+                                Text(if (state.pagingFailed) "Try again" else "Load older posts")
                             }
                             else -> Text(
                                 "Served by ${feed.fetchedFromHost}. No older posts available.",

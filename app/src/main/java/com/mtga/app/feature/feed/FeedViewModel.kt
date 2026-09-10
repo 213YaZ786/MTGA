@@ -18,7 +18,8 @@ data class FeedUiState(
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
     val feed: Feed? = null,
-    val error: AppError? = null
+    val error: AppError? = null,
+    val pagingFailed: Boolean = false
 ) {
     val canLoadMore: Boolean get() = feed?.nextCursor != null
 }
@@ -66,20 +67,27 @@ class FeedViewModel(
         }
     }
 
-    fun loadMore() {
+    fun loadMore(manual: Boolean = false) {
         val current = _state.value
         val cursor = current.feed?.nextCursor ?: return
         if (current.loadingMore || current.loading) return
+        if (current.pagingFailed && !manual) return
 
         viewModelScope.launch {
-            _state.value = current.copy(loadingMore = true)
+            _state.value = current.copy(loadingMore = true, pagingFailed = false)
+            val before = current.feed?.posts?.size ?: 0
             when (val outcome = repository.loadFeed(current.handle, cursor)) {
                 is Outcome.Success -> {
                     val merged = cache.append(outcome.value, isPagedFetch = true)
-                    _state.value = _state.value.copy(feed = merged, loadingMore = false)
+                    _state.value = _state.value.copy(
+                        feed = merged,
+                        loadingMore = false,
+                        pagingFailed = merged.posts.size <= before
+                    )
                 }
                 is Outcome.Failure -> _state.value = _state.value.copy(
                     loadingMore = false,
+                    pagingFailed = true,
                     error = outcome.error
                 )
             }

@@ -5,6 +5,7 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.network.ErrorMapper
+import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.data.instances.NitterInstance
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -27,7 +28,8 @@ import java.nio.charset.StandardCharsets
 class HtmlSource(
     private val client: HttpClient,
     private val parser: HtmlTimelineParser,
-    private val log: RequestLog
+    private val log: RequestLog,
+    private val throttle: HostThrottle
 ) {
 
     suspend fun fetchProfile(
@@ -49,6 +51,19 @@ class HtmlSource(
         val startedAt = System.nanoTime()
         val kind = if (cursor == null) RequestLog.Kind.PROFILE else RequestLog.Kind.PAGE
 
+        // Wait our turn, or hand the job to another instance if this one is
+        // still cooling off from a 429.
+        if (!throttle.acquire(instance.host)) {
+            val remaining = throttle.cooldownRemainingMs(instance.host) / 1_000
+            log.record(
+                kind = kind,
+                url = url,
+                outcome = "skipped, cooling down",
+                detail = "${remaining}s left on this host"
+            )
+            return@withContext Outcome.Failure(AppError.RateLimited(instance.host, remaining))
+        }
+
         try {
             val response = client.get(url) {
                 header("User-Agent", BROWSER_USER_AGENT)
@@ -56,6 +71,15 @@ class HtmlSource(
             }
             val body = response.bodyAsText()
             val elapsed = (System.nanoTime() - startedAt) / 1_000_000
+
+            if (error429(response.status.value)) {
+                throttle.penalise(
+                    instance.host,
+                    response.headers["Retry-After"]?.toLongOrNull()
+                )
+            } else {
+                throttle.clear(instance.host)
+            }
 
             ErrorMapper.fromResponse(instance.host, response, body, handle)?.let { error ->
                 log.record(
@@ -140,6 +164,8 @@ class HtmlSource(
             else -> null
         }
     }
+
+    private fun error429(status: Int) = status == 429
 
     /** Tags stripped so the log shows what a reader would see, not the doctype. */
     private fun plainSummary(body: String): String {

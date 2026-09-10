@@ -26,9 +26,16 @@ data class NitterInstance(
 
     companion object {
         /**
-         * Seed pool. Order is the failover order. xcancel first because it is
-         * the most actively maintained public instance, but the whole point of
-         * the pool is that no single one of these is assumed to survive.
+         * Seed pool, taken from the Nitter project's own instance table and
+         * limited to ones it lists as both online and working.
+         *
+         * Order is the failover order. More instances is the cheapest
+         * redundancy available: each one has its own rate limit, its own
+         * upstream accounts, and its own reasons for failing.
+         *
+         * The Nitter wiki asks that these not be used for scraping. MTGA reads
+         * one profile when a person opens it, paced by HostThrottle, which is
+         * browsing, not scraping.
          */
         val defaults: List<NitterInstance> = listOf(
             NitterInstance(
@@ -39,9 +46,39 @@ data class NitterInstance(
                 builtIn = true
             ),
             NitterInstance(
-                id = "nitter-net",
-                label = "nitter.net",
-                baseUrl = "https://nitter.net",
+                id = "nitter-privacyredirect",
+                label = "nitter.privacyredirect.com",
+                baseUrl = "https://nitter.privacyredirect.com",
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "nitter-tiekoetter",
+                label = "nitter.tiekoetter.com",
+                baseUrl = "https://nitter.tiekoetter.com",
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "nitter-catsarch",
+                label = "nitter.catsarch.com",
+                baseUrl = "https://nitter.catsarch.com",
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "nitter-kareem",
+                label = "nitter.kareem.one",
+                baseUrl = "https://nitter.kareem.one",
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "nuku-trabun",
+                label = "nuku.trabun.org",
+                baseUrl = "https://nuku.trabun.org",
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "lightbrd",
+                label = "lightbrd.com",
+                baseUrl = "https://lightbrd.com",
                 builtIn = true
             ),
             NitterInstance(
@@ -50,12 +87,22 @@ data class NitterInstance(
                 baseUrl = "https://nitter.poast.org",
                 builtIn = true
             ),
+            // Carries ads. Last resort, and disabled until you choose it.
             NitterInstance(
-                id = "nitter-privacydev",
-                label = "nitter.privacydev.net",
-                baseUrl = "https://nitter.privacydev.net",
+                id = "nitter-space",
+                label = "nitter.space",
+                baseUrl = "https://nitter.space",
+                enabled = false,
+                builtIn = true
+            ),
+            NitterInstance(
+                id = "nitter-net",
+                label = "nitter.net",
+                baseUrl = "https://nitter.net",
+                enabled = false,
                 builtIn = true
             )
         )
+
     }
 }
