@@ -2,7 +2,11 @@ package com.mtga.app.data.instances
 
 import com.mtga.app.core.common.AppError
 
-enum class HealthStatus { UNKNOWN, HEALTHY, SLOW, DEGRADED, DOWN, DISABLED }
+/**
+ * CHALLENGED is its own state on purpose. An instance behind a bot check is
+ * usually healthy, and calling it DOWN would invite the user to disable it.
+ */
+enum class HealthStatus { UNKNOWN, HEALTHY, SLOW, DEGRADED, DOWN, DISABLED, CHALLENGED }
 
 /**
  * Live health of one instance. Deliberately not persisted: a health reading
@@ -23,6 +27,7 @@ data class InstanceHealth(
         lastCheckedAt == null -> HealthStatus.UNKNOWN
         lastError == null && (latencyMillis ?: 0) > SLOW_THRESHOLD_MS -> HealthStatus.SLOW
         lastError == null -> HealthStatus.HEALTHY
+        lastError is AppError.ChallengeRequired -> HealthStatus.CHALLENGED
         consecutiveFailures >= DOWN_AFTER_FAILURES -> HealthStatus.DOWN
         else -> HealthStatus.DEGRADED
     }

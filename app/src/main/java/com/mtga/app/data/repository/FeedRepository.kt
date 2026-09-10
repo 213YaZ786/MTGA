@@ -6,7 +6,9 @@ import com.mtga.app.core.model.Feed
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
+import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.twstalker.TwstalkerSource
+import com.mtga.app.data.xcom.XComSource
 
 /**
  * The only place that decides which source to use.
@@ -21,8 +23,18 @@ class FeedRepository(
     private val pool: InstancePool,
     private val html: HtmlSource,
     private val rss: RssSource,
-    private val twstalker: TwstalkerSource
+    private val twstalker: TwstalkerSource,
+    private val xcom: XComSource,
+    private val settings: SettingsStore
 ) {
+
+    /**
+     * The newest posts straight from x.com, when enabled. Head only, no
+     * cursor, so it is fetched alongside [loadFeed] rather than instead of it.
+     * Returns null when the setting is off.
+     */
+    suspend fun loadHead(handle: String): Outcome<Feed>? =
+        if (settings.current.useXcomDirect) xcom.fetchLatest(handle) else null
 
     suspend fun loadFeed(handle: String, cursor: String? = null): Outcome<Feed> {
         // A twstalker cursor can only be continued by twstalker. Cursors are not
@@ -65,6 +77,7 @@ class FeedRepository(
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
         is AppError.ParseFailure,
+        is AppError.ChallengeRequired,
         is AppError.ClientRefused,
         is AppError.InstanceError,
         is AppError.Timeout -> true

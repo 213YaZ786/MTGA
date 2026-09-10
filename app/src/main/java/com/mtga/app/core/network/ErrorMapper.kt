@@ -26,43 +26,49 @@ object ErrorMapper {
 
     /**
      * Returns null when the response is genuinely usable. A 200 that carries a
-     * bot challenge is not usable, so [bodyHint] lets the caller pass the first
-     * chunk of the body for inspection.
+     * bot challenge is not usable, so [bodyHint] lets the caller pass the body
+     * for inspection.
      */
     fun fromResponse(
         host: String,
         response: HttpResponse,
         bodyHint: String? = null,
         handle: String? = null
-    ): AppError? {
-        val code = response.status.value
+    ): AppError? = fromStatus(
+        host = host,
+        url = response.call.request.url.toString(),
+        code = response.status.value,
+        retryAfterSeconds = response.headers["Retry-After"]?.toLongOrNull(),
+        bodyHint = bodyHint,
+        handle = handle
+    )
 
-        if (code == 429) {
-            val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
-            return AppError.RateLimited(host, retryAfter)
+    /**
+     * Same classification without a Ktor response, for pages that arrived
+     * through the WebView and so have a status and a body but no HttpResponse.
+     */
+    fun fromStatus(
+        host: String,
+        url: String,
+        code: Int,
+        retryAfterSeconds: Long?,
+        bodyHint: String? = null,
+        handle: String? = null
+    ): AppError? {
+        if (code == 429) return AppError.RateLimited(host, retryAfterSeconds)
+
+        // Before the status checks, because the WAF answers 403 and Anubis
+        // answers 200, and neither means what those codes usually mean.
+        if (bodyHint != null) {
+            ChallengeDetector.detect(code, bodyHint)?.let { kind ->
+                return AppError.ChallengeRequired(host, url, kind, code)
+            }
         }
+
         if (code == 403 || code == 401 || code == 406) return AppError.ClientRefused(host, code)
         if (code == 404 || code == 410) return AppError.AccountNotFound(handle ?: host)
         if (code >= 500) return AppError.InstanceError(host, code)
         if (code >= 400) return AppError.ClientRefused(host, code)
-
-        if (bodyHint != null && looksLikeChallenge(bodyHint)) {
-            return AppError.ClientRefused(host, code)
-        }
         return null
-    }
-
-    /**
-     * Cheap heuristics for interstitials that answer 200 while serving no
-     * content. Kept narrow, a false positive here takes a healthy instance out
-     * of the pool.
-     */
-    private fun looksLikeChallenge(body: String): Boolean {
-        val lower = body.take(4_000).lowercase()
-        return "just a moment" in lower ||
-            "cf-browser-verification" in lower ||
-            "checking your browser" in lower ||
-            "enable javascript and cookies to continue" in lower ||
-            "attention required" in lower
     }
 }

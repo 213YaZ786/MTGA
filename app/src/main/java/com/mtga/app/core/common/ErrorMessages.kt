@@ -43,6 +43,19 @@ fun AppError.present(): ErrorPresentation = when (this) {
         action = ErrorAction.CHANGE_INSTANCE
     )
 
+    is AppError.ChallengeRequired -> when (kind) {
+        ChallengeKind.WAF_BLOCK -> ErrorPresentation(
+            headline = "$host blocks MTGA",
+            explanation = "Its firewall refused the request outright ($status). There is no check to pass here, so MTGA relies on the other servers.",
+            action = ErrorAction.CHANGE_INSTANCE
+        )
+        else -> ErrorPresentation(
+            headline = "$host wants a browser check",
+            explanation = "MTGA could not pass it in the background. Complete it once yourself and MTGA reuses the result for the following reads.",
+            action = ErrorAction.OPEN_FALLBACK_VIEWER
+        )
+    }
+
     is AppError.RateLimited -> ErrorPresentation(
         headline = "Slow down",
         explanation = retryAfterSeconds
@@ -77,8 +90,8 @@ fun AppError.present(): ErrorPresentation = when (this) {
 
     is AppError.ParseFailure -> ErrorPresentation(
         headline = "MTGA could not read this page",
-        explanation = "$host answered normally but the layout no longer matches what MTGA expects (selector set v$selectorSetVersion). The app needs an update. You can still view this in the fallback viewer.",
-        action = ErrorAction.OPEN_FALLBACK_VIEWER
+        explanation = "$host answered normally but the layout no longer matches what MTGA expects (selector set v$selectorSetVersion). The app needs an update.",
+        action = ErrorAction.OPEN_DIAGNOSTICS
     )
 
     is AppError.FeedGated -> ErrorPresentation(

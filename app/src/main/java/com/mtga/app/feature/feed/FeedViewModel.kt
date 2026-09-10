@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
+import com.mtga.app.core.common.valueOrNull
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.repository.FeedRepository
@@ -27,7 +29,8 @@ data class FeedUiState(
 class FeedViewModel(
     private val repository: FeedRepository,
     private val accounts: AccountStore,
-    private val cache: FeedCache
+    private val cache: FeedCache,
+    private val solver: ChallengeSolver
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(FeedUiState())
@@ -53,6 +56,15 @@ class FeedViewModel(
 
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
+
+            // x.com first. It is the quickest and most accurate head of the
+            // feed, so it goes on screen while the instances work on depth.
+            repository.loadHead(handle)?.valueOrNull()?.let { head ->
+                val merged = cache.append(head)
+                accounts.updateDisplayName(handle, head.displayName)
+                _state.value = _state.value.copy(feed = merged)
+            }
+
             when (val outcome = repository.loadFeed(handle)) {
                 is Outcome.Success -> {
                     val merged = cache.append(outcome.value)
@@ -91,6 +103,17 @@ class FeedViewModel(
                     error = outcome.error
                 )
             }
+        }
+    }
+
+    /**
+     * The user asked to complete a bot check by hand. On success the host is
+     * cleared for the session and the feed is read again straight away.
+     */
+    fun verify(error: AppError.ChallengeRequired) {
+        viewModelScope.launch {
+            val result = solver.solve(error.url, error.host, interactive = true)
+            if (result is ChallengeSolver.Result.Cleared) refresh()
         }
     }
 }

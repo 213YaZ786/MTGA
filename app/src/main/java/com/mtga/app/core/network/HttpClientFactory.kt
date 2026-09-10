@@ -5,12 +5,19 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.header
+import com.mtga.app.core.web.WebSession
+import com.mtga.app.core.web.WebSessionInterceptor
+import com.mtga.app.core.web.WebViewCookieJar
 
 /**
  * The single HTTP client for the app.
  *
  * expectSuccess stays false on purpose. A 429 or a 403 is information we want
  * to classify and report, not an exception thrown from deep inside a plugin.
+ *
+ * Cookies: the client has none of its own. For hosts the challenge WebView has
+ * cleared, it reads the WebView's cookie store, and presents the WebView's
+ * User-Agent. Every other host sees a cookieless client, as before.
  */
 object HttpClientFactory {
 
@@ -25,8 +32,13 @@ object HttpClientFactory {
     const val REQUEST_TIMEOUT_MS = 15_000L
     const val PROBE_TIMEOUT_MS = 6_000L
 
-    fun create(): HttpClient = HttpClient(OkHttp) {
+    fun create(session: WebSession): HttpClient = HttpClient(OkHttp) {
         expectSuccess = false
+
+        engine {
+            config { cookieJar(WebViewCookieJar(session)) }
+            addInterceptor(WebSessionInterceptor(session))
+        }
         followRedirects = true
 
         install(HttpTimeout) {

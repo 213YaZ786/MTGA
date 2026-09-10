@@ -25,7 +25,8 @@ fun ErrorPanel(
     error: AppError,
     onRetry: () -> Unit,
     onOpenDiagnostics: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onVerify: ((AppError.ChallengeRequired) -> Unit)? = null
 ) {
     val presentation = error.present()
 
@@ -48,8 +49,13 @@ fun ErrorPanel(
                 ErrorAction.CHANGE_INSTANCE -> TextButton(onClick = onOpenDiagnostics) {
                     Text("Open Diagnostics")
                 }
-                ErrorAction.OPEN_FALLBACK_VIEWER -> TextButton(onClick = onOpenDiagnostics) {
-                    Text("Open Diagnostics")
+                ErrorAction.OPEN_FALLBACK_VIEWER -> {
+                    val check = error as? AppError.ChallengeRequired
+                    if (check != null && onVerify != null) {
+                        TextButton(onClick = { onVerify(check) }) { Text("Complete the check") }
+                    } else {
+                        TextButton(onClick = onOpenDiagnostics) { Text("Open Diagnostics") }
+                    }
                 }
                 ErrorAction.NONE -> Unit
             }

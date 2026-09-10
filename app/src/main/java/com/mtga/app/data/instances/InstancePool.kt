@@ -1,6 +1,7 @@
 package com.mtga.app.data.instances
 
 import com.mtga.app.core.common.AppError
+import com.mtga.app.core.common.ChallengeKind
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.network.ConnectivityMonitor
 import kotlinx.coroutines.CoroutineScope
@@ -94,6 +95,11 @@ class InstancePool(
         if (error is AppError.RateLimited && error.retryAfterSeconds != null) {
             return error.retryAfterSeconds * 1_000L
         }
+        // A check is not a failure of the instance. Sinking it in the order is
+        // enough, backing it off would hide a host the user just cleared.
+        if (error is AppError.ChallengeRequired && error.kind != ChallengeKind.WAF_BLOCK) {
+            return 0L
+        }
         val exponential = BASE_BACKOFF_MS * 2.0.pow((failures - 1).coerceAtMost(6)).toLong()
         return min(exponential, MAX_BACKOFF_MS)
     }
@@ -134,6 +140,7 @@ class InstancePool(
         var notFoundVotes = 0
         var answered = 0
         var notFound: AppError? = null
+        var passableCheck: AppError.ChallengeRequired? = null
 
         for (instance in candidates) {
             tried += instance.host
@@ -150,6 +157,16 @@ class InstancePool(
                     // A suspended or protected account is a statement about X
                     // that any working instance would repeat, so stop.
                     if (error is AppError.AccountUnavailable) return outcome
+
+                    // Remember the first check a person could complete, so
+                    // the reader is offered that one rather than whatever
+                    // firewall happened to be tried last.
+                    if (passableCheck == null &&
+                        error is AppError.ChallengeRequired &&
+                        error.kind != ChallengeKind.WAF_BLOCK
+                    ) {
+                        passableCheck = error
+                    }
 
                     if (spokeForUpstream(error)) answered++
                     if (error is AppError.AccountNotFound) {
@@ -169,7 +186,8 @@ class InstancePool(
         }
 
         return Outcome.Failure(
-            lastError?.takeUnless { it is AppError.AccountNotFound }
+            passableCheck
+                ?: lastError?.takeUnless { it is AppError.AccountNotFound }
                 ?: AppError.NoHealthyInstance(tried)
         )
     }

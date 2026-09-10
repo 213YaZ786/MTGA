@@ -6,11 +6,8 @@ import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HostThrottle
+import com.mtga.app.core.web.ChallengeGateway
 import com.mtga.app.data.instances.NitterInstance
-import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URLEncoder
@@ -24,9 +21,12 @@ import java.nio.charset.StandardCharsets
  * Requests carry a browser User-Agent. These are real page views triggered by a
  * person tapping an account in the app, not crawling, and the feed reader
  * identity we use for RSS gets served differently here.
+ *
+ * Fetching goes through [ChallengeGateway], so a bot check in front of the
+ * page is passed in an offscreen browser instead of ending the read.
  */
 class HtmlSource(
-    private val client: HttpClient,
+    private val gateway: ChallengeGateway,
     private val parser: HtmlTimelineParser,
     private val log: RequestLog,
     private val throttle: HostThrottle
@@ -65,31 +65,40 @@ class HtmlSource(
         }
 
         try {
-            val response = client.get(url) {
-                header("User-Agent", BROWSER_USER_AGENT)
-                header("Accept", "text/html,application/xhtml+xml")
-            }
-            val body = response.bodyAsText()
+            val page = gateway.getPage(
+                url = url,
+                host = instance.host,
+                kind = kind,
+                requestHeaders = mapOf(
+                    "User-Agent" to BROWSER_USER_AGENT,
+                    "Accept" to "text/html,application/xhtml+xml"
+                )
+            )
+            val body = page.body
             val elapsed = (System.nanoTime() - startedAt) / 1_000_000
 
-            if (error429(response.status.value)) {
-                throttle.penalise(
-                    instance.host,
-                    response.headers["Retry-After"]?.toLongOrNull()
-                )
+            if (error429(page.status)) {
+                throttle.penalise(instance.host, page.retryAfterSeconds)
             } else {
                 throttle.clear(instance.host)
             }
 
-            ErrorMapper.fromResponse(instance.host, response, body, handle)?.let { error ->
+            ErrorMapper.fromStatus(
+                host = instance.host,
+                url = url,
+                code = page.status,
+                retryAfterSeconds = page.retryAfterSeconds,
+                bodyHint = body,
+                handle = handle
+            )?.let { error ->
                 log.record(
                     kind = kind,
                     url = url,
                     outcome = "HTTP error",
-                    httpStatus = response.status.value,
+                    httpStatus = page.status,
                     bodyBytes = body.length,
                     durationMillis = elapsed,
-                    detail = error::class.java.simpleName
+                    detail = error::class.java.simpleName + " via " + page.via.name
                 )
                 return@withContext Outcome.Failure(error)
             }
@@ -99,7 +108,7 @@ class HtmlSource(
                     kind = kind,
                     url = url,
                     outcome = "account unavailable",
-                    httpStatus = response.status.value,
+                    httpStatus = page.status,
                     bodyBytes = body.length,
                     durationMillis = elapsed,
                     detail = it
@@ -113,7 +122,7 @@ class HtmlSource(
                     kind = kind,
                     url = url,
                     outcome = "parse found no posts",
-                    httpStatus = response.status.value,
+                    httpStatus = page.status,
                     bodyBytes = body.length,
                     durationMillis = elapsed,
                     detail = "timeline-item markers: ${body.split("class=\"timeline-item").size - 1}" +
@@ -132,10 +141,10 @@ class HtmlSource(
                 kind = kind,
                 url = url,
                 outcome = "ok",
-                httpStatus = response.status.value,
+                httpStatus = page.status,
                 bodyBytes = body.length,
                 durationMillis = elapsed,
-                detail = "posts: ${feed.posts.size} | next cursor: " +
+                detail = "posts: ${feed.posts.size} | via ${page.via.name} | next cursor: " +
                     (feed.nextCursor?.take(24)?.plus("...") ?: "NONE FOUND")
             )
             Outcome.Success(feed)

@@ -6,6 +6,9 @@ import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.network.HttpClientFactory
+import com.mtga.app.core.web.ChallengeGateway
+import com.mtga.app.core.web.ChallengeSolver
+import com.mtga.app.core.web.WebSession
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
 import com.mtga.app.data.accounts.AccountStore
@@ -46,7 +49,10 @@ val appModule = module {
     single { RequestLog() }
     single { LogExporter(androidContext()) }
     single { HostThrottle() }
-    single { HttpClientFactory.create() }
+    single { WebSession() }
+    single { ChallengeSolver(get()) }
+    single { HttpClientFactory.create(get()) }
+    single { ChallengeGateway(get(), get(), get(), get(), get()) }
     single { ConnectivityMonitor(androidContext()) }
     single { MediaDownloader(androidContext()) }
     single { InstanceStore(androidContext()) }
@@ -67,8 +73,8 @@ val appModule = module {
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get(), get(), get()) }
     single { TwstalkerParser() }
-    single { TwstalkerSource(get(), get(), get(), get()) }
-    single { FeedRepository(get(), get(), get(), get()) }
+    single { TwstalkerSource(get(), get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get(), get(), get()) }
     single { FeedCache(androidContext()) }
     single { SettingsStore(androidContext()) }
     single { SyndicationSource(get(), get()) }
@@ -77,7 +83,7 @@ val appModule = module {
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get()) }
-    viewModel { FeedViewModel(get(), get(), get()) }
+    viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get()) }
     viewModel { SettingsViewModel(get(), androidContext()) }
 }

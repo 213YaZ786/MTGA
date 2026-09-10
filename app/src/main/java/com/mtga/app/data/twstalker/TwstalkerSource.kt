@@ -12,8 +12,8 @@ import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HostThrottle
+import com.mtga.app.core.web.ChallengeGateway
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -47,7 +47,8 @@ class TwstalkerSource(
     private val client: HttpClient,
     private val parser: TwstalkerParser,
     private val log: RequestLog,
-    private val throttle: HostThrottle
+    private val throttle: HostThrottle,
+    private val gateway: ChallengeGateway
 ) {
 
     suspend fun fetch(handle: String, cursor: String?): Outcome<Feed> =
@@ -63,27 +64,37 @@ class TwstalkerSource(
 
         val startedAt = System.nanoTime()
         try {
-            val response = client.get(url) {
-                header("User-Agent", BROWSER_USER_AGENT)
-                header("Accept", "text/html,application/xhtml+xml")
-            }
-            val body = response.bodyAsText()
+            // Page one is HTML and may sit behind a check, so it goes through
+            // the gateway. Later pages are a JSON POST and stay native: they
+            // carry the cookie once the host is cleared, and when that is not
+            // enough the check is reported rather than guessed around.
+            val fetched = gateway.getPage(
+                url = url,
+                host = HOST,
+                kind = RequestLog.Kind.PROFILE,
+                requestHeaders = mapOf(
+                    "User-Agent" to BROWSER_USER_AGENT,
+                    "Accept" to "text/html,application/xhtml+xml"
+                )
+            )
+            val body = fetched.body
             val elapsed = (System.nanoTime() - startedAt) / 1_000_000
 
-            ErrorMapper.fromResponse(HOST, response, body, handle)?.let { error ->
-                log.record(
-                    RequestLog.Kind.PROFILE, url, "HTTP error",
-                    response.status.value, body.length, elapsed,
-                    error::class.java.simpleName
-                )
-                return@withContext Outcome.Failure(error)
-            }
+            ErrorMapper.fromStatus(HOST, url, fetched.status, fetched.retryAfterSeconds, body, handle)
+                ?.let { error ->
+                    log.record(
+                        RequestLog.Kind.PROFILE, url, "HTTP error",
+                        fetched.status, body.length, elapsed,
+                        error::class.java.simpleName + " via " + fetched.via.name
+                    )
+                    return@withContext Outcome.Failure(error)
+                }
 
             val page = parser.parseProfile(body, handle)
             if (page == null) {
                 log.record(
                     RequestLog.Kind.PROFILE, url, "parse found no posts",
-                    response.status.value, body.length, elapsed,
+                    fetched.status, body.length, elapsed,
                     "twstalker layout changed, or the account has no public posts"
                 )
                 return@withContext Outcome.Failure(
@@ -94,7 +105,7 @@ class TwstalkerSource(
             val feed = page.feed.copy(nextCursor = encodeCursor(page.userId, INITIAL_PAGE, page.cursor))
             log.record(
                 RequestLog.Kind.PROFILE, url, "ok",
-                response.status.value, body.length, elapsed,
+                fetched.status, body.length, elapsed,
                 "posts: ${feed.posts.size} | user id: ${page.userId ?: "NOT FOUND"} | " +
                     "cursor: ${page.cursor?.take(16)?.plus("...") ?: "NONE"}"
             )

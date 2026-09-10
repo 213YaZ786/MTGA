@@ -261,6 +261,7 @@ private fun statusLine(status: HealthStatus, row: InstanceRow): String {
         HealthStatus.DOWN -> "Down after ${row.health?.consecutiveFailures ?: 0} tries"
         HealthStatus.DISABLED -> "Disabled, not used"
         HealthStatus.UNKNOWN -> "Not checked yet"
+        HealthStatus.CHALLENGED -> "Behind a bot check"
     }
 }
 
@@ -317,5 +318,6 @@ object InstanceRowDefaults {
         HealthStatus.DOWN -> Red
         HealthStatus.DISABLED -> Grey
         HealthStatus.UNKNOWN -> Grey
+        HealthStatus.CHALLENGED -> Amber
     }
 }

@@ -49,6 +49,25 @@ sealed interface AppError {
         override val retryable = false
     }
 
+    /**
+     * The instance put a bot check in front of the page: a proof of work, a
+     * JavaScript interstitial, or a firewall that refuses non browsers. The
+     * instance itself is usually healthy, which is why this is not
+     * [ClientRefused] and why the pool must not treat it as dead.
+     *
+     * [url] is kept so the check can be completed in app for exactly the page
+     * that was refused.
+     */
+    data class ChallengeRequired(
+        val host: String,
+        val url: String,
+        val kind: ChallengeKind,
+        val status: Int
+    ) : AppError {
+        override val blame = Blame.INSTANCE
+        override val retryable = true
+    }
+
     /** Rate limited. retryAfterSeconds comes from the Retry-After header. */
     data class RateLimited(val host: String, val retryAfterSeconds: Long?) : AppError {
         override val blame = Blame.INSTANCE
@@ -86,7 +105,6 @@ sealed interface AppError {
     /**
      * HTTP 200 arrived but the parser found nothing it recognised. This almost
      * always means the instance changed its markup and MTGA needs an update.
-     * This is the case that triggers the WebView fallback offer.
      */
     data class ParseFailure(
         val host: String,
@@ -122,3 +140,9 @@ sealed interface AppError {
 }
 
 enum class Blame { DEVICE, NETWORK, INSTANCE, UPSTREAM, APP }
+
+/**
+ * What kind of wall a host put up. The first two can be passed by a real
+ * browser engine. The last cannot, it refuses the client before any check.
+ */
+enum class ChallengeKind { PROOF_OF_WORK, JS_INTERSTITIAL, WAF_BLOCK }

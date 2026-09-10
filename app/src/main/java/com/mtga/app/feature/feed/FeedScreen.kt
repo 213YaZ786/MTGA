@@ -85,7 +85,8 @@ fun FeedScreen(
                 ErrorPanel(
                     error = state.error!!,
                     onRetry = viewModel::refresh,
-                    onOpenDiagnostics = onOpenDiagnostics
+                    onOpenDiagnostics = onOpenDiagnostics,
+                    onVerify = viewModel::verify
                 )
             }
 
@@ -118,7 +119,8 @@ fun FeedScreen(
                             modifier = Modifier.padding(16.dp),
                             error = error,
                             onRetry = viewModel::refresh,
-                            onOpenDiagnostics = onOpenDiagnostics
+                            onOpenDiagnostics = onOpenDiagnostics,
+                            onVerify = viewModel::verify
                         )
                     }
                 }
