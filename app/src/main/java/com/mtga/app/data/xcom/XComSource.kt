@@ -107,14 +107,19 @@ class XComSource(
             detail = "ids: ${ids.size} | posts: ${posts.size} | head of feed only, no cursor"
         )
 
+        // The first post may be a repost, whose author is someone else. Take
+        // the profile's name and avatar only from a post it wrote itself, and
+        // otherwise leave them blank so the cache keeps what it already knows.
+        val own = posts.firstOrNull { it.authorHandle.equals(handle, ignoreCase = true) }
+
         Outcome.Success(
             Feed(
                 handle = handle,
-                displayName = posts.first().authorName,
+                displayName = own?.authorName.orEmpty(),
                 posts = posts.sortedByDescending { it.publishedAtMillis },
                 fetchedFromHost = HOST,
                 fetchedAtMillis = System.currentTimeMillis(),
-                avatarUrl = posts.first().avatarUrl,
+                avatarUrl = own?.avatarUrl,
                 // No cursor exists here. Depth is Nitter and twstalker's job.
                 nextCursor = null
             )

@@ -22,7 +22,9 @@ import com.mtga.app.feature.accounts.AccountsScreen
 import com.mtga.app.feature.debug.DebugLogScreen
 import com.mtga.app.feature.diagnostics.DiagnosticsScreen
 import com.mtga.app.feature.feed.FeedScreen
-import com.mtga.app.feature.search.SearchScreen
+import com.mtga.app.feature.post.PostDetailScreen
+import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.PostKind
 import com.mtga.app.feature.settings.SettingsScreen
 import com.mtga.app.feature.timeline.TimelineScreen
 
@@ -69,16 +71,12 @@ fun MtgaApp() {
             composable(TopDestination.TIMELINE.route) {
                 TimelineScreen(
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
-                    onOpenAccounts = { navController.navigate(TopDestination.ACCOUNTS.route) }
+                    onOpenAccounts = { navController.navigate(TopDestination.ACCOUNTS.route) },
+                    onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
                 )
             }
             composable(TopDestination.ACCOUNTS.route) {
                 AccountsScreen(
-                    onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) }
-                )
-            }
-            composable(TopDestination.SEARCH.route) {
-                SearchScreen(
                     onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) }
                 )
             }
@@ -98,7 +96,28 @@ fun MtgaApp() {
                 FeedScreen(
                     handle = entry.arguments?.getString("handle").orEmpty(),
                     onBack = { navController.popBackStack() },
-                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) }
+                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                    onOpenPost = { post ->
+                        navController.navigate(Routes.post(post.id, entry.arguments?.getString("handle").orEmpty()))
+                    }
+                )
+            }
+            composable(
+                route = Routes.POST_PATTERN,
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("from") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) { entry ->
+                PostDetailScreen(
+                    id = entry.arguments?.getString("id").orEmpty(),
+                    from = entry.arguments?.getString("from"),
+                    onBack = { navController.popBackStack() },
+                    onOpenProfile = { handle -> navController.navigate(Routes.feed(handle)) }
                 )
             }
             composable(Routes.DIAGNOSTICS) {
@@ -107,3 +126,10 @@ fun MtgaApp() {
         }
     }
 }
+
+/**
+ * The account whose cache file holds this post. A repost is stored with the
+ * account that reposted it, everything else with its author.
+ */
+private fun Post.cacheOwner(): String =
+    if (kind == PostKind.REPOST) relatedHandle ?: authorHandle else authorHandle

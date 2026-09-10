@@ -1,26 +1,51 @@
 package com.mtga.app.feature.settings
 
+import android.text.format.Formatter
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
-import com.mtga.app.ui.icon.MtgaIcons
+import com.mtga.app.data.settings.ThemeMode
 import org.koin.androidx.compose.koinViewModel
 
+private enum class OpenDialog { NONE, THEME, FREQUENCY, CLEAR }
+
+/**
+ * Settings, grouped by what people come here to change. Every description
+ * says what the option does for the reader, in plain words.
+ */
 @Composable
 fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
@@ -28,123 +53,261 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
+    val storageBytes by viewModel.storageBytes.collectAsState()
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    var dialog by remember { mutableStateOf(OpenDialog.NONE) }
+
+    LaunchedEffect(Unit) { viewModel.measureStorage() }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
     ) {
         Text(
-            text = "Settings",
-            style = MaterialTheme.typography.displaySmall,
-            modifier = Modifier.padding(24.dp)
+            "Settings",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 4.dp)
         )
 
-        SectionHeader("Sources")
-
-        ListItem(
-            headlineContent = { Text("Read the newest posts from x.com") },
-            supportingContent = {
-                Text(
-                    "The most accurate source for recent posts, straight from X, with no " +
-                        "account. The trade is that X sees this device's address and which " +
-                        "profiles it opens. Turn this off and MTGA uses only Nitter instances, " +
-                        "which proxy that away."
-                )
-            },
-            trailingContent = {
-                Switch(
-                    checked = settings.useXcomDirect,
-                    onCheckedChange = viewModel::setXcomDirect
-                )
-            }
-        )
-
-        SectionHeader("History")
-
-        ListItem(
-            headlineContent = { Text("Collect in the background") },
-            supportingContent = {
-                Text(
-                    "X only shows the newest few posts to logged out visitors, and there is no " +
-                        "way to page further back. Checking regularly and keeping everything " +
-                        "seen builds an archive going forward instead."
-                )
-            },
-            trailingContent = {
-                Switch(
-                    checked = settings.backgroundSync,
-                    onCheckedChange = viewModel::setBackgroundSync
-                )
-            }
-        )
-
-        if (settings.backgroundSync) {
-            ListItem(
-                headlineContent = { Text("How often") },
-                supportingContent = { Text(intervalLabel(settings.syncIntervalMinutes)) },
-                modifier = Modifier.clickable {
-                    viewModel.setInterval(nextInterval(settings.syncIntervalMinutes))
-                }
+        Section("Appearance") {
+            SettingRow(
+                title = "Theme",
+                summary = themeLabel(settings.themeMode),
+                onClick = { dialog = OpenDialog.THEME }
             )
-            ListItem(
-                headlineContent = { Text("Only on wifi") },
-                supportingContent = { Text("Avoids spending mobile data on posts you may not read") },
-                trailingContent = {
-                    Switch(
-                        checked = settings.syncOnWifiOnly,
-                        onCheckedChange = viewModel::setWifiOnly
-                    )
-                }
+            SwitchRow(
+                title = "Pure black",
+                summary = "Deeper blacks in dark mode. Easier on the battery with OLED screens.",
+                checked = settings.pureBlack,
+                enabled = settings.themeMode != ThemeMode.LIGHT,
+                onChange = viewModel::setPureBlack
+            )
+            SwitchRow(
+                title = "Show counts",
+                summary = "Replies, reposts, likes and views under each post.",
+                checked = settings.showCounts,
+                onChange = viewModel::setShowCounts
             )
         }
 
-        SectionHeader("Troubleshooting")
+        Section("Reading") {
+            SwitchRow(
+                title = "Newest posts from X",
+                summary = "Shows an account's latest posts faster and more reliably. " +
+                    "X can see your IP address while this is on.",
+                checked = settings.useXcomDirect,
+                onChange = viewModel::setXcomDirect
+            )
+        }
 
-        ListItem(
-            headlineContent = { Text("Diagnostics") },
-            supportingContent = { Text("Instance health, last errors, connectivity report") },
-            leadingContent = { Icon(MtgaIcons.Pulse, contentDescription = null) },
-            modifier = Modifier.clickable(onClick = onOpenDiagnostics)
+        Section("Background updates") {
+            SwitchRow(
+                title = "Check for new posts",
+                summary = "Keeps Home up to date and saves new posts, even when the app is closed.",
+                checked = settings.backgroundSync,
+                onChange = viewModel::setBackgroundSync
+            )
+            SettingRow(
+                title = "Frequency",
+                summary = intervalLabel(settings.syncIntervalMinutes),
+                enabled = settings.backgroundSync,
+                onClick = { dialog = OpenDialog.FREQUENCY }
+            )
+            SwitchRow(
+                title = "Wi-Fi only",
+                summary = "Uses no mobile data for background checks.",
+                checked = settings.syncOnWifiOnly,
+                enabled = settings.backgroundSync,
+                onChange = viewModel::setWifiOnly
+            )
+        }
+
+        Section("Storage") {
+            SettingRow(
+                title = "Saved posts",
+                summary = storageBytes?.let {
+                    "${Formatter.formatShortFileSize(context, it)} on this phone. Readable offline."
+                } ?: "Measuring",
+                onClick = null
+            )
+            SettingRow(
+                title = "Clear saved posts",
+                summary = "Frees space. The accounts you follow are kept.",
+                onClick = { dialog = OpenDialog.CLEAR }
+            )
+        }
+
+        Section("Help") {
+            SettingRow(
+                title = "Connection check",
+                summary = "See which servers answer right now, and why something does not load.",
+                onClick = onOpenDiagnostics
+            )
+            SettingRow(
+                title = "Activity log",
+                summary = "Technical details to share when you report a problem.",
+                onClick = onOpenDebugLog
+            )
+        }
+
+        Section("About") {
+            SettingRow(
+                title = "MTGA ${BuildConfig.VERSION_NAME}",
+                summary = "Read public X posts with no account, no tracking and no ads.",
+                onClick = null
+            )
+            SettingRow(
+                title = "Source code",
+                summary = "github.com/213YaZ786/MTGA",
+                onClick = { uriHandler.openUri("https://github.com/213YaZ786/MTGA") }
+            )
+            SettingRow(
+                title = "Thanks",
+                summary = "Made possible by Nitter and the people who run its servers.",
+                onClick = null
+            )
+        }
+
+        Spacer(Modifier.height(24.dp))
+    }
+
+    when (dialog) {
+        OpenDialog.THEME -> ChoiceDialog(
+            title = "Theme",
+            options = ThemeMode.entries.map { it to themeLabel(it) },
+            selected = settings.themeMode,
+            onSelect = viewModel::setTheme,
+            onDismiss = { dialog = OpenDialog.NONE }
         )
-
-        ListItem(
-            headlineContent = { Text("Request log") },
-            supportingContent = {
-                Text("Every request and response, copyable and exportable as a text file")
+        OpenDialog.FREQUENCY -> ChoiceDialog(
+            title = "Check for new posts",
+            options = INTERVALS.map { it to intervalLabel(it) },
+            selected = settings.syncIntervalMinutes,
+            onSelect = viewModel::setInterval,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
+        OpenDialog.CLEAR -> AlertDialog(
+            onDismissRequest = { dialog = OpenDialog.NONE },
+            title = { Text("Clear saved posts?") },
+            text = {
+                Text("Posts saved on this phone will be deleted. They load again the next time you open an account.")
             },
-            leadingContent = { Icon(MtgaIcons.Download, contentDescription = null) },
-            modifier = Modifier.clickable(onClick = onOpenDebugLog)
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearSavedPosts()
+                    dialog = OpenDialog.NONE
+                }) { Text("Clear") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialog = OpenDialog.NONE }) { Text("Cancel") }
+            }
         )
-
-        ListItem(
-            headlineContent = { Text("Version") },
-            supportingContent = { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
-            leadingContent = { Icon(MtgaIcons.Info, contentDescription = null) }
-        )
+        OpenDialog.NONE -> Unit
     }
 }
 
+/** A titled group of rows on one rounded card, the Obtainium way. */
 @Composable
-private fun SectionHeader(title: String) {
-    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
+private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Text(
         title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp)
+        modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 20.dp, bottom = 8.dp)
+    )
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+    ) {
+        Column(content = content)
+    }
+}
+
+@Composable
+private fun SettingRow(
+    title: String,
+    summary: String?,
+    onClick: (() -> Unit)?,
+    enabled: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val alpha = if (enabled) 1f else 0.38f
+    ListItem(
+        headlineContent = { Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)) },
+        supportingContent = summary?.let {
+            { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)) }
+        },
+        trailingContent = trailing,
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier
     )
 }
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    SettingRow(
+        title = title,
+        summary = summary,
+        enabled = enabled,
+        onClick = { onChange(!checked) },
+        trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) }
+    )
+}
+
+@Composable
+private fun <T> ChoiceDialog(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                onSelect(value)
+                                onDismiss()
+                            }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = value == selected, onClick = null)
+                        Text(label, modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+private fun themeLabel(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> "Same as the system"
+    ThemeMode.LIGHT -> "Light"
+    ThemeMode.DARK -> "Dark"
+}
+
+private val INTERVALS = listOf(15, 30, 60, 180, 360)
 
 private fun intervalLabel(minutes: Int): String = when {
     minutes < 60 -> "Every $minutes minutes"
     minutes == 60 -> "Every hour"
     else -> "Every ${minutes / 60} hours"
-}
-
-/** Tap cycles through sensible values rather than opening a picker. */
-private fun nextInterval(current: Int): Int = when (current) {
-    15 -> 30
-    30 -> 60
-    60 -> 180
-    180 -> 360
-    else -> 15
 }

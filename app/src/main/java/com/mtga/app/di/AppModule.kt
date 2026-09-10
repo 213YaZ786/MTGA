@@ -26,6 +26,7 @@ import com.mtga.app.data.xcom.XComSource
 import com.mtga.app.data.twstalker.TwstalkerParser
 import com.mtga.app.data.twstalker.TwstalkerSource
 import com.mtga.app.feature.accounts.AccountsViewModel
+import com.mtga.app.feature.post.PostDetailViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
 import com.mtga.app.feature.settings.SettingsViewModel
 import com.mtga.app.feature.feed.FeedViewModel
@@ -82,8 +83,9 @@ val appModule = module {
     single { TimelineRepository(get(), get(), get(), get(), get()) }
 
     viewModel { DiagnosticsViewModel(get()) }
-    viewModel { AccountsViewModel(get()) }
+    viewModel { AccountsViewModel(get(), get()) }
+    viewModel { PostDetailViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get()) }
-    viewModel { SettingsViewModel(get(), androidContext()) }
+    viewModel { TimelineViewModel(get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), androidContext()) }
 }

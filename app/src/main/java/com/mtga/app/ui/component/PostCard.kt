@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.mtga.app.core.model.MediaItem
@@ -104,10 +105,10 @@ fun PostCard(
 }
 
 @Composable
-private fun Avatar(url: String?, name: String) {
+internal fun Avatar(url: String?, name: String, size: Dp = 44.dp) {
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(size)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center
@@ -117,7 +118,7 @@ private fun Avatar(url: String?, name: String) {
                 model = url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(size)
             )
         } else {
             Text(
@@ -158,7 +159,7 @@ private fun NameRow(post: Post) {
 }
 
 @Composable
-private fun ContextLine(text: String) {
+internal fun ContextLine(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelMedium,
@@ -167,7 +168,7 @@ private fun ContextLine(text: String) {
 }
 
 @Composable
-private fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int) -> Unit) {
+internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         post.media.forEachIndexed { index, item ->
             Box(
@@ -220,7 +221,7 @@ private fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int
 }
 
 @Composable
-private fun QuoteBlock(handle: String, name: String, text: String, onClick: () -> Unit) {
+internal fun QuoteBlock(handle: String, name: String, text: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
@@ -248,7 +249,7 @@ private fun QuoteBlock(handle: String, name: String, text: String, onClick: () -
 }
 
 @Composable
-private fun LinkCardBlock(
+internal fun LinkCardBlock(
     title: String,
     description: String?,
     destination: String?,
@@ -288,7 +289,7 @@ private fun LinkCardBlock(
 }
 
 @Composable
-private fun StatsRow(stats: com.mtga.app.core.model.PostStats) {
+internal fun StatsRow(stats: com.mtga.app.core.model.PostStats) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         modifier = Modifier.padding(top = 2.dp)
@@ -319,7 +320,7 @@ private fun Stat(icon: androidx.compose.ui.graphics.vector.ImageVector, value: I
     }
 }
 
-private fun Post.contextLine(): String? = when {
+internal fun Post.contextLine(): String? = when {
     isPinned -> "Pinned"
     kind == PostKind.REPOST -> relatedHandle?.let { "Reposted by $it" } ?: "Repost"
     kind == PostKind.REPLY -> relatedHandle?.let { "Replying to @$it" } ?: "Reply"

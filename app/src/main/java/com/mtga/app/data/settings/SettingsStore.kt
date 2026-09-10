@@ -9,13 +9,25 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 @Serializable
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+@Serializable
 data class Settings(
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
     val useXcomDirect: Boolean = true,
     /** Poll followed accounts in the background so history accumulates. */
     val backgroundSync: Boolean = false,
     val syncIntervalMinutes: Int = 60,
-    val syncOnWifiOnly: Boolean = true
+    val syncOnWifiOnly: Boolean = true,
+    /** Home filters. Kept across launches, because a filter is a reading habit. */
+    val homeHideReplies: Boolean = false,
+    val homeHideReposts: Boolean = false,
+    val homeMediaOnly: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** True black instead of dark grey in dark mode. */
+    val pureBlack: Boolean = false,
+    /** Reply, repost, like and view counts under posts. */
+    val showCounts: Boolean = true
 )
 
 /**

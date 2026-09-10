@@ -2,6 +2,7 @@ package com.mtga.app.data.cache
 
 import android.content.Context
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,10 +64,25 @@ class FeedCache(context: Context) {
             posts = (existing.posts + newPosts).sortedByDescending { it.publishedAtMillis },
             displayName = incoming.displayName.ifBlank { existing.displayName },
             avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
+            bio = incoming.bio ?: existing.bio,
             nextCursor = if (exhausted) null else incoming.nextCursor ?: existing.nextCursor
         )
         write(combined)
         combined
+    }
+
+    /**
+     * Finds one stored post. [hint] is the account whose file most likely holds
+     * it. Otherwise every file is scanned, which is a few local reads and only
+     * happens when a post is opened from a place that could not tell.
+     */
+    suspend fun find(id: String, hint: String?): Post? = withContext(Dispatchers.IO) {
+        val wanted = PostId.normalize(id)
+        hint?.let { read(it) }?.posts?.firstOrNull { it.id == wanted }?.let { return@withContext it }
+        directory.listFiles().orEmpty().asSequence()
+            .mapNotNull { file -> runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull() }
+            .map(::canonical)
+            .firstNotNullOfOrNull { feed -> feed.posts.firstOrNull { it.id == wanted } }
     }
 
     suspend fun forget(handle: String) = withContext(Dispatchers.IO) {

@@ -43,15 +43,18 @@ class AccountStore(context: Context) {
     fun remove(handle: String) =
         persist(_accounts.value.filterNot { it.handle.equals(handle, ignoreCase = true) })
 
-    fun updateDisplayName(handle: String, displayName: String) = persist(
-        _accounts.value.map {
-            if (it.handle.equals(handle, ignoreCase = true)) {
-                it.copy(displayName = displayName)
-            } else {
-                it
+    fun updateDisplayName(handle: String, displayName: String) {
+        // Sources that cannot tell send a blank or the handle itself. Neither
+        // should overwrite a real name learned earlier.
+        if (displayName.isBlank() || displayName.equals(handle, ignoreCase = true)) return
+        val current = _accounts.value.firstOrNull { it.handle.equals(handle, ignoreCase = true) } ?: return
+        if (current.displayName == displayName) return
+        persist(
+            _accounts.value.map {
+                if (it.handle.equals(handle, ignoreCase = true)) it.copy(displayName = displayName) else it
             }
-        }
-    )
+        )
+    }
 
     private fun persist(updated: List<FollowedAccount>) {
         _accounts.value = updated

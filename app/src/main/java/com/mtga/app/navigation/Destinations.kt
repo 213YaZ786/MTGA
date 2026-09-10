@@ -9,9 +9,8 @@ enum class TopDestination(
     val label: String,
     val icon: ImageVector
 ) {
-    TIMELINE("timeline", "Timeline", MtgaIcons.Home),
+    TIMELINE("timeline", "Home", MtgaIcons.Home),
     ACCOUNTS("accounts", "Accounts", MtgaIcons.Person),
-    SEARCH("search", "Search", MtgaIcons.Search),
     SETTINGS("settings", "Settings", MtgaIcons.Settings)
 }
 
@@ -21,7 +20,12 @@ object Routes {
     const val FEED_PATTERN = "feed/{handle}"
     const val DEBUG_LOG = "debuglog"
 
+    const val POST_PATTERN = "post/{id}?from={from}"
+
     fun feed(handle: String): String = "feed/$handle"
+
+    /** [from] is the account whose cache holds the post, a lookup hint. */
+    fun post(id: String, from: String): String = "post/$id?from=$from"
 
     val diagnosticsIcon: ImageVector = MtgaIcons.Pulse
 }

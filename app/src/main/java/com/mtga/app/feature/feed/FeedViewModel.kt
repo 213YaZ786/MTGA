@@ -42,7 +42,7 @@ class FeedViewModel(
 
     /**
      * Follows or unfollows the account on screen. A feed can now be opened
-     * from Search without following it, so this is where following happens.
+     * from the Accounts search without following it, so this is where following happens.
      */
     fun toggleFollow() {
         val handle = _state.value.handle
