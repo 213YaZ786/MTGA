@@ -28,7 +28,8 @@ class TimelineRepository(
         val posts: List<Post> = emptyList(),
         val errors: Map<String, AppError> = emptyMap(),
         val fromCache: Boolean = false,
-        val oldestFetchedAtMillis: Long? = null
+        val oldestFetchedAtMillis: Long? = null,
+        val canLoadMore: Boolean = false
     )
 
     /** Instant, offline, no network touched. */
@@ -40,7 +41,8 @@ class TimelineRepository(
         return Merged(
             posts = merge(loaded.flatMap { it.posts }),
             fromCache = true,
-            oldestFetchedAtMillis = loaded.minOfOrNull { it.fetchedAtMillis }
+            oldestFetchedAtMillis = loaded.minOfOrNull { it.fetchedAtMillis },
+            canLoadMore = loaded.any { it.nextCursor != null }
         )
     }
 
@@ -66,20 +68,27 @@ class TimelineRepository(
         val errors = mutableMapOf<String, AppError>()
         val posts = mutableListOf<Post>()
         var oldest: Long? = null
+        var more = false
 
         for ((handle, outcome) in results) {
             when (outcome) {
                 is Outcome.Success -> {
-                    cache.write(outcome.value)
+                    // Merge rather than overwrite, so a refresh does not throw
+                    // away every page the reader already scrolled through.
+                    val merged = cache.append(outcome.value)
                     accounts.updateDisplayName(handle, outcome.value.displayName)
-                    posts += outcome.value.posts
+                    posts += merged.posts
+                    if (merged.nextCursor != null) more = true
                     oldest = minOf(oldest ?: outcome.value.fetchedAtMillis, outcome.value.fetchedAtMillis)
                 }
                 is Outcome.Failure -> {
                     errors[handle] = outcome.error
                     // Keep whatever we already had for this account so one bad
                     // fetch does not blank it out of the merged view.
-                    cache.read(handle)?.let { posts += it.posts }
+                    cache.read(handle)?.let {
+                        posts += it.posts
+                        if (it.nextCursor != null) more = true
+                    }
                 }
             }
         }
@@ -88,7 +97,58 @@ class TimelineRepository(
             posts = merge(posts),
             errors = errors,
             fromCache = false,
-            oldestFetchedAtMillis = oldest
+            oldestFetchedAtMillis = oldest,
+            canLoadMore = more
+        )
+    }
+
+    /**
+     * Extends the merged timeline further back.
+     *
+     * The trick is choosing whom to ask. An account whose oldest loaded post is
+     * recent is the one capping how far back the merged view can honestly go,
+     * so those get paged first. Asking every account for another page instead
+     * would waste requests on accounts that already reach back weeks, and with
+     * one fragile instance in the pool, wasted requests are the scarce resource.
+     */
+    suspend fun loadMore(): Merged = coroutineScope {
+        val handles = accounts.accounts.value.map { it.handle }
+        if (handles.isEmpty()) return@coroutineScope Merged()
+
+        val cached = handles.mapNotNull { cache.read(it) }
+        val blocking = cached
+            .filter { it.nextCursor != null && it.posts.isNotEmpty() }
+            .sortedByDescending { feed -> feed.posts.minOf { it.publishedAtMillis } }
+            .take(MAX_PARALLEL_FETCHES)
+
+        if (blocking.isEmpty()) {
+            return@coroutineScope Merged(
+                posts = merge(cached.flatMap { it.posts }),
+                canLoadMore = false
+            )
+        }
+
+        val gate = Semaphore(MAX_PARALLEL_FETCHES)
+        val errors = mutableMapOf<String, AppError>()
+
+        blocking.map { feed ->
+            async {
+                gate.withPermit { feed.handle to feeds.loadFeed(feed.handle, feed.nextCursor) }
+            }
+        }.map { it.await() }.forEach { (handle, outcome) ->
+            when (outcome) {
+                is Outcome.Success -> cache.append(outcome.value)
+                is Outcome.Failure -> errors[handle] = outcome.error
+            }
+        }
+
+        val refreshed = handles.mapNotNull { cache.read(it) }
+        Merged(
+            posts = merge(refreshed.flatMap { it.posts }),
+            errors = errors,
+            fromCache = false,
+            oldestFetchedAtMillis = refreshed.minOfOrNull { it.fetchedAtMillis },
+            canLoadMore = refreshed.any { it.nextCursor != null }
         )
     }
 
@@ -105,6 +165,6 @@ class TimelineRepository(
 
     private companion object {
         const val MAX_PARALLEL_FETCHES = 3
-        const val MAX_TIMELINE_POSTS = 500
+        const val MAX_TIMELINE_POSTS = 2_000
     }
 }

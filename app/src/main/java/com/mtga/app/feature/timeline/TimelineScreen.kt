@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -18,7 +20,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,7 +89,25 @@ fun TimelineScreen(
                 contentAlignment = Alignment.Center
             ) { CircularProgressIndicator() }
 
-            else -> LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            else -> {
+                val listState = rememberLazyListState()
+
+                // Prefetch a page before the reader actually hits the bottom,
+                // so scrolling stays continuous instead of stalling.
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        last >= state.posts.size - LOAD_MORE_THRESHOLD
+                    }
+                }
+                LaunchedEffect(shouldLoadMore, state.canLoadMore) {
+                    if (shouldLoadMore) viewModel.loadMore()
+                }
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                ) {
                 if (state.errors.isNotEmpty()) {
                     item {
                         PartialFailureNotice(
@@ -102,10 +125,36 @@ fun TimelineScreen(
                         onDownload = { downloader.download(it, post.authorHandle) }
                     )
                 }
+
+                item { TimelineFooter(state = state, onLoadMore = viewModel::loadMore) }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            state.loadingMore -> CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp
+            )
+            state.canLoadMore -> TextButton(onClick = onLoadMore) { Text("Load older posts") }
+            else -> Text(
+                "That is as far back as these instances will go.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private const val LOAD_MORE_THRESHOLD = 5
 
 /**
  * Partial failure is the normal case with a fragile upstream, so it gets a

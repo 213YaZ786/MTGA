@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -15,10 +17,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,9 +96,22 @@ fun FeedScreen(
                 CircularProgressIndicator()
             }
 
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
+            else -> {
+                val listState = rememberLazyListState()
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        last >= feed.posts.size - 5
+                    }
+                }
+                LaunchedEffect(shouldLoadMore, state.canLoadMore) {
+                    if (shouldLoadMore) viewModel.loadMore()
+                }
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(padding)
+                ) {
                 state.error?.let { error ->
                     item {
                         ErrorPanel(
@@ -115,13 +133,26 @@ fun FeedScreen(
                 }
 
                 item {
-                    Text(
-                        modifier = Modifier.padding(16.dp),
-                        text = "Served by ${feed.fetchedFromHost}. This page holds the most " +
-                            "recent posts. Loading further back arrives with cursor paging.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when {
+                            state.loadingMore -> CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                            state.canLoadMore -> TextButton(onClick = viewModel::loadMore) {
+                                Text("Load older posts")
+                            }
+                            else -> Text(
+                                "Served by ${feed.fetchedFromHost}. No older posts available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
                 }
             }
         }

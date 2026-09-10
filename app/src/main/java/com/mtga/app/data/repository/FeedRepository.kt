@@ -22,8 +22,8 @@ class FeedRepository(
     private val rss: RssSource
 ) {
 
-    suspend fun loadFeed(handle: String): Outcome<Feed> {
-        val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle) }
+    suspend fun loadFeed(handle: String, cursor: String? = null): Outcome<Feed> {
+        val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle, cursor) }
         if (viaHtml is Outcome.Success) return viaHtml
 
         val htmlError = (viaHtml as Outcome.Failure).error
@@ -31,7 +31,10 @@ class FeedRepository(
         // Falling back to RSS only helps when the page itself was the problem.
         // If the account is gone or we are offline, RSS says the same thing
         // more slowly.
-        if (!worthTryingRss(htmlError)) return viaHtml
+        // RSS has no concept of paging, so it can only ever stand in for the
+        // first page. Falling back to it while paging would silently restart
+        // the feed from the top.
+        if (cursor != null || !worthTryingRss(htmlError)) return viaHtml
 
         return when (val viaRss = rss.fetchFeed(handle)) {
             is Outcome.Success -> viaRss

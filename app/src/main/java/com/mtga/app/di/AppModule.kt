@@ -60,6 +60,6 @@ val appModule = module {
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get()) }
-    viewModel { FeedViewModel(get(), get()) }
+    viewModel { FeedViewModel(get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get()) }
 }

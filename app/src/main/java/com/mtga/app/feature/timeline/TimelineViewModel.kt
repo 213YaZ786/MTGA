@@ -16,7 +16,9 @@ data class TimelineUiState(
     val loading: Boolean = false,
     val errors: Map<String, AppError> = emptyMap(),
     val followedCount: Int = 0,
-    val lastUpdatedMillis: Long? = null
+    val lastUpdatedMillis: Long? = null,
+    val loadingMore: Boolean = false,
+    val canLoadMore: Boolean = false
 ) {
     val isEmpty: Boolean get() = posts.isEmpty() && !loading
 }
@@ -37,7 +39,8 @@ class TimelineViewModel(
             _state.value = _state.value.copy(
                 posts = cached.posts,
                 followedCount = accounts.accounts.value.size,
-                lastUpdatedMillis = cached.oldestFetchedAtMillis
+                lastUpdatedMillis = cached.oldestFetchedAtMillis,
+                canLoadMore = cached.canLoadMore
             )
             refresh()
         }
@@ -53,7 +56,25 @@ class TimelineViewModel(
                 loading = false,
                 errors = merged.errors,
                 followedCount = accounts.accounts.value.size,
-                lastUpdatedMillis = merged.oldestFetchedAtMillis ?: _state.value.lastUpdatedMillis
+                lastUpdatedMillis = merged.oldestFetchedAtMillis ?: _state.value.lastUpdatedMillis,
+                canLoadMore = merged.canLoadMore
+            )
+        }
+    }
+
+    /** Called when the reader nears the bottom. Idempotent while in flight. */
+    fun loadMore() {
+        val current = _state.value
+        if (current.loadingMore || current.loading || !current.canLoadMore) return
+
+        viewModelScope.launch {
+            _state.value = current.copy(loadingMore = true)
+            val merged = repository.loadMore()
+            _state.value = _state.value.copy(
+                posts = merged.posts,
+                loadingMore = false,
+                canLoadMore = merged.canLoadMore,
+                errors = merged.errors.ifEmpty { _state.value.errors }
             )
         }
     }

@@ -37,6 +37,28 @@ class FeedCache(context: Context) {
         Unit
     }
 
+    /**
+     * Appends a newly fetched page to what is already stored, keeping the newer
+     * cursor. Deduplicated by post id, because Nitter pages overlap at their
+     * boundary and a repeated post breaks LazyColumn's key contract.
+     */
+    suspend fun append(page: Feed): Feed = withContext(Dispatchers.IO) {
+        val existing = read(page.handle)
+        val combined = if (existing == null) {
+            page
+        } else {
+            page.copy(
+                posts = (existing.posts + page.posts)
+                    .distinctBy { it.id }
+                    .sortedByDescending { it.publishedAtMillis },
+                displayName = page.displayName.ifBlank { existing.displayName },
+                avatarUrl = page.avatarUrl ?: existing.avatarUrl
+            )
+        }
+        write(combined)
+        combined
+    }
+
     suspend fun forget(handle: String) = withContext(Dispatchers.IO) {
         runCatching { fileFor(handle).delete() }
         Unit
