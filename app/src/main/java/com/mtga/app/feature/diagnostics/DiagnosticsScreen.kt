@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.present
 import com.mtga.app.data.instances.HealthStatus
 import com.mtga.app.ui.icon.MtgaIcons
@@ -204,6 +206,21 @@ private fun InstanceCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                (row.health?.lastError as? AppError.ParseFailure)?.snippet?.let { snippet ->
+                    Text(
+                        "Page said: $snippet",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceContainerHigh,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(8.dp)
+                    )
+                }
             }
 
             Row(

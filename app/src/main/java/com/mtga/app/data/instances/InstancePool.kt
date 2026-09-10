@@ -253,6 +253,16 @@ class InstancePool(
             appendLine("  latency: ${h?.latencyMillis?.let { "${it}ms" } ?: "n/a"}")
             appendLine("  failures in a row: ${h?.consecutiveFailures ?: 0}")
             appendLine("  last error: ${h?.lastError?.let { it::class.java.simpleName } ?: "none"}")
+            // The snippet is the only thing that distinguishes "our parser is
+            // broken" from "the instance served an error page", so it belongs
+            // in any report a human is going to read or send us.
+            (h?.lastError as? AppError.ParseFailure)?.let { failure ->
+                appendLine("  parser generation: v${failure.selectorSetVersion}")
+                appendLine("  page said: ${failure.snippet ?: "nothing"}")
+            }
+            (h?.lastError as? AppError.FeedGated)?.let { gated ->
+                appendLine("  gate id: ${gated.requestId ?: "unknown"}")
+            }
             appendLine()
         }
     }
