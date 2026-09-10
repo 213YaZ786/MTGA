@@ -1,5 +1,7 @@
 package com.mtga.app.di
 
+import com.mtga.app.core.debug.LogExporter
+import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HttpClientFactory
@@ -34,12 +36,15 @@ val appModule = module {
 
     single(named("appScope")) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
+    single { RequestLog() }
+    single { LogExporter(androidContext()) }
     single { HttpClientFactory.create() }
     single { ConnectivityMonitor(androidContext()) }
     single { MediaDownloader(androidContext()) }
     single { InstanceStore(androidContext()) }
+    single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }
-    single { InstanceProbe(get(), get(), get()) }
+    single { InstanceProbe(get(), get(), get(), get()) }
 
     single {
         InstancePool(
@@ -50,10 +55,9 @@ val appModule = module {
         )
     }
 
-    single { AccountStore(androidContext()) }
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
-    single { HtmlSource(get(), get()) }
+    single { HtmlSource(get(), get(), get()) }
     single { FeedRepository(get(), get(), get()) }
     single { FeedCache(androidContext()) }
     single { TimelineRepository(get(), get(), get()) }

@@ -19,6 +19,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mtga.app.feature.accounts.AccountsScreen
+import com.mtga.app.feature.debug.DebugLogScreen
 import com.mtga.app.feature.diagnostics.DiagnosticsScreen
 import com.mtga.app.feature.feed.FeedScreen
 import com.mtga.app.feature.search.SearchScreen
@@ -78,7 +79,13 @@ fun MtgaApp() {
             }
             composable(TopDestination.SEARCH.route) { SearchScreen() }
             composable(TopDestination.SETTINGS.route) {
-                SettingsScreen(onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) })
+                SettingsScreen(
+                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                    onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) }
+                )
+            }
+            composable(Routes.DEBUG_LOG) {
+                DebugLogScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 route = Routes.FEED_PATTERN,

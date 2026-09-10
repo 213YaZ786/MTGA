@@ -13,8 +13,8 @@ android {
         applicationId = "com.mtga.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.7.2"
+        versionCode = 10
+        versionName = "0.8.0"
         vectorDrawables.useSupportLibrary = true
     }
 

@@ -19,6 +19,7 @@ enum class TopDestination(
 object Routes {
     const val DIAGNOSTICS = "diagnostics"
     const val FEED_PATTERN = "feed/{handle}"
+    const val DEBUG_LOG = "debuglog"
 
     fun feed(handle: String): String = "feed/$handle"
 

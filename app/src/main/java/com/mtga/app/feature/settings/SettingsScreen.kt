@@ -17,7 +17,10 @@ import com.mtga.app.BuildConfig
 import com.mtga.app.ui.icon.MtgaIcons
 
 @Composable
-fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
+fun SettingsScreen(
+    onOpenDiagnostics: () -> Unit,
+    onOpenDebugLog: () -> Unit
+) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
     ) {
@@ -32,6 +35,15 @@ fun SettingsScreen(onOpenDiagnostics: () -> Unit) {
             supportingContent = { Text("Instance health, last errors, connectivity report") },
             leadingContent = { Icon(MtgaIcons.Pulse, contentDescription = null) },
             modifier = Modifier.clickable(onClick = onOpenDiagnostics)
+        )
+
+        ListItem(
+            headlineContent = { Text("Request log") },
+            supportingContent = {
+                Text("Every request and response, copyable and exportable as a text file")
+            },
+            leadingContent = { Icon(MtgaIcons.Download, contentDescription = null) },
+            modifier = Modifier.clickable(onClick = onOpenDebugLog)
         )
 
         ListItem(

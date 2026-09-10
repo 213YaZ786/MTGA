@@ -2,6 +2,7 @@ package com.mtga.app.data.html
 
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
+import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.data.instances.NitterInstance
@@ -25,7 +26,8 @@ import java.nio.charset.StandardCharsets
  */
 class HtmlSource(
     private val client: HttpClient,
-    private val parser: HtmlTimelineParser
+    private val parser: HtmlTimelineParser,
+    private val log: RequestLog
 ) {
 
     suspend fun fetchProfile(
@@ -44,31 +46,83 @@ class HtmlSource(
             }
         }
 
+        val startedAt = System.nanoTime()
+        val kind = if (cursor == null) RequestLog.Kind.PROFILE else RequestLog.Kind.PAGE
+
         try {
             val response = client.get(url) {
                 header("User-Agent", BROWSER_USER_AGENT)
                 header("Accept", "text/html,application/xhtml+xml")
             }
             val body = response.bodyAsText()
+            val elapsed = (System.nanoTime() - startedAt) / 1_000_000
 
-            ErrorMapper.fromResponse(instance.host, response, body, handle)
-                ?.let { return@withContext Outcome.Failure(it) }
+            ErrorMapper.fromResponse(instance.host, response, body, handle)?.let { error ->
+                log.record(
+                    kind = kind,
+                    url = url,
+                    outcome = "HTTP error",
+                    httpStatus = response.status.value,
+                    bodyBytes = body.length,
+                    durationMillis = elapsed,
+                    detail = error::class.java.simpleName
+                )
+                return@withContext Outcome.Failure(error)
+            }
 
             unavailableReason(body)?.let {
+                log.record(
+                    kind = kind,
+                    url = url,
+                    outcome = "account unavailable",
+                    httpStatus = response.status.value,
+                    bodyBytes = body.length,
+                    durationMillis = elapsed,
+                    detail = it
+                )
                 return@withContext Outcome.Failure(AppError.AccountUnavailable(handle, it))
             }
 
             val feed = parser.parse(body, handle, instance.host)
-                ?: return@withContext Outcome.Failure(
+            if (feed == null) {
+                log.record(
+                    kind = kind,
+                    url = url,
+                    outcome = "parse found no posts",
+                    httpStatus = response.status.value,
+                    bodyBytes = body.length,
+                    durationMillis = elapsed,
+                    detail = "timeline-item markers: ${body.split("class=\"timeline-item").size - 1}" +
+                        " | page text: " + plainSummary(body)
+                )
+                return@withContext Outcome.Failure(
                     AppError.ParseFailure(
                         host = instance.host,
                         selectorSetVersion = HtmlTimelineParser.SELECTOR_SET_VERSION,
-                        snippet = body.take(200)
+                        snippet = plainSummary(body)
                     )
                 )
+            }
 
+            log.record(
+                kind = kind,
+                url = url,
+                outcome = "ok",
+                httpStatus = response.status.value,
+                bodyBytes = body.length,
+                durationMillis = elapsed,
+                detail = "posts: ${feed.posts.size} | next cursor: " +
+                    (feed.nextCursor?.take(24)?.plus("...") ?: "NONE FOUND")
+            )
             Outcome.Success(feed)
         } catch (t: Throwable) {
+            log.record(
+                kind = kind,
+                url = url,
+                outcome = "transport failure",
+                durationMillis = (System.nanoTime() - startedAt) / 1_000_000,
+                detail = "${t::class.java.simpleName}: ${t.message}"
+            )
             Outcome.Failure(ErrorMapper.fromThrowable(instance.host, t))
         }
     }
@@ -85,6 +139,22 @@ class HtmlSource(
             "user not found" in lower -> null
             else -> null
         }
+    }
+
+    /** Tags stripped so the log shows what a reader would see, not the doctype. */
+    private fun plainSummary(body: String): String {
+        val text = StringBuilder()
+        var inTag = false
+        for (c in body) {
+            when {
+                c == '<' -> inTag = true
+                c == '>' -> inTag = false
+                !inTag -> text.append(c)
+            }
+            if (text.length > 3_000) break
+        }
+        return text.toString().replace(Regex("\\s+"), " ").trim().take(300)
+            .ifBlank { "empty body" }
     }
 
     companion object {
