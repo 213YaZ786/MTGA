@@ -11,6 +11,8 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Reads a profile page and parses it. This is MTGA's primary source, because
@@ -31,9 +33,15 @@ class HtmlSource(
         handle: String,
         cursor: String? = null
     ): Outcome<Feed> = withContext(Dispatchers.IO) {
+        // Cursors are opaque Nitter tokens containing +, / and =. Concatenating
+        // one raw into a URL means the server sees a space where a plus was and
+        // silently answers with page one, which reads as "loading did nothing".
         val url = buildString {
             append(instance.profileUrlFor(handle))
-            if (!cursor.isNullOrBlank()) append("?cursor=").append(cursor)
+            if (!cursor.isNullOrBlank()) {
+                append("?cursor=")
+                append(URLEncoder.encode(cursor, StandardCharsets.UTF_8.name()))
+            }
         }
 
         try {

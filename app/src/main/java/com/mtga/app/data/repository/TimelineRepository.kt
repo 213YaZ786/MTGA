@@ -137,7 +137,7 @@ class TimelineRepository(
             }
         }.map { it.await() }.forEach { (handle, outcome) ->
             when (outcome) {
-                is Outcome.Success -> cache.append(outcome.value)
+                is Outcome.Success -> cache.append(outcome.value, isPagedFetch = true)
                 is Outcome.Failure -> errors[handle] = outcome.error
             }
         }

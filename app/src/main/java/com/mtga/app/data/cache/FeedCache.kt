@@ -42,19 +42,27 @@ class FeedCache(context: Context) {
      * cursor. Deduplicated by post id, because Nitter pages overlap at their
      * boundary and a repeated post breaks LazyColumn's key contract.
      */
-    suspend fun append(page: Feed): Feed = withContext(Dispatchers.IO) {
+    suspend fun append(page: Feed, isPagedFetch: Boolean = false): Feed = withContext(Dispatchers.IO) {
         val existing = read(page.handle)
-        val combined = if (existing == null) {
-            page
-        } else {
-            page.copy(
-                posts = (existing.posts + page.posts)
-                    .distinctBy { it.id }
-                    .sortedByDescending { it.publishedAtMillis },
-                displayName = page.displayName.ifBlank { existing.displayName },
-                avatarUrl = page.avatarUrl ?: existing.avatarUrl
-            )
+        if (existing == null) {
+            write(page)
+            return@withContext page
         }
+
+        val known = existing.posts.map { it.id }.toSet()
+        val newPosts = page.posts.filterNot { it.id in known }
+
+        // A paged fetch that brings back nothing new means the cursor did not
+        // advance. Continuing would loop forever on the same page, so stop
+        // offering to load more rather than spinning against the instance.
+        val exhausted = isPagedFetch && newPosts.isEmpty()
+
+        val combined = page.copy(
+            posts = (existing.posts + newPosts).sortedByDescending { it.publishedAtMillis },
+            displayName = page.displayName.ifBlank { existing.displayName },
+            avatarUrl = page.avatarUrl ?: existing.avatarUrl,
+            nextCursor = if (exhausted) null else page.nextCursor ?: existing.nextCursor
+        )
         write(combined)
         combined
     }

@@ -75,7 +75,7 @@ class FeedViewModel(
             _state.value = current.copy(loadingMore = true)
             when (val outcome = repository.loadFeed(current.handle, cursor)) {
                 is Outcome.Success -> {
-                    val merged = cache.append(outcome.value)
+                    val merged = cache.append(outcome.value, isPagedFetch = true)
                     _state.value = _state.value.copy(feed = merged, loadingMore = false)
                 }
                 is Outcome.Failure -> _state.value = _state.value.copy(
