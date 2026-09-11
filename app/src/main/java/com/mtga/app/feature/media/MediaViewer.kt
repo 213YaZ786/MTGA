@@ -1,5 +1,9 @@
 package com.mtga.app.feature.media
 
+import androidx.compose.foundation.layout.size
+import com.mtga.app.ui.component.rememberMediaPolicy
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -240,16 +244,21 @@ private fun ZoomableImage(url: String, onZoomChanged: (Boolean) -> Unit) {
 private fun VideoPage(item: MediaItem, active: Boolean) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val policy = rememberMediaPolicy()
+    val isGif = item.type == MediaType.GIF
     var failed by remember(item.downloadUrl) { mutableStateOf(false) }
+
+    // On mobile data with Wi-Fi only on, nothing is fetched until the reader
+    // taps play. Otherwise the player prepares as soon as the page exists.
+    var started by remember(item.downloadUrl) { mutableStateOf(!policy.hold) }
+    var tappedPlay by remember(item.downloadUrl) { mutableStateOf(false) }
+    // GIFs have no sound. Videos follow the setting, and the button below.
+    var muted by remember(item.downloadUrl) { mutableStateOf(isGif || policy.startMuted) }
 
     val exo = remember(item.downloadUrl) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(PlayableItem.fromUri(item.downloadUrl))
-            if (item.type == MediaType.GIF) {
-                repeatMode = Player.REPEAT_MODE_ALL
-                volume = 0f
-            }
-            prepare()
+            if (isGif) repeatMode = Player.REPEAT_MODE_ALL
         }
     }
 
@@ -266,8 +275,20 @@ private fun VideoPage(item: MediaItem, active: Boolean) {
         }
     }
 
-    LifecycleResumeEffect(exo, active) {
-        if (active) exo.play()
+    LaunchedEffect(exo, started) {
+        if (started && exo.playbackState == Player.STATE_IDLE) exo.prepare()
+    }
+
+    LaunchedEffect(exo, muted) {
+        exo.volume = if (muted) 0f else 1f
+    }
+
+    // GIFs always loop. Videos start alone only when autoplay is on, or when
+    // the reader just tapped play. With autoplay off the controls' own play
+    // button does the rest.
+    val playsAlone = isGif || policy.autoplay || tappedPlay
+    LifecycleResumeEffect(exo, active, started, playsAlone) {
+        if (active && started && playsAlone) exo.play()
         onPauseOrDispose { exo.pause() }
     }
 
@@ -282,7 +303,10 @@ private fun VideoPage(item: MediaItem, active: Boolean) {
                 Text("Open in browser")
             }
         }
-    } else {
+        return
+    }
+
+    Box(Modifier.fillMaxSize()) {
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
@@ -292,6 +316,54 @@ private fun VideoPage(item: MediaItem, active: Boolean) {
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        if (!started) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(
+                    onClick = {
+                        started = true
+                        tappedPlay = true
+                    },
+                    modifier = Modifier
+                        .size(72.dp)
+                        .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                ) {
+                    Icon(
+                        MtgaIcons.Play,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                Text(
+                    "Mobile data, Wi-Fi only is on",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        }
+
+        if (!isGif) {
+            // Below the viewer's own top bar, clear of the player controls.
+            IconButton(
+                onClick = { muted = !muted },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .systemBarsPadding()
+                    .padding(top = 52.dp, end = 8.dp)
+                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+            ) {
+                Icon(
+                    if (muted) MtgaIcons.VolumeOff else MtgaIcons.VolumeOn,
+                    contentDescription = if (muted) "Turn sound on" else "Mute",
+                    tint = Color.White
+                )
+            }
+        }
     }
 }
 

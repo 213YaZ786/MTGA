@@ -43,6 +43,7 @@ class HtmlTimelineParser {
         val ordered = parsed.filter { it.isPinned } +
             parsed.filterNot { it.isPinned }.sortedByDescending { it.publishedAtMillis }
 
+        val card = ProfileCardParser.parse(html, host)
         return Feed(
             handle = handle,
             displayName = extractProfileName(html) ?: handle,
@@ -51,7 +52,12 @@ class HtmlTimelineParser {
             fetchedAtMillis = System.currentTimeMillis(),
             avatarUrl = extractProfileAvatar(html, host),
             bio = extractProfileBio(html),
-            nextCursor = extractCursor(html)
+            nextCursor = extractCursor(html),
+            bannerUrl = card.bannerUrl,
+            location = card.location,
+            website = card.website,
+            joined = card.joined,
+            stats = card.stats
         )
     }
 

@@ -1,7 +1,16 @@
 package com.mtga.app.feature.settings
 
 import com.mtga.app.ui.component.LocalDockPadding
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
+import android.content.pm.verify.domain.DomainVerificationManager
+import android.content.pm.verify.domain.DomainVerificationUserState
+import android.net.Uri
 import android.text.format.Formatter
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,9 +48,22 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
 import com.mtga.app.data.settings.ThemeMode
+import com.mtga.app.ui.theme.TEXT_SCALES
+import com.mtga.app.ui.theme.textScaleLabel
 import org.koin.androidx.compose.koinViewModel
 
-private enum class OpenDialog { NONE, THEME, FREQUENCY, CLEAR }
+private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR }
+
+private val KEEP_DAYS = listOf(7, 30, 90, 365, 0)
+
+private fun keepLabel(days: Int): String = when (days) {
+    0 -> "Forever"
+    7 -> "One week"
+    30 -> "One month"
+    90 -> "Three months"
+    365 -> "One year"
+    else -> "$days days"
+}
 
 /**
  * Settings, grouped by what people come here to change. Every description
@@ -57,9 +79,32 @@ fun SettingsScreen(
     val storageBytes by viewModel.storageBytes.collectAsState()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+
+    // Changed in system settings, so read again each time the screen returns.
+    var xLinksOn by remember { mutableStateOf(xLinksEnabled(context)) }
+    LifecycleResumeEffect(Unit) {
+        xLinksOn = xLinksEnabled(context)
+        onPauseOrDispose { }
+    }
     var dialog by remember { mutableStateOf(OpenDialog.NONE) }
 
     LaunchedEffect(Unit) { viewModel.measureStorage() }
+
+    // The system file picker, so no storage permission is ever needed.
+    val exporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let(viewModel::exportAccounts) }
+    val importer = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::importAccounts) }
+
+    val message by viewModel.message.collectAsState()
+    LaunchedEffect(message) {
+        message?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            viewModel.messageShown()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -89,6 +134,44 @@ fun SettingsScreen(
                 checked = settings.showCounts,
                 onChange = viewModel::setShowCounts
             )
+            SettingRow(
+                title = "Text size",
+                summary = textScaleLabel(settings.textScale) + ", on top of Android's font size",
+                onClick = { dialog = OpenDialog.TEXT_SIZE }
+            )
+            SwitchRow(
+                title = "Compact posts",
+                summary = "Tighter spacing, smaller avatars and shorter pictures. More posts on screen.",
+                checked = settings.compactPosts,
+                onChange = viewModel::setCompactPosts
+            )
+            SwitchRow(
+                title = "Square avatars",
+                summary = "Rounded squares instead of circles.",
+                checked = settings.squareAvatars,
+                onChange = viewModel::setSquareAvatars
+            )
+        }
+
+        Section("Media") {
+            SwitchRow(
+                title = "Media on Wi-Fi only",
+                summary = "On mobile data, pictures and videos wait for a tap. Avatars still load.",
+                checked = settings.mediaOnWifiOnly,
+                onChange = viewModel::setMediaOnWifiOnly
+            )
+            SwitchRow(
+                title = "Play videos automatically",
+                summary = "Videos start when opened. GIFs always loop.",
+                checked = settings.autoplayVideos,
+                onChange = viewModel::setAutoplayVideos
+            )
+            SwitchRow(
+                title = "Start videos muted",
+                summary = "Sound stays off until you tap the speaker.",
+                checked = settings.startMuted,
+                onChange = viewModel::setStartMuted
+            )
         }
 
         Section("Reading") {
@@ -98,6 +181,16 @@ fun SettingsScreen(
                     "X can see your IP address while this is on.",
                 checked = settings.useXcomDirect,
                 onChange = viewModel::setXcomDirect
+            )
+            SettingRow(
+                title = "Open X links in MTGA",
+                summary = if (xLinksOn) {
+                    "On. x.com and twitter.com links open here."
+                } else {
+                    "Off. Turn on \"Open supported links\" and add the x.com and " +
+                        "twitter.com links. Sharing a link to MTGA works either way."
+                },
+                onClick = { openLinkSettings(context) }
             )
         }
 
@@ -123,7 +216,23 @@ fun SettingsScreen(
             )
         }
 
-        Section("Storage") {
+        Section("Data") {
+            SettingRow(
+                title = "Keep posts",
+                summary = keepLabel(settings.keepPostsDays) +
+                    ". Older posts can still be read by scrolling back.",
+                onClick = { dialog = OpenDialog.KEEP }
+            )
+            SettingRow(
+                title = "Export accounts",
+                summary = "Save the accounts you follow to a file. Fritter and Squawker can read it.",
+                onClick = { exporter.launch("mtga-accounts.json") }
+            )
+            SettingRow(
+                title = "Import accounts",
+                summary = "From an MTGA, Fritter or Squawker export, or a text file of handles.",
+                onClick = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
+            )
             SettingRow(
                 title = "Saved posts",
                 summary = storageBytes?.let {
@@ -178,6 +287,20 @@ fun SettingsScreen(
             options = ThemeMode.entries.map { it to themeLabel(it) },
             selected = settings.themeMode,
             onSelect = viewModel::setTheme,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
+        OpenDialog.TEXT_SIZE -> ChoiceDialog(
+            title = "Text size",
+            options = TEXT_SCALES.map { it to textScaleLabel(it) },
+            selected = settings.textScale,
+            onSelect = viewModel::setTextScale,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
+        OpenDialog.KEEP -> ChoiceDialog(
+            title = "Keep posts",
+            options = KEEP_DAYS.map { it to keepLabel(it) },
+            selected = settings.keepPostsDays,
+            onSelect = viewModel::setKeepPostsDays,
             onDismiss = { dialog = OpenDialog.NONE }
         )
         OpenDialog.FREQUENCY -> ChoiceDialog(
@@ -311,4 +434,28 @@ private fun intervalLabel(minutes: Int): String = when {
     minutes < 60 -> "Every $minutes minutes"
     minutes == 60 -> "Every hour"
     else -> "Every ${minutes / 60} hours"
+}
+
+/**
+ * Whether Android sends x.com links to MTGA. They can only be enabled by the
+ * reader, since only X could verify the domain, so this reads the reader's
+ * choice rather than a verification.
+ */
+private fun xLinksEnabled(context: Context): Boolean {
+    val manager = context.getSystemService(DomainVerificationManager::class.java) ?: return false
+    val state = runCatching { manager.getDomainVerificationUserState(context.packageName) }
+        .getOrNull() ?: return false
+    if (!state.isLinkHandlingAllowed) return false
+    val xState = state.hostToStateMap["x.com"]
+    return xState == DomainVerificationUserState.DOMAIN_STATE_SELECTED ||
+        xState == DomainVerificationUserState.DOMAIN_STATE_VERIFIED
+}
+
+/** The system screen where supported links are switched on for this app. */
+private fun openLinkSettings(context: Context) {
+    val intent = Intent(
+        android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+        Uri.parse("package:${context.packageName}")
+    )
+    runCatching { context.startActivity(intent) }
 }

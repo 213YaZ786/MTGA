@@ -28,7 +28,8 @@ object Routes {
     fun feed(handle: String): String = "feed/$handle"
 
     /** [from] is the account whose cache holds the post, a lookup hint. */
-    fun post(id: String, from: String): String = "post/$id?from=$from"
+    fun post(id: String, from: String?): String =
+        if (from.isNullOrBlank()) "post/$id" else "post/$id?from=$from"
 
     val diagnosticsIcon: ImageVector = MtgaIcons.Pulse
 }

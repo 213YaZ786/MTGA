@@ -9,6 +9,8 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.repository.FeedRepository
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.xcom.SyndicationSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,7 +39,9 @@ data class PostDetailUiState(
 class PostDetailViewModel(
     private val cache: FeedCache,
     private val repository: FeedRepository,
-    private val solver: ChallengeSolver
+    private val solver: ChallengeSolver,
+    private val syndication: SyndicationSource,
+    private val settings: SettingsStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PostDetailUiState())
@@ -51,7 +55,12 @@ class PostDetailViewModel(
         loadedId = id
         hint = from
         viewModelScope.launch {
+            // A post opened from a link is usually not on the phone. X's embed
+            // endpoint returns it in one quick request, and it also names the
+            // author, which a /i/web/status link does not. Only when reading
+            // from X is switched on, since X sees the request.
             val known = cache.find(id, from) ?: RecentPosts.get(id)
+                ?: if (settings.current.useXcomDirect) syndication.fetchPost(id) else null
             _state.value = PostDetailUiState(post = known, lookingUp = false, thread = ThreadState.Loading)
             fetchThread()
         }
@@ -72,7 +81,14 @@ class PostDetailViewModel(
 
     private suspend fun fetchThread() {
         val id = loadedId ?: return
-        val handle = _state.value.post?.authorHandle ?: hint ?: return
+        val handle = _state.value.post?.authorHandle ?: hint?.takeIf { it.isNotBlank() }
+        if (handle == null) {
+            // Nitter needs the author in the address, and nothing named one.
+            _state.value = _state.value.copy(
+                thread = ThreadState.Failed(AppError.Unknown("this link does not name the author"))
+            )
+            return
+        }
         when (val outcome = repository.loadConversation(handle, id)) {
             is Outcome.Success -> {
                 val conversation = outcome.value

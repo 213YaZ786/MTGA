@@ -1,6 +1,15 @@
 package com.mtga.app.feature.feed
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import com.mtga.app.ui.component.rememberMediaPolicy
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,12 +25,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -46,6 +56,7 @@ import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ErrorPanel
@@ -96,16 +107,21 @@ fun FeedScreen(
 
     LaunchedEffect(handle) { viewModel.load(handle) }
 
-    if (feed != null) {
-        val shouldLoadMore by remember(feed.posts.size) {
-            derivedStateOf {
-                val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                last >= feed.posts.size - 5
-            }
+    val tab = state.tab
+    val tabFeed = state.tabFeed(tab)
+    val shown = if (tab == ProfileTab.POSTS) feed?.posts.orEmpty() else tabFeed.posts
+    val canMore = if (tab == ProfileTab.POSTS) state.canLoadMore else tabFeed.cursor != null
+    val pagingFailed = if (tab == ProfileTab.POSTS) state.pagingFailed else tabFeed.pagingFailed
+    val loadingMore = if (tab == ProfileTab.POSTS) state.loadingMore else tabFeed.loadingMore
+
+    val shouldLoadMore by remember(shown.size, tab) {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            shown.isNotEmpty() && last >= shown.size - 5
         }
-        LaunchedEffect(shouldLoadMore, state.canLoadMore, state.pagingFailed) {
-            if (shouldLoadMore) viewModel.loadMore()
-        }
+    }
+    LaunchedEffect(shouldLoadMore, canMore, pagingFailed, tab) {
+        if (shouldLoadMore) viewModel.loadMore()
     }
 
     Scaffold(
@@ -152,11 +168,24 @@ fun FeedScreen(
                 )
             }
 
-            state.error?.let { error ->
-                item(key = "error") {
+            item(key = "tabs") {
+                SecondaryTabRow(selectedTabIndex = tab.ordinal) {
+                    ProfileTab.entries.forEach { entry ->
+                        Tab(
+                            selected = entry == tab,
+                            onClick = { viewModel.selectTab(entry) },
+                            text = { Text(entry.label) }
+                        )
+                    }
+                }
+            }
+
+            val error = if (tab == ProfileTab.POSTS) state.error else tabFeed.error
+            error?.let {
+                item(key = "error-${tab.name}") {
                     ErrorPanel(
                         modifier = Modifier.padding(16.dp),
-                        error = error,
+                        error = it,
                         onRetry = viewModel::refresh,
                         onOpenDiagnostics = onOpenDiagnostics,
                         onVerify = viewModel::verify
@@ -164,25 +193,37 @@ fun FeedScreen(
                 }
             }
 
-            if (feed == null) {
-                if (state.loading) {
-                    item(key = "loading") {
+            val firstLoad = if (tab == ProfileTab.POSTS) feed == null && state.loading else tabFeed.loading
+            if (shown.isEmpty()) {
+                if (firstLoad) {
+                    item(key = "loading-${tab.name}") {
                         Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
+                    }
+                } else if (tab != ProfileTab.POSTS && tabFeed.loaded && error == null) {
+                    item(key = "empty-${tab.name}") {
+                        Text(
+                            if (tab == ProfileTab.MEDIA) "No photos or videos." else "No replies.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(32.dp)
+                        )
                     }
                 }
                 return@LazyColumn
             }
 
-            items(feed.posts, key = { it.id }) { post ->
+            // Keys carry the tab, the same post can sit in two tabs.
+            items(shown, key = { "${tab.name}-${it.id}" }) { post ->
                 PostCard(
                     post = post,
                     onClick = { onOpenPost(post) },
                     onOpenLink = { uriHandler.openUri(it) },
                     onDownload = { downloader.download(it, post.authorHandle) },
                     showStats = settings.showCounts,
-                            onOpenMedia = { index -> viewing = post.media to index }
+                    onOpenMedia = { index -> viewing = post.media to index }
                 )
             }
 
@@ -192,12 +233,12 @@ fun FeedScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     when {
-                        state.loadingMore -> CircularProgressIndicator(
+                        loadingMore -> CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp
                         )
-                        state.canLoadMore -> TextButton(onClick = { viewModel.loadMore(manual = true) }) {
-                            Text(if (state.pagingFailed) "Try again" else "Load older posts")
+                        canMore -> TextButton(onClick = { viewModel.loadMore(manual = true) }) {
+                            Text(if (pagingFailed) "Try again" else "Load older posts")
                         }
                         else -> Text(
                             "No older posts available.",
@@ -220,11 +261,28 @@ private fun ProfileHeader(
     onToggleFollow: () -> Unit,
     onOpenAvatar: (String) -> Unit
 ) {
+    val uriHandler = LocalUriHandler.current
+    val hold = rememberMediaPolicy().hold
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        // The banner is a picture like any other, so Wi-Fi only holds it too.
+        val banner = feed?.bannerUrl
+        if (banner != null && !hold) {
+            AsyncImage(
+                model = banner,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(3f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            )
+        }
+
         val avatar = feed?.avatarUrl
         Box(
             Modifier
@@ -257,6 +315,41 @@ private fun ProfileHeader(
             )
         }
 
+        val meta = listOfNotNull(feed?.location, feed?.joined).joinToString(" · ")
+        if (meta.isNotEmpty()) {
+            Text(
+                meta,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+        feed?.website?.let { site ->
+            Text(
+                site.removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/'),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { uriHandler.openUri(site) }
+            )
+        }
+        feed?.stats?.let { stats ->
+            val parts = listOfNotNull(
+                stats.posts?.let { "${compactCount(it)} posts" },
+                stats.following?.let { "${compactCount(it)} following" },
+                stats.followers?.let { "${compactCount(it)} followers" }
+            )
+            if (parts.isNotEmpty()) {
+                Text(
+                    parts.joinToString(" · "),
+                    style = MaterialTheme.typography.labelLarge,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+
         if (isFollowing) {
             OutlinedButton(onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Following")
@@ -276,7 +369,18 @@ private fun ProfileHeader(
             )
         }
 
-        HorizontalDivider(Modifier.padding(top = 12.dp))
+        // The tab row right under the header draws its own line.
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+/** 870, 12,345, 566K, 53.2M: exact while short, rounded once it would not fit. */
+private fun compactCount(value: Long): String = when {
+    value < 10_000 -> String.format(Locale.getDefault(), "%,d", value)
+    value < 1_000_000 -> "${value / 1_000}K"
+    else -> {
+        val millions = value / 100_000 / 10.0
+        String.format(Locale.getDefault(), "%.1fM", millions).replace(".0M", "M").replace(",0M", "M")
     }
 }
 

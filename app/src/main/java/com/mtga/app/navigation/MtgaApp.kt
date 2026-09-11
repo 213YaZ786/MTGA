@@ -10,7 +10,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
+import androidx.navigation.NavHostController
+import com.mtga.app.core.link.LinkRouter
+import com.mtga.app.core.link.XLink
+import org.koin.compose.koinInject
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -38,7 +48,44 @@ import kotlinx.coroutines.launch
 @Composable
 fun MtgaApp() {
     val navController = rememberNavController()
+    val links: LinkRouter = koinInject()
+    val pending by links.pending.collectAsState()
+    val platformUris = LocalUriHandler.current
 
+    fun show(link: XLink) {
+        when (link) {
+            is XLink.Profile -> navController.navigate(Routes.feed(link.handle))
+            is XLink.Post -> navController.navigate(Routes.post(link.id, link.handle))
+        }
+    }
+
+    // Links from other apps, dropped off by the activity.
+    LaunchedEffect(pending) {
+        pending?.let {
+            show(it)
+            links.consume()
+        }
+    }
+
+    // Every tap on a link inside the app goes through here. X profiles and
+    // posts, and Nitter or twstalker links to them, open in MTGA. Anything
+    // else goes to the browser as before.
+    val uris = remember(platformUris) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                val link = links.parse(uri)
+                if (link != null) show(link) else platformUris.openUri(uri)
+            }
+        }
+    }
+
+    CompositionLocalProvider(LocalUriHandler provides uris) {
+        MtgaNavHost(navController)
+    }
+}
+
+@Composable
+private fun MtgaNavHost(navController: NavHostController) {
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { innerPadding ->
         NavHost(
             navController = navController,

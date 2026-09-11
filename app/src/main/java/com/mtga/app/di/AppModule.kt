@@ -9,6 +9,7 @@ import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.core.web.ChallengeGateway
 import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.core.web.WebSession
+import com.mtga.app.core.link.LinkRouter
 import com.mtga.app.data.instances.InstanceDirectory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
@@ -64,6 +65,7 @@ val appModule = module {
     single { InstanceProbe(get(), get(), get(), get()) }
 
     single { InstanceDirectory(get(), get()) }
+    single { LinkRouter(get()) }
 
     single {
         InstancePool(
@@ -81,7 +83,10 @@ val appModule = module {
     single { TwstalkerParser() }
     single { TwstalkerSource(get(), get(), get(), get(), get()) }
     single { FeedRepository(get(), get(), get(), get(), get(), get()) }
-    single { FeedCache(androidContext()) }
+    single {
+        val settings: SettingsStore = get()
+        FeedCache(androidContext()) { settings.current.keepPostsDays }
+    }
     single { SettingsStore(androidContext()) }
     single { SyndicationSource(get(), get()) }
     single { XComSource(get(), get(), get(), get()) }
@@ -89,9 +94,9 @@ val appModule = module {
 
     viewModel { DiagnosticsViewModel(get(), get(), get(), get()) }
     viewModel { AccountsViewModel(get(), get()) }
-    viewModel { PostDetailViewModel(get(), get(), get()) }
+    viewModel { PostDetailViewModel(get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), androidContext()) }
+    viewModel { SettingsViewModel(get(), get(), get(), androidContext()) }
 }

@@ -6,6 +6,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -14,6 +16,8 @@ fun MtgaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     pureBlack: Boolean = false,
+    textScale: Float = 1f,
+    display: DisplayPrefs = DisplayPrefs(),
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -36,9 +40,9 @@ fun MtgaTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colors,
-        typography = MtgaTypography,
-        content = content
-    )
+    val typography = remember(textScale) { MtgaTypography.scaled(textScale) }
+
+    MaterialTheme(colorScheme = colors, typography = typography) {
+        CompositionLocalProvider(LocalDisplayPrefs provides display, content = content)
+    }
 }

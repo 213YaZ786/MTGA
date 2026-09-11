@@ -1,7 +1,11 @@
 package com.mtga.app
 
 import android.app.Application
+import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import org.koin.core.qualifier.named
 import com.mtga.app.di.appModule
 import com.mtga.app.sync.SyncWorker
 import org.koin.android.ext.koin.androidContext
@@ -21,7 +25,11 @@ class MtgaApplication : Application() {
         // WorkManager survives reboots, but re-applying on launch keeps the
         // schedule honest after an app update or a settings change made while
         // the worker was cancelled.
-        val settings = org.koin.core.context.GlobalContext.get().get<SettingsStore>()
+        val koin = org.koin.core.context.GlobalContext.get()
+        // Old posts go at launch, not only when their account is next fetched.
+        koin.get<CoroutineScope>(named("appScope")).launch { koin.get<FeedCache>().applyRetention() }
+
+        val settings = koin.get<SettingsStore>()
         if (settings.current.backgroundSync) {
             SyncWorker.schedule(
                 this,

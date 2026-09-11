@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import com.mtga.app.ui.theme.LocalDisplayPrefs
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,6 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,23 +56,28 @@ fun PostCard(
     showStats: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val compact = LocalDisplayPrefs.current.compact
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface
     ) {
         Column(
-            Modifier.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            Modifier.clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = if (compact) 7.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
             post.contextLine()?.let { ContextLine(it) }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Avatar(post.avatarUrl, post.authorName)
+                Avatar(post.avatarUrl, post.authorName, size = if (compact) 36.dp else 44.dp)
 
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
+                ) {
                     NameRow(post)
 
                     if (post.text.isNotBlank()) {
@@ -106,10 +116,11 @@ fun PostCard(
 
 @Composable
 internal fun Avatar(url: String?, name: String, size: Dp = 44.dp) {
+    val shape = if (LocalDisplayPrefs.current.squareAvatars) RoundedCornerShape(size * 0.22f) else CircleShape
     Box(
         modifier = Modifier
             .size(size)
-            .clip(CircleShape)
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center
     ) {
@@ -167,23 +178,64 @@ internal fun ContextLine(text: String) {
     )
 }
 
+/** Stands in for a picture or video that waits for a tap on mobile data. */
+@Composable
+private fun HeldMedia(type: MediaType, modifier: Modifier) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            if (type == MediaType.PHOTO) MtgaIcons.Download else MtgaIcons.Play,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            when (type) {
+                MediaType.PHOTO -> "Photo, tap to load"
+                MediaType.GIF -> "GIF, tap to load"
+                MediaType.VIDEO -> "Video, tap to load"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            "Mobile data, Wi-Fi only is on",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 @Composable
 internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int) -> Unit) {
+    // Compact trades some picture for a list that moves faster.
+    val ratio = if (LocalDisplayPrefs.current.compact) 2f else 16f / 9f
+    val hold = rememberMediaPolicy().hold
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         post.media.forEachIndexed { index, item ->
+            // Wi-Fi only on a metered network: nothing is fetched until the
+            // reader taps. One tap loads the preview, the next opens it.
+            var revealed by remember(item.previewUrl) { mutableStateOf(false) }
+            val waiting = hold && !revealed
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .clickable { onOpen(index) }
+                    .clickable { if (waiting) revealed = true else onOpen(index) }
             ) {
-                AsyncImage(
-                    model = item.previewUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                )
+                if (waiting) {
+                    HeldMedia(item.type, Modifier.fillMaxWidth().aspectRatio(ratio))
+                } else {
+                    AsyncImage(
+                        model = item.previewUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
+                    )
+                }
 
                 if (item.type != MediaType.PHOTO) {
                     Text(

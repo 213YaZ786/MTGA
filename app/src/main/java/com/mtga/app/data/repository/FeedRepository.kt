@@ -4,6 +4,7 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
@@ -40,6 +41,13 @@ class FeedRepository(
     /** A post's conversation, from whichever Nitter server is healthy. Never cached. */
     suspend fun loadConversation(handle: String, id: String): Outcome<Conversation> =
         pool.withInstance { instance -> html.fetchConversation(instance, handle, id) }
+
+    /**
+     * The Replies or Media tab of a profile. Nitter only, since neither x.com's
+     * logged out page nor twstalker offers them. Never cached.
+     */
+    suspend fun loadTab(handle: String, tab: ProfileTab, cursor: String? = null): Outcome<Feed> =
+        pool.withInstance { instance -> html.fetchProfile(instance, handle, cursor, tab) }
 
     suspend fun loadFeed(handle: String, cursor: String? = null): Outcome<Feed> {
         // A twstalker cursor can only be continued by twstalker. Cursors are not

@@ -40,6 +40,21 @@ class AccountStore(context: Context) {
         return true
     }
 
+    /**
+     * Follows every valid handle not already followed, in one write. Returns
+     * how many were new. Used by import, where fifty separate writes would
+     * also mean fifty separate list updates for Home to react to.
+     */
+    fun addAll(rawHandles: List<String>): Int {
+        val known = _accounts.value.map { it.handle.lowercase() }.toMutableSet()
+        val now = System.currentTimeMillis()
+        val fresh = rawHandles.mapNotNull(FollowedAccount::normalise)
+            .filter { known.add(it.lowercase()) }
+            .map { FollowedAccount(handle = it, addedAtMillis = now) }
+        if (fresh.isNotEmpty()) persist(_accounts.value + fresh)
+        return fresh.size
+    }
+
     fun remove(handle: String) =
         persist(_accounts.value.filterNot { it.handle.equals(handle, ignoreCase = true) })
 

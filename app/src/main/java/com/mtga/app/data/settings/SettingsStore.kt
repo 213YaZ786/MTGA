@@ -28,6 +28,21 @@ data class Settings(
     val pureBlack: Boolean = false,
     /** Reply, repost, like and view counts under posts. */
     val showCounts: Boolean = true,
+    /** Multiplier on every text style, one of the steps in ui.theme.TEXT_SCALES. */
+    val textScale: Float = 1f,
+    val compactPosts: Boolean = false,
+    val squareAvatars: Boolean = false,
+    /** Videos open silent. GIFs are always silent, they have no sound. */
+    val startMuted: Boolean = false,
+    /** Videos start by themselves when opened. GIFs always loop. */
+    val autoplayVideos: Boolean = true,
+    /**
+     * On a metered network, pictures and videos wait for a tap. Off by
+     * default: it is a data saver the reader chooses to impose.
+     */
+    val mediaOnWifiOnly: Boolean = false,
+    /** Saved posts older than this many days are dropped. 0 keeps everything. */
+    val keepPostsDays: Int = 0,
     /**
      * twstalker as the last fallback. Off by default: it shows ads and runs
      * analytics, so it learns which accounts are read. The person decides.

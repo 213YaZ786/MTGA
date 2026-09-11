@@ -5,6 +5,7 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.web.ChallengeGateway
@@ -37,17 +38,21 @@ class HtmlSource(
     suspend fun fetchProfile(
         instance: NitterInstance,
         handle: String,
-        cursor: String? = null
+        cursor: String? = null,
+        tab: ProfileTab = ProfileTab.POSTS
     ): Outcome<Feed> = withContext(Dispatchers.IO) {
         // Cursors are opaque Nitter tokens containing +, / and =. Concatenating
         // one raw into a URL means the server sees a space where a plus was and
         // silently answers with page one, which reads as "loading did nothing".
         val url = buildString {
             append(instance.profileUrlFor(handle))
-            if (!cursor.isNullOrBlank()) {
-                append("?cursor=")
-                append(URLEncoder.encode(cursor, StandardCharsets.UTF_8.name()))
-            }
+            append(tab.path)
+            val params = listOfNotNull(
+                tab.query,
+                cursor?.takeIf { it.isNotBlank() }
+                    ?.let { "cursor=" + URLEncoder.encode(it, StandardCharsets.UTF_8.name()) }
+            )
+            if (params.isNotEmpty()) append("?").append(params.joinToString("&"))
         }
 
         val startedAt = System.nanoTime()

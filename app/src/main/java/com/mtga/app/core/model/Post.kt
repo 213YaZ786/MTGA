@@ -83,8 +83,36 @@ data class Feed(
     val fetchedAtMillis: Long,
     val avatarUrl: String? = null,
     val bio: String? = null,
-    val nextCursor: String? = null
+    val nextCursor: String? = null,
+    /** Profile card details. Only Nitter pages carry them, other sources leave them null. */
+    val bannerUrl: String? = null,
+    val location: String? = null,
+    val website: String? = null,
+    /** As Nitter words it, for example "Joined March 2007". */
+    val joined: String? = null,
+    val stats: ProfileStats? = null
 )
+
+/** The numbers on a profile card. Any may be missing. */
+@Serializable
+data class ProfileStats(
+    val posts: Long? = null,
+    val following: Long? = null,
+    val followers: Long? = null,
+    val likes: Long? = null
+)
+
+/**
+ * The tabs of a profile, mapped to Nitter's own paths. Posts is the cached,
+ * multi source feed. Replies and Media are read from Nitter only, fresh, and
+ * never saved, like a conversation.
+ */
+enum class ProfileTab(val label: String, val path: String, val query: String?) {
+    POSTS("Posts", "", null),
+    REPLIES("Replies", "/with_replies", null),
+    // Forced to the timeline view, the grid and gallery views have no post markup.
+    MEDIA("Media", "/media", "view=timeline")
+}
 
 /**
  * A post with its surroundings, as read from its own page. Not cached: replies

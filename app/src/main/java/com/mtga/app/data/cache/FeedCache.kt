@@ -21,7 +21,11 @@ import java.io.File
  * under storage pressure and an offline reader that loses its content when the
  * phone gets full is not much of an offline reader.
  */
-class FeedCache(context: Context) {
+class FeedCache(
+    context: Context,
+    /** Days to keep saved posts, 0 for no limit. Read at each write. */
+    private val retentionDays: () -> Int = { 0 }
+) {
 
     private val directory = File(context.filesDir, "feeds").apply { mkdirs() }
     private val json = Json { ignoreUnknownKeys = true }
@@ -65,6 +69,11 @@ class FeedCache(context: Context) {
             displayName = incoming.displayName.ifBlank { existing.displayName },
             avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
             bio = incoming.bio ?: existing.bio,
+            bannerUrl = incoming.bannerUrl ?: existing.bannerUrl,
+            location = incoming.location ?: existing.location,
+            website = incoming.website ?: existing.website,
+            joined = incoming.joined ?: existing.joined,
+            stats = incoming.stats ?: existing.stats,
             nextCursor = if (exhausted) null else incoming.nextCursor ?: existing.nextCursor
         )
         write(combined)
@@ -121,17 +130,39 @@ class FeedCache(context: Context) {
         return if (posts == feed.posts) feed else feed.copy(posts = posts)
     }
 
-    /** Caps what a single account can occupy, so the cache cannot grow without bound. */
-    private fun trim(feed: Feed): Feed =
-        if (feed.posts.size <= MAX_POSTS_PER_ACCOUNT) {
-            feed
-        } else {
-            feed.copy(posts = feed.posts.take(MAX_POSTS_PER_ACCOUNT))
+    /**
+     * Caps what a single account can occupy, so the cache cannot grow without
+     * bound, and drops posts older than the reader's retention. Older posts
+     * can still be read by scrolling back, they are simply not kept.
+     */
+    private fun trim(feed: Feed): Feed {
+        val days = retentionDays()
+        val cutoff = if (days > 0) System.currentTimeMillis() - days * DAY_MS else Long.MIN_VALUE
+        val kept = feed.posts
+            .filter { it.publishedAtMillis <= 0L || it.publishedAtMillis >= cutoff }
+            .take(MAX_POSTS_PER_ACCOUNT)
+        return if (kept.size == feed.posts.size) feed else feed.copy(posts = kept)
+    }
+
+    /**
+     * Applies the retention to every saved account now, rather than at each
+     * account's next fetch. Run at launch and when the setting changes.
+     */
+    suspend fun applyRetention() = withContext(Dispatchers.IO) {
+        if (retentionDays() <= 0) return@withContext
+        directory.listFiles().orEmpty().forEach { file ->
+            runCatching {
+                val feed = json.decodeFromString<Feed>(file.readText())
+                val trimmed = trim(feed)
+                if (trimmed !== feed) file.writeText(json.encodeToString(trimmed))
+            }
         }
+    }
 
     private fun fileFor(handle: String) = File(directory, "${handle.lowercase()}.json")
 
     private companion object {
         const val MAX_POSTS_PER_ACCOUNT = 300
+        const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }

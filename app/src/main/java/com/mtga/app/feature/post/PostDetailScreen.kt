@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.core.link.LinkRouter
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.feature.media.MediaViewer
@@ -150,6 +151,7 @@ private fun ConversationView(
     onVerify: (AppError.ChallengeRequired) -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     val downloader: MediaDownloader = koinInject()
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settings.collectAsState()
@@ -261,7 +263,7 @@ private fun ConversationView(
                     }
                     item(key = "more") {
                         Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            TextButton(onClick = { uriHandler.openUri(xUrl(post)) }) {
+                            TextButton(onClick = { LinkRouter.openOutside(context, xUrl(post)) }) {
                                 Text("See all replies on X")
                             }
                         }
@@ -389,7 +391,9 @@ private fun PostBody(
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilledTonalButton(onClick = { uriHandler.openUri(url) }) { Text("Open on X") }
+            // Straight to X or a browser. Through the app's own link handler
+            // this would land back on this screen.
+            FilledTonalButton(onClick = { LinkRouter.openOutside(context, url) }) { Text("Open on X") }
             OutlinedButton(onClick = { share(context, url) }) { Text("Share") }
             OutlinedButton(onClick = { copy(context, url) }) { Text("Copy link") }
         }
