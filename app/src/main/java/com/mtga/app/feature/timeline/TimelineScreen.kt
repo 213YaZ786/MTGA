@@ -1,6 +1,8 @@
 package com.mtga.app.feature.timeline
 
 import com.mtga.app.ui.component.LocalDockPadding
+import com.mtga.app.ui.component.LocalInlinePlaying
+import com.mtga.app.ui.component.rememberInlineTarget
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -183,6 +186,13 @@ fun TimelineScreen(
                     if (shouldLoadMore) viewModel.loadMore()
                 }
 
+                val inline = rememberInlineTarget(
+                    listState = listState,
+                    posts = state.posts,
+                    keyOf = { it.id },
+                    paused = viewing != null
+                )
+                CompositionLocalProvider(LocalInlinePlaying provides inline) {
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(bottom = LocalDockPadding.current),
@@ -228,6 +238,7 @@ fun TimelineScreen(
                     item(key = "footer") {
                         TimelineFooter(state = state, onLoadMore = { viewModel.loadMore(manual = true) })
                     }
+                }
                 }
 
                 val showPill by remember {

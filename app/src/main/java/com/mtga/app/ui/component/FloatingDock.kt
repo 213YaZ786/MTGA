@@ -3,6 +3,7 @@ package com.mtga.app.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -35,6 +36,12 @@ val LocalDockPadding = staticCompositionLocalOf { 0.dp }
 /** Height of the dock plus the gap under it, for [LocalDockPadding]. */
 val DockClearance: Dp = 96.dp
 
+/**
+ * Width the vertical dock takes on the left of a wide window: the 16 dp gap
+ * to the edge, the 64 dp pill, and 16 dp of air before the content.
+ */
+val SideDockClearance: Dp = 96.dp
+
 data class DockItem(val icon: ImageVector, val label: String)
 
 /**
@@ -43,17 +50,24 @@ data class DockItem(val icon: ImageVector, val label: String)
  *
  * [position] is the current page plus how far the swipe has moved toward the
  * next one, from 0 to the last index.
+ *
+ * [vertical] stacks the same pill upright, for the left edge of a tablet or
+ * a phone on its side. Same shape, colours and icons, so both read as one app.
  */
 @Composable
 fun FloatingDock(
     items: List<DockItem>,
     position: Float,
     onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    vertical: Boolean = false
 ) {
-    val itemWidth = 64.dp
-    val itemHeight = 48.dp
-    val itemWidthPx = with(LocalDensity.current) { itemWidth.toPx() }
+    // Each item is long along the dock and short across it, in both directions.
+    val alongDock = 64.dp
+    val acrossDock = 48.dp
+    val itemWidth = if (vertical) acrossDock else alongDock
+    val itemHeight = if (vertical) alongDock else acrossDock
+    val stepPx = with(LocalDensity.current) { alongDock.toPx() }
     // No extra animation here: the pager already animates taps, and while
     // swiping the highlight must stay exactly under the finger.
     val animated = position
@@ -68,12 +82,15 @@ fun FloatingDock(
         Box(Modifier.padding(8.dp)) {
             Box(
                 Modifier
-                    .offset { IntOffset((animated * itemWidthPx).roundToInt(), 0) }
+                    .offset {
+                        val step = (animated * stepPx).roundToInt()
+                        if (vertical) IntOffset(0, step) else IntOffset(step, 0)
+                    }
                     .size(itemWidth, itemHeight)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.secondaryContainer)
             )
-            Row {
+            val buttons: @Composable () -> Unit = {
                 items.forEachIndexed { index, item ->
                     val closeness = (1f - abs(animated - index)).coerceIn(0f, 1f)
                     val tint = lerp(
@@ -92,6 +109,7 @@ fun FloatingDock(
                     }
                 }
             }
+            if (vertical) Column { buttons() } else Row { buttons() }
         }
     }
 }

@@ -4,10 +4,12 @@ import android.content.Context
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostId
+import com.mtga.app.data.twstalker.TwstalkerSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * On disk cache of the last fetched feed per account.
@@ -30,17 +32,57 @@ class FeedCache(
     private val directory = File(context.filesDir, "feeds").apply { mkdirs() }
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * Posts the reader scrolled back to in this session that the disk does
+     * not keep: older than "Keep posts", or past the per account cap. Memory
+     * only, per lowercased handle, gone when the app closes.
+     *
+     * Before 2.4.2 they were dropped at the write that fetched them, so a page
+     * of older posts arrived and vanished at once. Home and profiles saw no
+     * new posts, took it as a failure and stopped loading older ones. Kept
+     * here, they show until the app closes, which is what the setting
+     * promises: older posts can be read, they are simply not kept.
+     */
+    private val scrolledBack = ConcurrentHashMap<String, List<Post>>()
+
     suspend fun read(handle: String): Feed? = withContext(Dispatchers.IO) {
         val file = fileFor(handle)
         if (!file.exists()) return@withContext null
-        runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull()?.let(::canonical)
+        runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull()
+            ?.let(::canonical)
+            ?.let(::withScrolledBack)
     }
 
     suspend fun write(feed: Feed) = withContext(Dispatchers.IO) {
+        val kept = trim(feed)
+        if (kept !== feed) {
+            val keptIds = kept.posts.mapTo(HashSet()) { it.id }
+            remember(feed.handle, feed.posts.filterNot { it.id in keptIds })
+        }
         runCatching {
-            fileFor(feed.handle).writeText(json.encodeToString(trim(feed)))
+            fileFor(feed.handle).writeText(json.encodeToString(kept))
         }
         Unit
+    }
+
+    /** Adds what the disk dropped to this session's memory, newest version first. */
+    private fun remember(handle: String, dropped: List<Post>) {
+        if (dropped.isEmpty()) return
+        scrolledBack.merge(handle.lowercase(), dropped) { old, new ->
+            (new + old).distinctBy { it.id }
+                .sortedByDescending { it.publishedAtMillis }
+                .take(MAX_SCROLLED_BACK_PER_ACCOUNT)
+        }
+    }
+
+    /** The stored feed plus the posts of this session the disk does not keep. */
+    private fun withScrolledBack(feed: Feed): Feed {
+        val extra = scrolledBack[feed.handle.lowercase()].orEmpty()
+        if (extra.isEmpty()) return feed
+        val known = feed.posts.mapTo(HashSet()) { it.id }
+        val missing = extra.filterNot { it.id in known }
+        if (missing.isEmpty()) return feed
+        return feed.copy(posts = (feed.posts + missing).sortedByDescending { it.publishedAtMillis })
     }
 
     /**
@@ -72,6 +114,19 @@ class FeedCache(
         // offering to load more rather than spinning against the instance.
         val exhausted = isPagedFetch && newPosts.isEmpty()
 
+        // A refresh reads the first page again. When that page meets posts
+        // already stored, what is stored runs on from the head without a
+        // hole, so the deeper cursor kept from earlier paging is still where
+        // to continue. Before 2.4.2 the page's own cursor replaced it, the
+        // next scroll asked for page two, found only known posts, and paging
+        // ended for that account. Only between cursors of the same source,
+        // since a twstalker cursor can only be continued by twstalker.
+        val keepDeeperCursor = !isPagedFetch &&
+            seenAgain.isNotEmpty() &&
+            existing.nextCursor != null &&
+            (incoming.nextCursor == null ||
+                TwstalkerSource.handles(incoming.nextCursor) == TwstalkerSource.handles(existing.nextCursor))
+
         val combined = incoming.copy(
             posts = (refreshed + newPosts).sortedByDescending { it.publishedAtMillis },
             displayName = incoming.displayName.ifBlank { existing.displayName },
@@ -82,7 +137,11 @@ class FeedCache(
             website = incoming.website ?: existing.website,
             joined = incoming.joined ?: existing.joined,
             stats = incoming.stats ?: existing.stats,
-            nextCursor = if (exhausted) null else incoming.nextCursor ?: existing.nextCursor
+            nextCursor = when {
+                exhausted -> null
+                keepDeeperCursor -> existing.nextCursor
+                else -> incoming.nextCursor ?: existing.nextCursor
+            }
         )
         write(combined)
         combined
@@ -113,11 +172,13 @@ class FeedCache(
     }
 
     suspend fun forget(handle: String) = withContext(Dispatchers.IO) {
+        scrolledBack.remove(handle.lowercase())
         runCatching { fileFor(handle).delete() }
         Unit
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {
+        scrolledBack.clear()
         runCatching { directory.listFiles()?.forEach { it.delete() } }
         Unit
     }
@@ -171,6 +232,9 @@ class FeedCache(
 
     private companion object {
         const val MAX_POSTS_PER_ACCOUNT = 300
+
+        /** Scrolling back further than this in one session drops the oldest again. */
+        const val MAX_SCROLLED_BACK_PER_ACCOUNT = 1_000
         const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }

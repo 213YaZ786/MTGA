@@ -80,6 +80,7 @@ private fun keepLabel(days: Int): String = when (days) {
 fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenDebugLog: () -> Unit,
+    onOpenWelcome: () -> Unit,
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
@@ -207,7 +208,8 @@ fun SettingsScreen(
             )
             SwitchRow(
                 title = "Play videos automatically",
-                summary = "Videos start when opened. GIFs always loop.",
+                summary = "Videos and GIFs play silently in the list as you scroll, and start " +
+                    "when opened. Never on mobile data while Wi-Fi only is on.",
                 checked = settings.autoplayVideos,
                 onChange = viewModel::setAutoplayVideos
             )
@@ -277,7 +279,7 @@ fun SettingsScreen(
                     !settings.backgroundSync -> "Needs \"Check for new posts\"."
                     settings.notifyNewPosts && !notificationsAllowed ->
                         "Blocked in Android settings. Tap to allow."
-                    else -> "One notification when a check finds posts Home would show."
+                    else -> "A notification for each new post Home would show, grouped, one sound per check."
                 },
                 checked = settings.notifyNewPosts && notificationsAllowed,
                 enabled = settings.backgroundSync,
@@ -319,6 +321,11 @@ fun SettingsScreen(
         }
 
         Section("Help") {
+            SettingRow(
+                title = "Review the tutorial",
+                summary = "Where to find a handle, and the ways to follow an account.",
+                onClick = onOpenWelcome
+            )
             SettingRow(
                 title = "Connection check",
                 summary = "See which servers answer right now, and why something does not load.",

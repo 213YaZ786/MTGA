@@ -67,7 +67,12 @@ data class Settings(
      * x.com, so the person receiving it can read without X. "Open on X" still
      * opens X.
      */
-    val shareAsNitter: Boolean = false
+    val shareAsNitter: Boolean = false,
+    /**
+     * The first launch guide was closed. It is only offered when nothing is
+     * followed yet, so an update never shows it to someone already set up.
+     */
+    val welcomeSeen: Boolean = false
 )
 
 /**

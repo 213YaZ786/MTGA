@@ -1,6 +1,7 @@
 package com.mtga.app.sync
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -9,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -17,14 +19,18 @@ import com.mtga.app.R
 import com.mtga.app.core.model.Post
 
 /**
- * Posts one notification per background check that found something.
+ * One notification per new post, bundled under a single MTGA summary.
  *
- * A single post shows its author and text, and a tap opens that post in MTGA
- * through the same x.com link path as a shared link. Several posts become one
- * summary, and a tap opens Home. The notification is replaced by the next
- * one, never stacked, so the shade holds at most one MTGA entry.
+ * Before 2.4.3 each check replaced the previous notification, so posts not
+ * yet read were lost when the next check found something. Now posts pile up
+ * in the shade until read or swiped away, the way people expect. Android
+ * shows them as one expandable group, a tap on a post opens that post in
+ * MTGA through the same x.com link path as a shared link, and a tap on the
+ * summary opens Home.
  *
- * Nothing leaves the device here: the text is what the check already saved.
+ * A check makes one sound at most, from the summary. At most [MAX_ACTIVE]
+ * posts stay in the shade, the oldest go first, well under Android's limit
+ * per app. Nothing leaves the device: the text is what the check saved.
  */
 class NewPostNotifier(private val context: Context) {
 
@@ -41,45 +47,104 @@ class NewPostNotifier(private val context: Context) {
     fun show(posts: List<Post>) {
         if (posts.isEmpty() || !canNotify()) return
         ensureChannel()
+        val manager = NotificationManagerCompat.from(context)
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        // Read before posting: Android registers new notifications a moment
+        // later, so the shade is combined with this check by hand.
+        val earlier = inShade()
+
+        // Newest first. A check that found a flood posts its newest few and
+        // leaves the rest to Home, rather than filling the shade.
+        val shown = posts.sortedByDescending { it.publishedAtMillis }.take(MAX_PER_CHECK)
+        shown.forEach { post ->
+            runCatching { manager.notify(post.id, POST_ID, postNotification(post)) }
+        }
+
+        val shownIds = shown.map { it.id }.toSet()
+        val all = (shown.map { Entry(it.id, it.publishedAtMillis, it.authorHandle, textOf(it)) } +
+            earlier.filterNot { it.tag in shownIds })
+            .sortedByDescending { it.whenMillis }
+
+        // Keep the shade to MAX_ACTIVE posts, the oldest go first.
+        all.drop(MAX_ACTIVE).forEach { runCatching { manager.cancel(it.tag, POST_ID) } }
+        val kept = all.take(MAX_ACTIVE)
+
+        runCatching { manager.notify(SUMMARY_ID, summary(kept, extra = posts.size - shown.size)) }
+    }
+
+    /** One post notification, as the summary needs it. */
+    private data class Entry(val tag: String, val whenMillis: Long, val handle: String, val text: String)
+
+    private fun postNotification(post: Post) =
+        NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_mtga)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_SOCIAL)
-            .setWhen(posts.first().publishedAtMillis)
+            .setWhen(post.publishedAtMillis)
             .setShowWhen(true)
-            .setNumber(posts.size)
+            .setContentTitle("${post.authorName}  @${post.authorHandle}")
+            .setContentText(textOf(post))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(textOf(post)))
+            .setContentIntent(openPost(post))
+            .setGroup(GROUP)
+            // Only the summary sounds, once per check, not once per post.
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .build()
 
-        if (posts.size == 1) {
-            val post = posts.first()
-            val text = post.text.ifBlank { if (post.media.isNotEmpty()) "Posted media" else "New post" }
-            builder
-                .setContentTitle("${post.authorName}  @${post.authorHandle}")
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setContentIntent(openPost(post))
-        } else {
-            val handles = posts.map { "@${it.authorHandle}" }.distinct()
-            val from = when {
-                handles.size == 1 -> "From ${handles[0]}"
-                handles.size == 2 -> "From ${handles[0]} and ${handles[1]}"
-                else -> "From ${handles[0]}, ${handles[1]} and ${handles.size - 2} more"
-            }
-            val inbox = NotificationCompat.InboxStyle()
-            posts.take(INBOX_LINES).forEach { post ->
-                val line = post.text.lineSequence().firstOrNull { it.isNotBlank() } ?: "Posted media"
-                inbox.addLine("@${post.authorHandle}  $line")
-            }
-            if (posts.size > INBOX_LINES) inbox.setSummaryText("${posts.size - INBOX_LINES} more")
-            builder
-                .setContentTitle("${posts.size} new posts")
-                .setContentText(from)
-                .setStyle(inbox)
-                .setContentIntent(openHome())
+    /**
+     * Covers every post in the shade, including unread ones from earlier
+     * checks. [extra] counts posts of this check left to Home.
+     */
+    private fun summary(entries: List<Entry>, extra: Int): Notification {
+        val handles = entries.map { "@${it.handle}" }.distinct()
+        val from = when {
+            handles.isEmpty() -> "From the accounts you follow"
+            handles.size == 1 -> "From ${handles[0]}"
+            handles.size == 2 -> "From ${handles[0]} and ${handles[1]}"
+            else -> "From ${handles[0]}, ${handles[1]} and ${handles.size - 2} more"
         }
+        val total = entries.size + extra
+        val inbox = NotificationCompat.InboxStyle()
+        entries.take(INBOX_LINES).forEach { entry ->
+            val line = entry.text.lineSequence().firstOrNull { it.isNotBlank() } ?: "Posted media"
+            inbox.addLine("@${entry.handle}  $line")
+        }
+        if (total > INBOX_LINES) inbox.setSummaryText("${total - INBOX_LINES} more in Home")
 
-        runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build()) }
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_mtga)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setContentTitle(if (total == 1) "1 new post" else "$total new posts")
+            .setContentText(from)
+            .setStyle(inbox)
+            .setNumber(total)
+            .setContentIntent(openHome())
+            .setGroup(GROUP)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .build()
     }
+
+    /** MTGA's post notifications currently in the shade. */
+    private fun inShade(): List<Entry> {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return emptyList()
+        val active: List<StatusBarNotification> =
+            runCatching { manager.activeNotifications.toList() }.getOrDefault(emptyList())
+        return active.filter { it.id == POST_ID && it.tag != null }.map { sbn ->
+            val extras = sbn.notification.extras
+            val title = extras.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString().orEmpty()
+            Entry(
+                tag = sbn.tag,
+                whenMillis = sbn.notification.`when`,
+                handle = title.substringAfterLast("@", "").trim(),
+                text = extras.getCharSequence(NotificationCompat.EXTRA_TEXT)?.toString().orEmpty()
+            )
+        }
+    }
+
+    private fun textOf(post: Post): String =
+        post.text.ifBlank { if (post.media.isNotEmpty()) "Posted media" else "New post" }
 
     private fun ensureChannel() {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -115,9 +180,17 @@ class NewPostNotifier(private val context: Context) {
 
     companion object {
         const val CHANNEL_ID = "new-posts"
-        private const val NOTIFICATION_ID = 1
+        private const val GROUP = "com.mtga.app.NEW_POSTS"
+
+        /** The summary. Also the id the single notification used before 2.4.3, so an old one is replaced. */
+        private const val SUMMARY_ID = 1
+
+        /** Every post shares this id, told apart by its tag, the post id. */
+        private const val POST_ID = 2
         private const val REQUEST_POST = 1
         private const val REQUEST_HOME = 2
         private const val INBOX_LINES = 5
+        private const val MAX_PER_CHECK = 8
+        private const val MAX_ACTIVE = 24
     }
 }

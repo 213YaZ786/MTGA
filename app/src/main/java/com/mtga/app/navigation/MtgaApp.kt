@@ -3,26 +3,21 @@ package com.mtga.app.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalUriHandler
@@ -40,7 +35,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mtga.app.core.model.Post
+import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.feature.welcome.WelcomeScreen
 import com.mtga.app.data.settings.StartTab
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.feature.accounts.AccountsScreen
@@ -55,6 +52,8 @@ import com.mtga.app.ui.component.DockClearance
 import com.mtga.app.ui.component.DockItem
 import com.mtga.app.ui.component.FloatingDock
 import com.mtga.app.ui.component.LocalDockPadding
+import com.mtga.app.ui.component.LocalInlinePlaybackAllowed
+import com.mtga.app.ui.component.SideDockClearance
 import kotlinx.coroutines.launch
 
 @Composable
@@ -181,8 +180,8 @@ private fun Post.cacheOwner(): String =
 /**
  * The three tabs side by side in one pager. On a phone a swipe moves between
  * them, with the floating dock on top. From 600 dp wide, a tablet, a foldable
- * or a phone on its side, a navigation rail takes the dock's place and the
- * content is centred at a readable width. Back from Accounts or Settings
+ * or a phone on its side, the same dock stands upright on the left edge,
+ * vertically centred, and the content is centred at a readable width. Back from Accounts or Settings
  * returns to Home before leaving the app, which is what people expect from tabs.
  */
 @Composable
@@ -210,6 +209,13 @@ private fun MainTabs(
     val pager = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
 
+    // The guide opens by itself only for someone who follows nobody yet and
+    // never closed it. Saveable, so turning the device keeps it open.
+    val accounts: AccountStore = koinInject()
+    var showWelcome by rememberSaveable {
+        mutableStateOf(!store.current.welcomeSeen && accounts.accounts.value.isEmpty())
+    }
+
     // Remembered on every settled switch, so choosing "Last tab" later in
     // Settings already knows where the reader was.
     LaunchedEffect(pager.settledPage) {
@@ -218,17 +224,25 @@ private fun MainTabs(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val rail = WidthClass.of(maxWidth).usesRail
+        val side = WidthClass.of(maxWidth).usesSideDock
 
         fun go(index: Int) {
             scope.launch {
-                // A rail switches in place, as Material describes it. The
-                // dock slides, because there the pages are also swiped.
-                if (rail) pager.scrollToPage(index) else pager.animateScrollToPage(index)
+                // On the side, tabs switch in place, like a navigation rail.
+                // At the bottom they slide, because there pages are also swiped.
+                if (side) pager.scrollToPage(index) else pager.animateScrollToPage(index)
             }
         }
 
         BackHandler(enabled = pager.currentPage != 0) { go(0) }
+
+        fun closeWelcome(openAccounts: Boolean) {
+            showWelcome = false
+            if (!store.current.welcomeSeen) store.update { it.copy(welcomeSeen = true) }
+            if (openAccounts) go(TopDestination.ACCOUNTS.ordinal)
+        }
+        // Declared after the tab one, so back closes the guide first.
+        BackHandler(enabled = showWelcome) { closeWelcome(openAccounts = false) }
 
         val pages: @Composable (Modifier) -> Unit = { modifier ->
             HorizontalPager(
@@ -236,11 +250,15 @@ private fun MainTabs(
                 // All three stay alive, so switching tabs never reloads or
                 // loses the scroll position.
                 beyondViewportPageCount = tabs.size - 1,
-                // With a rail the tabs are side by side on screen already, a
-                // sideways swipe would only fight horizontal gestures.
-                userScrollEnabled = !rail,
+                // With the side dock a sideways swipe would only fight
+                // horizontal gestures in the wide content.
+                userScrollEnabled = !side,
                 modifier = modifier
             ) { page ->
+                // Videos in a list play only while that list is the tab in
+                // sight. The pager keeps the others alive next to it.
+                val inSight = pager.settledPage == page && !showWelcome
+                CompositionLocalProvider(LocalInlinePlaybackAllowed provides inSight) {
                 Readable {
                     when (tabs[page]) {
                         TopDestination.TIMELINE -> TimelineScreen(
@@ -252,34 +270,37 @@ private fun MainTabs(
                         TopDestination.ACCOUNTS -> AccountsScreen(onOpenFeed = onOpenFeed)
                         TopDestination.SETTINGS -> SettingsScreen(
                             onOpenDiagnostics = onOpenDiagnostics,
-                            onOpenDebugLog = onOpenDebugLog
+                            onOpenDebugLog = onOpenDebugLog,
+                            onOpenWelcome = { showWelcome = true }
                         )
                     }
+                }
                 }
             }
         }
 
-        if (rail) {
-            Row(Modifier.fillMaxSize()) {
-                NavigationRail(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    // The Scaffold around the NavHost already applied the system bar insets.
-                    windowInsets = WindowInsets(0, 0, 0, 0)
-                ) {
-                    Spacer(Modifier.height(12.dp))
-                    tabs.forEachIndexed { index, tab ->
-                        NavigationRailItem(
-                            selected = pager.currentPage == index,
-                            onClick = { go(index) },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) }
-                        )
-                    }
-                }
-                // No dock here, so nothing to clear at the bottom.
+        if (side) {
+            // Where the margins around the 720 dp column are wide enough, the
+            // pill sits in the left one and the column stays centred on the
+            // screen. In a narrower window the content moves right to clear it.
+            val clearsPill = maxWidth - ReadableWidth >= SideDockClearance * 2
+            Box(Modifier.fillMaxSize()) {
+                // No dock at the bottom, so nothing to clear there.
                 CompositionLocalProvider(LocalDockPadding provides 0.dp) {
-                    pages(Modifier.weight(1f).fillMaxHeight())
+                    pages(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(start = if (clearsPill) 0.dp else SideDockClearance)
+                    )
                 }
+
+                FloatingDock(
+                    items = tabs.map { DockItem(it.icon, it.label) },
+                    position = pager.currentPage + pager.currentPageOffsetFraction,
+                    onSelect = ::go,
+                    vertical = true,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp)
+                )
             }
         } else {
             Box(Modifier.fillMaxSize()) {
@@ -293,6 +314,14 @@ private fun MainTabs(
                     onSelect = ::go,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
                 )
+            }
+        }
+
+        // Above the tabs and the dock. A Surface also stops touches from
+        // reaching the screen underneath.
+        if (showWelcome) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Readable { WelcomeScreen(onFinish = ::closeWelcome) }
             }
         }
     }

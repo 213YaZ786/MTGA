@@ -18,8 +18,8 @@ import androidx.compose.ui.unit.dp
 enum class WidthClass {
     COMPACT, MEDIUM, EXPANDED;
 
-    /** A phone held upright keeps the floating dock, anything wider gets the rail. */
-    val usesRail: Boolean get() = this != COMPACT
+    /** A phone held upright keeps the dock at the bottom, anything wider has it on the left. */
+    val usesSideDock: Boolean get() = this != COMPACT
 
     companion object {
         fun of(width: Dp): WidthClass = when {

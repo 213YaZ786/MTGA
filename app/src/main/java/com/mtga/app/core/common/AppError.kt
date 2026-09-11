@@ -110,6 +110,18 @@ sealed interface AppError {
         override val retryable = false
     }
 
+    /**
+     * A post link that carries only the number, x.com/i/web/status/<id>, and
+     * nothing on the phone names its author. Nitter servers need the author
+     * in the address. [askedX] says whether X was asked to name the author
+     * ("Newest posts from X" on) and did not answer, or was not asked because
+     * the reader keeps X out.
+     */
+    data class AuthorUnknown(val postId: String, val askedX: Boolean) : AppError {
+        override val blame = Blame.UPSTREAM
+        override val retryable get() = askedX
+    }
+
     // ---- our side ----------------------------------------------------------
 
     /**

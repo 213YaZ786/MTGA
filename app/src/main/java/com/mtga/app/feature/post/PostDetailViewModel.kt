@@ -84,6 +84,14 @@ class PostDetailViewModel(
         }
     }
 
+    /** Starts over from the lookup, for a link whose author X did not name the first time. */
+    fun reload() {
+        val id = loadedId ?: return
+        loadedId = null
+        _state.value = PostDetailUiState()
+        load(id, hint)
+    }
+
     fun retryThread() {
         if (_state.value.thread is ThreadState.Loading) return
         _state.value = _state.value.copy(thread = ThreadState.Loading)
@@ -103,7 +111,7 @@ class PostDetailViewModel(
         if (handle == null) {
             // Nitter needs the author in the address, and nothing named one.
             _state.value = _state.value.copy(
-                thread = ThreadState.Failed(AppError.Unknown("this link does not name the author"))
+                thread = ThreadState.Failed(AppError.AuthorUnknown(id, askedX = settings.current.useXcomDirect))
             )
             return
         }

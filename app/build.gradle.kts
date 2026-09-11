@@ -7,17 +7,23 @@ plugins {
 
 android {
     namespace = "com.mtga.app"
-    // 37 because Compose 1.12 compiles against it. targetSdk stays 36 until
-    // Android 17's behaviour changes have been read and tested on a device:
-    // compiling against an API changes nothing at runtime, targeting it does.
+    // 37 because Compose 1.12 compiles against it. targetSdk is 37 since
+    // 2.4.0, after reading every Android 17 change for apps targeting it.
+    // What applies to MTGA: certificate transparency and Encrypted Client
+    // Hello turn on for its https connections (stricter, nothing to change),
+    // background audio is restricted (players already pause when the app
+    // leaves the screen), and large screens ignore orientation and
+    // resizability limits (MTGA sets none). Widgets, contacts, SMS, Bluetooth,
+    // local network, native code loading and reflection on MessageQueue or
+    // static final fields are not used.
     compileSdk = 37
 
     defaultConfig {
         applicationId = "com.mtga.app"
         minSdk = 31
-        targetSdk = 36
-        versionCode = 50
-        versionName = "2.0.0"
+        targetSdk = 37
+        versionCode = 57
+        versionName = "2.4.3"
     }
 
     signingConfigs {

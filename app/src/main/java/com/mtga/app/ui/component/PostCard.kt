@@ -219,6 +219,12 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
     // Compact trades some picture for a list that moves faster.
     val ratio = if (LocalDisplayPrefs.current.compact) 2f else 16f / 9f
     val hold = rememberMediaPolicy().hold
+    // Only the first video or GIF of the post chosen by the list plays inline.
+    val inlineIndex = if (LocalInlinePlaying.current == post.id) {
+        post.media.indexOfFirst { it.type != MediaType.PHOTO }
+    } else {
+        -1
+    }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         post.media.forEachIndexed { index, item ->
             // Wi-Fi only on a metered network: nothing is fetched until the
@@ -241,6 +247,13 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
                     )
+                    if (index == inlineIndex) {
+                        InlineVideo(
+                            url = item.downloadUrl,
+                            onClick = { onOpen(index) },
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
                 }
 
                 if (item.type != MediaType.PHOTO) {

@@ -97,6 +97,19 @@ fun AppError.present(): ErrorPresentation = when (this) {
         action = ErrorAction.NONE
     )
 
+    is AppError.AuthorUnknown -> ErrorPresentation(
+        headline = "This link doesn't name the author",
+        explanation = if (askedX) {
+            "It only carries the post number, and the servers MTGA reads need the author's name. " +
+                "X was asked for it but did not answer. Try again later, or open the post on X."
+        } else {
+            "It only carries the post number, and the servers MTGA reads need the author's name. " +
+                "Turn on \"Newest posts from X\" in Settings, Reading, so X can name the author, " +
+                "or open the post on X."
+        },
+        action = if (askedX) ErrorAction.RETRY else ErrorAction.NONE
+    )
+
     is AppError.ParseFailure -> ErrorPresentation(
         headline = "This page can't be read",
         explanation = "$host changed its layout and MTGA can't read it yet. An app update will fix it. " +

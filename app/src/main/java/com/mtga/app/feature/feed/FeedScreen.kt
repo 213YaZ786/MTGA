@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -60,7 +61,9 @@ import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ErrorPanel
+import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.PostCard
+import com.mtga.app.ui.component.rememberInlineTarget
 import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
@@ -149,6 +152,14 @@ fun FeedScreen(
             )
         }
     ) { padding ->
+        val inline = rememberInlineTarget(
+            listState = listState,
+            posts = shown,
+            keyOf = { "${tab.name}-${it.id}" },
+            paused = viewing != null,
+            keySpace = tab
+        )
+        CompositionLocalProvider(LocalInlinePlaying provides inline) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(padding)
@@ -248,6 +259,7 @@ fun FeedScreen(
                     }
                 }
             }
+        }
         }
     }
 }

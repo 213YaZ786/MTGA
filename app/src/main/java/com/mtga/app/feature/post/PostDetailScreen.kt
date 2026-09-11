@@ -128,17 +128,32 @@ fun PostDetailScreen(
                     onVerify = viewModel::verify,
                     shareLink = viewModel.shareLink(post)
                 )
-                state.missing -> Text(
-                    // The server's own reason when it gave one, a deletion or
-                    // a suspension, rather than a guess.
-                    ((state.thread as? ThreadState.Failed)?.error as? AppError.PostUnavailable)
-                        ?.present()?.let { "${it.headline}. ${it.explanation}" }
-                        ?: "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center).padding(32.dp)
-                )
+                state.missing -> {
+                    val error = (state.thread as? ThreadState.Failed)?.error
+                    val noAuthor = error as? AppError.AuthorUnknown
+                    if (noAuthor != null) {
+                        AuthorUnknownPanel(
+                            error = noAuthor,
+                            onOpenOnX = {
+                                LinkRouter.openOutside(context, "https://x.com/i/web/status/${noAuthor.postId}")
+                            },
+                            onRetry = viewModel::reload,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        Text(
+                            // The server's own reason when it gave one, a deletion or
+                            // a suspension, rather than a guess.
+                            (error as? AppError.PostUnavailable)
+                                ?.present()?.let { "${it.headline}. ${it.explanation}" }
+                                ?: "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                        )
+                    }
+                }
                 else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
@@ -446,6 +461,42 @@ private fun StatsLine(stats: PostStats) {
 }
 
 /** The post on x.com, which anyone can open. Falls back to the source permalink. */
+/**
+ * A link with only the post number and no author MTGA can find. Says why,
+ * and offers what actually helps: X itself, or a second try when X was asked
+ * and did not answer. The fix in Settings is named in the text.
+ */
+@Composable
+private fun AuthorUnknownPanel(
+    error: AppError.AuthorUnknown,
+    onOpenOnX: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val presentation = error.present()
+    Column(
+        modifier = modifier.fillMaxWidth().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            presentation.headline,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            presentation.explanation,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        FilledTonalButton(onClick = onOpenOnX) { Text("Open on X") }
+        if (error.retryable) {
+            TextButton(onClick = onRetry) { Text("Try again") }
+        }
+    }
+}
+
 /** Always x.com, for "Open on X" and "See all replies on X". */
 private fun xUrl(post: Post): String =
     ShareLink.forPost(post.authorHandle, post.id, post.permalink, nitterHost = null)
