@@ -90,6 +90,13 @@ fun AppError.present(): ErrorPresentation = when (this) {
         action = ErrorAction.NONE
     )
 
+    is AppError.PostUnavailable -> ErrorPresentation(
+        headline = "This post can't be shown",
+        explanation = reason?.let { "$host says: $it" }
+            ?: "It may have been deleted, or its account made private or suspended.",
+        action = ErrorAction.NONE
+    )
+
     is AppError.ParseFailure -> ErrorPresentation(
         headline = "This page can't be read",
         explanation = "$host changed its layout and MTGA can't read it yet. An app update will fix it. " +

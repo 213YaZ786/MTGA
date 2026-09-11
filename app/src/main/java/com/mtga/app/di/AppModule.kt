@@ -62,7 +62,7 @@ val appModule = module {
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }
-    single { InstanceProbe(get(), get(), get(), get()) }
+    single { InstanceProbe(get(), get(), get(), get(), get(), get(), get()) }
 
     single { InstanceDirectory(get(), get()) }
     single { LinkRouter(get()) }

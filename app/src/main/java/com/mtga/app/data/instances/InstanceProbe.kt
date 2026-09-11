@@ -1,7 +1,11 @@
 package com.mtga.app.data.instances
 
 import com.mtga.app.core.common.AppError
+import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.network.ConnectivityMonitor
+import com.mtga.app.core.network.HostThrottle
+import com.mtga.app.core.web.ChallengeGateway
+import com.mtga.app.core.web.WebSession
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HttpClientFactory
@@ -18,7 +22,11 @@ data class ProbeResult(
     val instanceId: String,
     val latencyMillis: Long,
     val httpStatus: Int?,
-    val error: AppError?
+    val error: AppError?,
+    /** Answered through the offscreen browser rather than the native client. */
+    val viaBrowser: Boolean = false,
+    /** A real read, not a probe, got posts. Recorded by the pool. */
+    val delivered: Boolean = false
 )
 
 /**
@@ -32,7 +40,10 @@ class InstanceProbe(
     private val client: HttpClient,
     private val connectivity: ConnectivityMonitor,
     private val parser: HtmlTimelineParser,
-    private val accounts: AccountStore
+    private val accounts: AccountStore,
+    private val gateway: ChallengeGateway,
+    private val session: WebSession,
+    private val throttle: HostThrottle
 ) {
 
     /**
@@ -67,6 +78,11 @@ class InstanceProbe(
     ): ProbeResult = withContext(Dispatchers.IO) {
         val started = System.nanoTime()
 
+        // A host cleared this session is read through its check, and xcancel
+        // only ever answers the offscreen browser. Probing it natively showed
+        // "asks for a check" while reading worked. Probe the path reads take.
+        if (session.isCleared(instance.host)) return@withContext probeThroughCheck(instance, handle, started)
+
         try {
             val response = client.get(instance.profileUrlFor(handle)) {
                 header("User-Agent", PROBE_USER_AGENT)
@@ -81,6 +97,52 @@ class InstanceProbe(
 
             ProbeResult(instance.id, elapsed, response.status.value, error)
         } catch (t: Throwable) {
+            ProbeResult(
+                instanceId = instance.id,
+                latencyMillis = elapsedMillis(started),
+                httpStatus = null,
+                error = ErrorMapper.fromThrowable(instance.host, t)
+            )
+        }
+    }
+
+    private suspend fun probeThroughCheck(
+        instance: NitterInstance,
+        handle: String,
+        started: Long
+    ): ProbeResult {
+        // Same pacing as a read. A probe must never be what trips a rate limit.
+        if (!throttle.acquire(instance.host)) {
+            val remaining = throttle.cooldownRemainingMs(instance.host) / 1_000
+            return ProbeResult(instance.id, 0, null, AppError.RateLimited(instance.host, remaining))
+        }
+        return try {
+            val page = gateway.getPage(
+                url = instance.profileUrlFor(handle),
+                host = instance.host,
+                kind = RequestLog.Kind.PROBE,
+                requestHeaders = mapOf(
+                    "User-Agent" to (session.userAgent ?: PROBE_USER_AGENT),
+                    "Accept" to "text/html,application/xhtml+xml"
+                )
+            )
+            val error = ErrorMapper.fromStatus(
+                host = instance.host,
+                url = instance.profileUrlFor(handle),
+                code = page.status,
+                retryAfterSeconds = page.retryAfterSeconds,
+                bodyHint = page.body,
+                handle = handle
+            ) ?: verifyTimeline(instance, page.body, handle)
+            ProbeResult(
+                instanceId = instance.id,
+                latencyMillis = elapsedMillis(started),
+                httpStatus = page.status,
+                error = error,
+                viaBrowser = page.via == ChallengeGateway.Via.WEBVIEW
+            )
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
             ProbeResult(
                 instanceId = instance.id,
                 latencyMillis = elapsedMillis(started),

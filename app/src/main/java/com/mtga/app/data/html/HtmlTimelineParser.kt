@@ -101,6 +101,27 @@ class HtmlTimelineParser {
         )
     }
 
+    /**
+     * Why a post page shows no post, in the server's words, or null when the
+     * page is not saying that. Two shapes exist in Nitter: an error page
+     * ("Tweet not found", or X's tombstone such as a deletion notice) in an
+     * error-panel, and a main-tweet drawn as an unavailable box. Only the
+     * main post counts, an unavailable ancestor is normal in a thread.
+     */
+    fun unavailableReason(html: String): String? {
+        html.indexOf("class=\"error-panel\"").takeIf { it >= 0 }?.let { at ->
+            // X's tombstones end with a "Learn more" link, useless without it.
+            return html.spanText(at)?.removeSuffix("Learn more")?.trim()?.takeIf { it.isNotEmpty() } ?: "Not found"
+        }
+        val mainAt = html.indexOf("class=\"main-tweet\"").takeIf { it >= 0 } ?: return null
+        val afterMain = html.indexOf("class=\"after-tweet", mainAt).takeIf { it >= 0 }
+            ?: html.indexOf("class=\"replies\"", mainAt).takeIf { it >= 0 }
+            ?: html.length
+        val main = html.substring(mainAt, afterMain)
+        if ("unavailable timeline-item" !in main) return null
+        return main.elementText("class=\"unavailable-box\"", "</a>") ?: "This post is unavailable"
+    }
+
     private fun itemsIn(section: String, host: String): List<Post> =
         section.split("class=\"timeline-item").drop(1).mapNotNull { chunk ->
             val author = chunk.substringAfter("data-username=\"", "").substringBefore('"')

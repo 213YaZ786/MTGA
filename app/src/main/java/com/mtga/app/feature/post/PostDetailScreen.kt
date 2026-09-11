@@ -129,7 +129,11 @@ fun PostDetailScreen(
                     shareLink = viewModel.shareLink(post)
                 )
                 state.missing -> Text(
-                    "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
+                    // The server's own reason when it gave one, a deletion or
+                    // a suspension, rather than a guess.
+                    ((state.thread as? ThreadState.Failed)?.error as? AppError.PostUnavailable)
+                        ?.present()?.let { "${it.headline}. ${it.explanation}" }
+                        ?: "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -229,9 +233,15 @@ private fun ConversationView(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("Replies couldn't be loaded", style = MaterialTheme.typography.titleSmall)
+                    // A saved post that is gone from X: say so plainly. There
+                    // are no replies to fetch and retrying changes nothing.
+                    val gone = thread.error as? AppError.PostUnavailable
                     Text(
-                        presentation.headline,
+                        if (gone != null) "No longer available on X" else "Replies couldn't be loaded",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        if (gone != null) presentation.explanation else presentation.headline,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -239,7 +249,7 @@ private fun ConversationView(
                     val check = thread.error as? AppError.ChallengeRequired
                     if (check != null && check.kind != ChallengeKind.WAF_BLOCK) {
                         TextButton(onClick = { onVerify(check) }) { Text("Do the check") }
-                    } else {
+                    } else if (gone == null) {
                         TextButton(onClick = onRetry) { Text("Try again") }
                     }
                 }

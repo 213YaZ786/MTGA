@@ -131,7 +131,11 @@ class InstancePool(
                 latencyMillis = result.latencyMillis.takeIf { it > 0 } ?: previous.latencyMillis,
                 lastError = null,
                 consecutiveFailures = 0,
-                backoffUntilMillis = null
+                backoffUntilMillis = null,
+                deliveredAt = if (result.delivered) now else previous.deliveredAt,
+                // A real read does not say which path it took, so it keeps
+                // what the last probe learned. A probe says it exactly.
+                viaBrowser = if (result.delivered) previous.viaBrowser else result.viaBrowser
             )
         } else {
             val failures = previous.consecutiveFailures + 1
@@ -161,6 +165,15 @@ class InstancePool(
         if (error is AppError.ChallengeRequired && error.kind != ChallengeKind.WAF_BLOCK) {
             return 0L
         }
+        // Nor is an answer about the content. The server worked, the account
+        // or post is what is missing, and backing it off would cost the next
+        // read of something that does exist.
+        if (error is AppError.AccountNotFound ||
+            error is AppError.AccountUnavailable ||
+            error is AppError.PostUnavailable
+        ) {
+            return 0L
+        }
         val exponential = BASE_BACKOFF_MS * 2.0.pow((failures - 1).coerceAtMost(6)).toLong()
         return min(exponential, MAX_BACKOFF_MS)
     }
@@ -178,6 +191,9 @@ class InstancePool(
             .sortedWith(
                 compareBy(
                     { healthMap[it.id]?.isBackedOff(now) == true },
+                    // A server that gave real posts this session comes before
+                    // any that only passed a probe. Probes can lie, posts cannot.
+                    { healthMap[it.id]?.deliveredAt == null },
                     { healthMap[it.id]?.lastError != null },
                     { healthMap[it.id]?.lastCheckedAt == null },
                     { healthMap[it.id]?.latencyMillis ?: Long.MAX_VALUE }
@@ -213,7 +229,7 @@ class InstancePool(
             tried += instance.host
             when (val outcome = block(instance)) {
                 is Outcome.Success -> {
-                    record(ProbeResult(instance.id, 0, 200, null))
+                    record(ProbeResult(instance.id, 0, 200, null, delivered = true))
                     return outcome
                 }
                 is Outcome.Failure -> {
@@ -236,7 +252,9 @@ class InstancePool(
                     }
 
                     if (spokeForUpstream(error)) answered++
-                    if (error is AppError.AccountNotFound) {
+                    // A missing post gets the same vote as a missing account:
+                    // a broken upstream session says "not found" for real posts too.
+                    if (error is AppError.AccountNotFound || error is AppError.PostUnavailable) {
                         notFoundVotes++
                         notFound = error
                     }
@@ -254,7 +272,7 @@ class InstancePool(
 
         return Outcome.Failure(
             passableCheck
-                ?: lastError?.takeUnless { it is AppError.AccountNotFound }
+                ?: lastError?.takeUnless { it is AppError.AccountNotFound || it is AppError.PostUnavailable }
                 ?: AppError.NoHealthyInstance(tried)
         )
     }
@@ -262,6 +280,7 @@ class InstancePool(
     /** Did the instance actually respond, as opposed to failing in transport. */
     private fun spokeForUpstream(error: AppError): Boolean = when (error) {
         is AppError.AccountNotFound,
+        is AppError.PostUnavailable,
         is AppError.ParseFailure,
         is AppError.FeedGated -> true
         else -> false

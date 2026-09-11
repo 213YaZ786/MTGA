@@ -290,9 +290,13 @@ private fun statusLine(status: HealthStatus, row: InstanceRow): String {
 }
 
 private fun statusText(status: HealthStatus, row: InstanceRow, latency: String): String {
+    // Said plainly, because it explains both the extra second and why a
+    // plain browser check elsewhere would call this server blocked.
+    val path = if (row.health?.viaBrowser == true) " · through its browser check" else ""
+    val delivered = if (row.health?.deliveredAt != null) " · gave posts" else ""
     return when (status) {
-        HealthStatus.HEALTHY -> "Working$latency"
-        HealthStatus.SLOW -> "Slow but working$latency"
+        HealthStatus.HEALTHY -> "Working$latency$path$delivered"
+        HealthStatus.SLOW -> "Slow but working$latency$path$delivered"
         HealthStatus.DEGRADED -> "Having trouble$latency"
         HealthStatus.DOWN -> "Not responding after ${row.health?.consecutiveFailures ?: 0} tries"
         HealthStatus.DISABLED -> "Turned off"

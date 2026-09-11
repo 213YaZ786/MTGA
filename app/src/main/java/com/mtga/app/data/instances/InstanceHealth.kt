@@ -20,7 +20,11 @@ data class InstanceHealth(
     val latencyMillis: Long? = null,
     val lastError: AppError? = null,
     val consecutiveFailures: Int = 0,
-    val backoffUntilMillis: Long? = null
+    val backoffUntilMillis: Long? = null,
+    /** Last time a real read got posts from it, this session. The strongest signal there is. */
+    val deliveredAt: Long? = null,
+    /** The last good answer came through the offscreen browser, as xcancel requires. */
+    val viaBrowser: Boolean = false
 ) {
     fun status(enabled: Boolean, now: Long = System.currentTimeMillis()): HealthStatus = when {
         !enabled -> HealthStatus.DISABLED

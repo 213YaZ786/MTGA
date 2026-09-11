@@ -100,6 +100,16 @@ sealed interface AppError {
         override val retryable = false
     }
 
+    /**
+     * The account is fine but this one post is not there: deleted, from a
+     * suspended or protected account, or withheld. [reason] is the server's
+     * own wording when it gave one, for example X's tombstone text.
+     */
+    data class PostUnavailable(val host: String, val reason: String?) : AppError {
+        override val blame = Blame.UPSTREAM
+        override val retryable = false
+    }
+
     // ---- our side ----------------------------------------------------------
 
     /**

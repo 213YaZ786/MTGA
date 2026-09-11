@@ -204,23 +204,50 @@ class HtmlSource(
 
             if (error429(page.status)) throttle.penalise(instance.host, page.retryAfterSeconds) else throttle.clear(instance.host)
 
-            ErrorMapper.fromStatus(
+            // On a post page a 404 is about the post, not the account, and a
+            // page can also say so with a 200 (through the browser path, or
+            // a main post drawn as unavailable). Checks and rate limits keep
+            // their own meaning.
+            val statusError = ErrorMapper.fromStatus(
                 host = instance.host,
                 url = url,
                 code = page.status,
                 retryAfterSeconds = page.retryAfterSeconds,
                 bodyHint = body,
                 handle = handle
-            )?.let { error ->
+            )
+            val unavailable = parser.unavailableReason(body)
+            val error = when {
+                statusError is AppError.ChallengeRequired || statusError is AppError.RateLimited -> statusError
+                statusError is AppError.AccountNotFound -> AppError.PostUnavailable(instance.host, unavailable)
+                // A 200 that says "unavailable" is decided after parsing, below.
+                else -> statusError
+            }
+            if (error != null) {
                 log.record(
-                    kind = kind, url = url, outcome = "HTTP error", httpStatus = page.status,
+                    kind = kind, url = url,
+                    outcome = if (error is AppError.PostUnavailable) "post unavailable" else "HTTP error",
+                    httpStatus = page.status,
                     bodyBytes = body.length, durationMillis = elapsed,
-                    detail = error::class.java.simpleName + " via " + page.via.name
+                    detail = (if (error is AppError.PostUnavailable) "says: ${unavailable ?: "not found"} | " else "") +
+                        error::class.java.simpleName + " via " + page.via.name
                 )
                 return@withContext Outcome.Failure(error)
             }
 
             val conversation = parser.parseConversation(body, instance.host)
+
+            // The page answered but the post itself is not on it. A thread
+            // around a missing post is not what was asked for.
+            if (unavailable != null && conversation?.main == null) {
+                log.record(
+                    kind = kind, url = url, outcome = "post unavailable", httpStatus = page.status,
+                    bodyBytes = body.length, durationMillis = elapsed,
+                    detail = "says: $unavailable | via ${page.via.name}"
+                )
+                return@withContext Outcome.Failure(AppError.PostUnavailable(instance.host, unavailable))
+            }
+
             if (conversation == null) {
                 log.record(
                     kind = kind, url = url, outcome = "parse found no conversation", httpStatus = page.status,
@@ -234,7 +261,10 @@ class HtmlSource(
             log.record(
                 kind = kind, url = url, outcome = "ok", httpStatus = page.status,
                 bodyBytes = body.length, durationMillis = elapsed,
-                detail = "before: ${conversation.ancestors.size} | thread: ${conversation.continuation.size}" +
+                // "main" first: before 1.14.2 a post read fine with no replies
+                // logged all zeros and looked like an empty page.
+                detail = "main: ${if (conversation.main != null) "yes" else "no"}" +
+                    " | before: ${conversation.ancestors.size} | thread: ${conversation.continuation.size}" +
                     " | reply chains: ${conversation.replies.size} | via ${page.via.name}"
             )
             Outcome.Success(conversation)
