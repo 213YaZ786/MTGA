@@ -9,6 +9,7 @@ import com.mtga.app.core.network.HttpClientFactory
 import com.mtga.app.core.web.ChallengeGateway
 import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.core.web.WebSession
+import com.mtga.app.data.instances.InstanceDirectory
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.InstanceProbe
 import com.mtga.app.data.accounts.AccountStore
@@ -62,10 +63,13 @@ val appModule = module {
     single { HtmlTimelineParser() }
     single { InstanceProbe(get(), get(), get(), get()) }
 
+    single { InstanceDirectory(get(), get()) }
+
     single {
         InstancePool(
             store = get(),
             probe = get(),
+            directory = get(),
             connectivity = get(),
             scope = get(named("appScope"))
         )
@@ -83,7 +87,7 @@ val appModule = module {
     single { XComSource(get(), get(), get(), get()) }
     single { TimelineRepository(get(), get(), get(), get(), get()) }
 
-    viewModel { DiagnosticsViewModel(get(), get(), get()) }
+    viewModel { DiagnosticsViewModel(get(), get(), get(), get()) }
     viewModel { AccountsViewModel(get(), get()) }
     viewModel { PostDetailViewModel(get(), get(), get()) }
     viewModel { SearchViewModel(get()) }

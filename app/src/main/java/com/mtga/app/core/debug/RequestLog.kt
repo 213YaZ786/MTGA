@@ -28,7 +28,7 @@ class RequestLog {
         val detail: String? = null
     )
 
-    enum class Kind { PROBE, PROFILE, PAGE, RSS, PARSE, THREAD }
+    enum class Kind { PROBE, PROFILE, PAGE, RSS, PARSE, THREAD, LIST }
 
     private val _entries = MutableStateFlow<List<Entry>>(emptyList())
     val entries: StateFlow<List<Entry>> = _entries.asStateFlow()

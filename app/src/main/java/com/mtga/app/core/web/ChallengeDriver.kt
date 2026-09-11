@@ -118,7 +118,18 @@ class ChallengeDriver(
         view.evaluateJavascript(READ_DOCUMENT_JS) { raw ->
             if (done) return@evaluateJavascript
             val html = decode(raw) ?: return@evaluateJavascript
-            val status = lastMainFrameError?.takeIf { it.first == current }?.second ?: 200
+            val recorded = lastMainFrameError?.takeIf { it.first == current }?.second ?: 200
+            // A check answers 403 or 503 on the very URL it guards, then
+            // reloads that URL with the real page. A success fires no error
+            // callback, so the check's status stays recorded against the URL.
+            // In 1.3.4 twstalker's real page came back labelled 403 and was
+            // read as a refusal. Posts on the page settle it. A genuine 404
+            // is left alone.
+            val status = if (recorded in CHECK_STATUSES && ChallengeDetector.hasContent(html)) {
+                200
+            } else {
+                recorded
+            }
 
             when (ChallengeDetector.detect(status, html)) {
                 null -> finish(ChallengeSolver.Result.Cleared(html, current, status))
@@ -213,6 +224,9 @@ class ChallengeDriver(
     private companion object {
         const val POLL_MS = 1_500L
         const val BLOCK_SETTLE_MS = 4_000L
+
+        /** What Cloudflare style and WAF checks answer on the page they guard. */
+        val CHECK_STATUSES = setOf(403, 503)
 
         const val READ_DOCUMENT_JS =
             "document.documentElement ? document.documentElement.outerHTML : null"

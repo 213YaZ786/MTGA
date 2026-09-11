@@ -5,6 +5,7 @@ import com.mtga.app.core.common.ChallengeKind
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.network.ConnectivityMonitor
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -25,6 +28,7 @@ import kotlin.math.pow
 class InstancePool(
     private val store: InstanceStore,
     private val probe: InstanceProbe,
+    private val directory: InstanceDirectory,
     private val connectivity: ConnectivityMonitor,
     private val scope: CoroutineScope
 ) {
@@ -32,11 +36,68 @@ class InstancePool(
     private val _instances = MutableStateFlow(store.load())
     val instances: StateFlow<List<NitterInstance>> = _instances.asStateFlow()
 
+    /** Where the server list stands: last update, whether one is running, why it failed. */
+    data class ListStatus(
+        val updatedAtMillis: Long? = null,
+        val updating: Boolean = false,
+        val lastError: AppError? = null
+    )
+
+    private val _listStatus = MutableStateFlow(ListStatus(updatedAtMillis = store.listUpdatedAt()))
+    val listStatus: StateFlow<ListStatus> = _listStatus.asStateFlow()
+
+    private val listMutex = Mutex()
+
+    @Volatile
+    private var listJob: Job? = null
+
+    // ---- the public list ----------------------------------------------------
+
+    fun updateListAsync(force: Boolean, reset: Boolean = false) {
+        listJob = scope.launch { updateList(force, reset) }
+    }
+
+    /**
+     * Fetches the Nitter wiki list and merges it in. Skipped when the list is
+     * less than a day old, unless [force]. A failure keeps the current list,
+     * an outdated list still beats an empty pool.
+     */
+    suspend fun updateList(force: Boolean, reset: Boolean = false) = listMutex.withLock {
+        val updatedAt = store.listUpdatedAt()
+        val fresh = updatedAt != null &&
+            System.currentTimeMillis() - updatedAt < InstanceDirectory.MAX_AGE_MS
+        if (!force && fresh && _instances.value.any { it.builtIn }) return@withLock
+
+        _listStatus.value = _listStatus.value.copy(updating = true)
+        when (val fetched = directory.fetch()) {
+            is Outcome.Success -> {
+                // The first merge after 1.3.x replaces choices that were made
+                // against the compiled list, see InstanceListMerge.
+                val firstTime = updatedAt == null
+                mutate { InstanceListMerge.merge(it, fetched.value, reset = reset || firstTime) }
+                val now = System.currentTimeMillis()
+                store.markListUpdated(now)
+                _listStatus.value = ListStatus(updatedAtMillis = now)
+            }
+            is Outcome.Failure -> _listStatus.value = _listStatus.value.copy(
+                updating = false,
+                lastError = fetched.error
+            )
+        }
+        Unit
+    }
+
     private val _health = MutableStateFlow<Map<String, InstanceHealth>>(emptyMap())
     val health: StateFlow<Map<String, InstanceHealth>> = _health.asStateFlow()
 
     private val _probing = MutableStateFlow(false)
     val probing: StateFlow<Boolean> = _probing.asStateFlow()
+
+    init {
+        // A fresh install has no servers at all until this lands, and an
+        // existing one refreshes a list older than a day.
+        updateListAsync(force = false)
+    }
 
     // ---- probing -----------------------------------------------------------
 
@@ -132,7 +193,13 @@ class InstancePool(
     suspend fun <T> withInstance(block: suspend (NitterInstance) -> Outcome<T>): Outcome<T> {
         if (!connectivity.isOnline()) return Outcome.Failure(AppError.Offline)
 
-        val candidates = preferredOrder()
+        var candidates = preferredOrder()
+        if (candidates.isEmpty()) {
+            // On a fresh install the list may still be on its way. Waiting a
+            // moment for it beats reporting an empty pool.
+            listJob?.join()
+            candidates = preferredOrder()
+        }
         if (candidates.isEmpty()) return Outcome.Failure(AppError.NoHealthyInstance(emptyList()))
 
         val tried = mutableListOf<String>()
@@ -235,7 +302,8 @@ class InstancePool(
         return true
     }
 
-    fun restoreDefaults() = mutate { NitterInstance.defaults }
+    /** Fetches the list again and lets it decide every listed server's switch. */
+    fun resetFromList() = updateListAsync(force = true, reset = true)
 
     /** https only, no exceptions. A privacy front end over plain HTTP is worse than none. */
     private fun normaliseUrl(raw: String): String? {

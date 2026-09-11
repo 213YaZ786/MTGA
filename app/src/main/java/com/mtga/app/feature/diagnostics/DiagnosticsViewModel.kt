@@ -8,12 +8,14 @@ import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.instances.InstanceHealth
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.instances.NitterInstance
+import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.twstalker.TwstalkerSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -47,8 +49,16 @@ data class TwstalkerTestState(
 class DiagnosticsViewModel(
     private val pool: InstancePool,
     private val twstalker: TwstalkerSource,
-    private val accounts: AccountStore
+    private val accounts: AccountStore,
+    private val settings: SettingsStore
 ) : ViewModel() {
+
+    /** Whether twstalker may be used as the last fallback while reading. */
+    val twstalkerEnabled: StateFlow<Boolean> = settings.settings
+        .map { it.useTwstalker }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.current.useTwstalker)
+
+    fun setTwstalkerEnabled(enabled: Boolean) = settings.update { it.copy(useTwstalker = enabled) }
 
     private val _twstalkerTest = MutableStateFlow(TwstalkerTestState())
     val twstalkerTest: StateFlow<TwstalkerTestState> = _twstalkerTest.asStateFlow()
@@ -77,7 +87,12 @@ class DiagnosticsViewModel(
     fun move(id: String, delta: Int) = pool.move(id, delta)
     fun remove(id: String) = pool.remove(id)
     fun addCustom(url: String, rssUrl: String?): Boolean = pool.addCustom(url, rssUrl)
-    fun restoreDefaults() = pool.restoreDefaults()
+    fun resetFromList() = pool.resetFromList()
+
+    /** The Nitter wiki list, fetched now rather than at the next daily update. */
+    fun updateList() = pool.updateListAsync(force = true)
+
+    val listStatus: StateFlow<InstancePool.ListStatus> = pool.listStatus
     fun report(): String = pool.diagnosticReport()
 
     /**

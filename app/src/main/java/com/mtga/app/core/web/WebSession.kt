@@ -83,7 +83,10 @@ class WebSession {
         failedAt[host]?.let { last ->
             if (now - last < HOST_RETRY_AFTER_MS) return "failed recently on $host"
         }
-        if (now - anyFailureAt < POOL_RETRY_AFTER_MS) {
+        // A host that passed this session has its own way through, another
+        // server failing says nothing about it. Without this, one failed
+        // check on a newly listed server would stall xcancel for two minutes.
+        if (host !in cleared && now - anyFailureAt < POOL_RETRY_AFTER_MS) {
             return "a check just failed on another server behind the same wall"
         }
         return null

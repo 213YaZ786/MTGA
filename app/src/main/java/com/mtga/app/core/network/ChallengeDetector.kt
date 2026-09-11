@@ -19,6 +19,9 @@ object ChallengeDetector {
 
     fun detect(status: Int, body: String): ChallengeKind? = inspect(status, body)?.kind
 
+    /** True when the page carries posts, whatever its status claims. */
+    fun hasContent(body: String): Boolean = CONTENT_MARKERS.any { it in body }
+
     fun inspect(status: Int, body: String): Verdict? {
         // A page carrying posts is content, whatever else it says. A tweet that
         // happens to quote "not a bot" must not trip the detector.

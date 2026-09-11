@@ -27,7 +27,12 @@ data class Settings(
     /** True black instead of dark grey in dark mode. */
     val pureBlack: Boolean = false,
     /** Reply, repost, like and view counts under posts. */
-    val showCounts: Boolean = true
+    val showCounts: Boolean = true,
+    /**
+     * twstalker as the last fallback. Off by default: it shows ads and runs
+     * analytics, so it learns which accounts are read. The person decides.
+     */
+    val useTwstalker: Boolean = false
 )
 
 /**

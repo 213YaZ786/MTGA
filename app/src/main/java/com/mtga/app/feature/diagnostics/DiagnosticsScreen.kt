@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.present
 import com.mtga.app.data.instances.HealthStatus
+import com.mtga.app.data.instances.InstancePool
+import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
 
@@ -54,6 +56,8 @@ fun DiagnosticsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val twstalkerTest by viewModel.twstalkerTest.collectAsState()
+    val twstalkerEnabled by viewModel.twstalkerEnabled.collectAsState()
+    val listStatus by viewModel.listStatus.collectAsState()
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -91,6 +95,14 @@ fun DiagnosticsScreen(
         ) {
             item { OverallBanner(state) }
 
+            item(key = "list") {
+                ListCard(
+                    status = listStatus,
+                    count = state.rows.count { it.instance.builtIn },
+                    onUpdate = viewModel::updateList
+                )
+            }
+
             items(state.rows, key = { it.instance.id }) { row ->
                 InstanceCard(
                     row = row,
@@ -102,7 +114,12 @@ fun DiagnosticsScreen(
             }
 
             item(key = "twstalker") {
-                TwstalkerCard(test = twstalkerTest, onTest = viewModel::testTwstalker)
+                TwstalkerCard(
+                    test = twstalkerTest,
+                    enabled = twstalkerEnabled,
+                    onToggle = viewModel::setTwstalkerEnabled,
+                    onTest = viewModel::testTwstalker
+                )
             }
 
             item {
@@ -110,7 +127,10 @@ fun DiagnosticsScreen(
                     TextButton(onClick = {
                         clipboard.setText(AnnotatedString(viewModel.report()))
                     }) { Text("Copy report") }
-                    TextButton(onClick = viewModel::restoreDefaults) { Text("Reset list") }
+                    TextButton(
+                        onClick = viewModel::resetFromList,
+                        enabled = !listStatus.updating
+                    ) { Text("Reset from list") }
                 }
             }
 
@@ -141,6 +161,8 @@ fun DiagnosticsScreen(
 @Composable
 private fun OverallBanner(state: DiagnosticsUiState) {
     val (headline, detail) = when {
+        state.rows.isEmpty() ->
+            "No servers yet" to "The server list has not arrived. Update it below."
         state.probing && state.rows.none { it.health?.lastCheckedAt != null } ->
             "Checking servers" to "Measuring how each server responds."
         state.anyHealthy ->
@@ -259,6 +281,15 @@ private fun StatusDot(status: HealthStatus) {
 
 private fun statusLine(status: HealthStatus, row: InstanceRow): String {
     val latency = row.health?.latencyMillis?.let { " · ${it}ms" }.orEmpty()
+    val origin = when {
+        !row.instance.builtIn -> " · added by you"
+        row.instance.listedWorking == false -> " · marked down on the wiki"
+        else -> ""
+    }
+    return statusText(status, row, latency) + origin
+}
+
+private fun statusText(status: HealthStatus, row: InstanceRow, latency: String): String {
     return when (status) {
         HealthStatus.HEALTHY -> "Working$latency"
         HealthStatus.SLOW -> "Slow but working$latency"
@@ -332,7 +363,12 @@ object InstanceRowDefaults {
  * row with a switch. It is only ever used after every Nitter server failed.
  */
 @Composable
-private fun TwstalkerCard(test: TwstalkerTestState, onTest: () -> Unit) {
+private fun TwstalkerCard(
+    test: TwstalkerTestState,
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onTest: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -342,24 +378,31 @@ private fun TwstalkerCard(test: TwstalkerTestState, onTest: () -> Unit) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(
-                    when (test.passed) {
-                        true -> HealthStatus.HEALTHY
-                        false -> HealthStatus.DOWN
-                        null -> HealthStatus.UNKNOWN
+                    when {
+                        test.passed == true -> HealthStatus.HEALTHY
+                        test.passed == false -> HealthStatus.DOWN
+                        !enabled -> HealthStatus.DISABLED
+                        else -> HealthStatus.UNKNOWN
                     }
                 )
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text("twstalker.com", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Last resort, used only when every server above fails",
+                        if (enabled) {
+                            "Last resort, used only when every server above fails"
+                        } else {
+                            "Off, never contacted while reading"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                Switch(checked = enabled, onCheckedChange = onToggle)
             }
 
             Text(
-                "It shows ads and runs analytics, so it learns which account is read." +
+                "It shows ads and runs analytics, so it learns which account is read. " +
+                    "The test contacts it even while it is off." +
                     (test.handle?.let { " This test reads @$it." } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -386,6 +429,53 @@ private fun TwstalkerCard(test: TwstalkerTestState, onTest: () -> Unit) {
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Where the server list comes from and how old it is. MTGA ships no list, it
+ * reads the Nitter wiki once a day, so this is the only place that says so.
+ */
+@Composable
+private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Server list", style = MaterialTheme.typography.titleMedium)
+            val age = status.updatedAtMillis?.let { relativeTime(it) }
+            Text(
+                when {
+                    status.updating -> "Updating from the Nitter wiki"
+                    age == null -> "Not fetched yet. It comes from the Nitter wiki."
+                    age.isEmpty() || age == "now" ->
+                        "From the Nitter wiki, updated just now, $count servers"
+                    else -> "From the Nitter wiki, updated $age ago, $count servers"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            status.lastError?.let { error ->
+                Text(
+                    "Last update failed: " + error.present().headline,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                TextButton(onClick = onUpdate, enabled = !status.updating) { Text("Update now") }
+                if (status.updating) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 }
             }
         }

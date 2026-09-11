@@ -45,7 +45,22 @@ class FeedRepository(
         // A twstalker cursor can only be continued by twstalker. Cursors are not
         // interchangeable between sources, and handing one to the wrong source
         // silently restarts the feed.
-        if (TwstalkerSource.handles(cursor)) return twstalker.fetch(handle, cursor)
+        if (TwstalkerSource.handles(cursor)) {
+            if (settings.current.useTwstalker) return twstalker.fetch(handle, cursor)
+            // Switched off after it served this account. No other source can
+            // continue its cursor, so the honest answer is that this source
+            // has nothing more. The empty page makes the cache drop the
+            // cursor, and paging stops instead of failing on every scroll.
+            return Outcome.Success(
+                Feed(
+                    handle = handle,
+                    displayName = "",
+                    posts = emptyList(),
+                    fetchedFromHost = TwstalkerSource.HOST,
+                    fetchedAtMillis = System.currentTimeMillis()
+                )
+            )
+        }
 
         val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle, cursor) }
         if (viaHtml is Outcome.Success) return viaHtml
@@ -68,16 +83,21 @@ class FeedRepository(
     /**
      * Last resort, and deliberately last. This host shows ads and runs
      * analytics, so it learns which accounts are read. That is a real cost, and
-     * it is only worth paying when every privacy respecting instance has failed.
+     * it is only worth paying when every privacy respecting instance has failed,
+     * and only when the person switched it on in the connection check.
      * The UI always names the server that answered, so this is never silent.
      */
     private suspend fun fallBackToTwstalker(
         handle: String,
         originalError: AppError
-    ): Outcome<Feed> = when (val viaTwstalker = twstalker.fetch(handle, null)) {
-        is Outcome.Success -> viaTwstalker
-        // Report the Nitter failure, which is the one that matters.
-        is Outcome.Failure -> Outcome.Failure(originalError)
+    ): Outcome<Feed> {
+        // Off by default, and then never contacted at all.
+        if (!settings.current.useTwstalker) return Outcome.Failure(originalError)
+        return when (val viaTwstalker = twstalker.fetch(handle, null)) {
+            is Outcome.Success -> viaTwstalker
+            // Report the Nitter failure, which is the one that matters.
+            is Outcome.Failure -> Outcome.Failure(originalError)
+        }
     }
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
