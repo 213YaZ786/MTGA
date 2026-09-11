@@ -11,6 +11,10 @@ import java.io.File
 @Serializable
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** The tab the app opens on. LAST reopens whichever tab was shown last. */
+@Serializable
+enum class StartTab { HOME, ACCOUNTS, LAST }
+
 @Serializable
 data class Settings(
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
@@ -54,7 +58,16 @@ data class Settings(
      * twstalker as the last fallback. Off by default: it shows ads and runs
      * analytics, so it learns which accounts are read. The person decides.
      */
-    val useTwstalker: Boolean = false
+    val useTwstalker: Boolean = false,
+    val startTab: StartTab = StartTab.HOME,
+    /** Index of the tab shown last, for StartTab.LAST. Recorded on every switch. */
+    val lastTab: Int = 0,
+    /**
+     * Share and copy post links on the first enabled Nitter server instead of
+     * x.com, so the person receiving it can read without X. "Open on X" still
+     * opens X.
+     */
+    val shareAsNitter: Boolean = false
 )
 
 /**

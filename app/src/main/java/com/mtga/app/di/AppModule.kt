@@ -94,7 +94,7 @@ val appModule = module {
 
     viewModel { DiagnosticsViewModel(get(), get(), get(), get()) }
     viewModel { AccountsViewModel(get(), get()) }
-    viewModel { PostDetailViewModel(get(), get(), get(), get(), get()) }
+    viewModel { PostDetailViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get()) }

@@ -10,6 +10,8 @@ import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.repository.FeedRepository
 import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.instances.InstancePool
+import com.mtga.app.core.link.ShareLink
 import com.mtga.app.data.xcom.SyndicationSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,8 +43,24 @@ class PostDetailViewModel(
     private val repository: FeedRepository,
     private val solver: ChallengeSolver,
     private val syndication: SyndicationSource,
-    private val settings: SettingsStore
+    private val settings: SettingsStore,
+    private val pool: InstancePool
 ) : ViewModel() {
+
+    /**
+     * What Share and Copy link hand out. The first enabled server in the
+     * reader's own order, not the fastest one right now, so the same post
+     * always shares the same link. x.com when the setting is off or the list
+     * is empty.
+     */
+    fun shareLink(post: Post): String {
+        val host = if (settings.current.shareAsNitter) {
+            pool.instances.value.firstOrNull { it.enabled }?.host
+        } else {
+            null
+        }
+        return ShareLink.forPost(post.authorHandle, post.id, post.permalink, host)
+    }
 
     private val _state = MutableStateFlow(PostDetailUiState())
     val state: StateFlow<PostDetailUiState> = _state.asStateFlow()

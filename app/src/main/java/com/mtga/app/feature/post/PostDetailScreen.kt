@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.core.link.LinkRouter
+import com.mtga.app.core.link.ShareLink
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.feature.media.MediaViewer
@@ -108,7 +109,7 @@ fun PostDetailScreen(
                 },
                 actions = {
                     if (post != null) {
-                        IconButton(onClick = { share(context, xUrl(post)) }) {
+                        IconButton(onClick = { share(context, viewModel.shareLink(post)) }) {
                             Icon(MtgaIcons.Share, contentDescription = "Share")
                         }
                     }
@@ -124,7 +125,8 @@ fun PostDetailScreen(
                     onOpenProfile = onOpenProfile,
                     onOpenPost = onOpenPost,
                     onRetry = viewModel::retryThread,
-                    onVerify = viewModel::verify
+                    onVerify = viewModel::verify,
+                    shareLink = viewModel.shareLink(post)
                 )
                 state.missing -> Text(
                     "This post can't be shown. It may have been deleted, and it is not saved on this phone.",
@@ -150,7 +152,8 @@ private fun ConversationView(
     onOpenProfile: (String) -> Unit,
     onOpenPost: (Post) -> Unit,
     onRetry: () -> Unit,
-    onVerify: (AppError.ChallengeRequired) -> Unit
+    onVerify: (AppError.ChallengeRequired) -> Unit,
+    shareLink: String
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -194,7 +197,8 @@ private fun ConversationView(
                 post = post,
                 showCounts = settings.showCounts,
                 onOpenProfile = onOpenProfile,
-                onOpenMedia = { index -> viewing = post to index }
+                onOpenMedia = { index -> viewing = post to index },
+                shareLink = shareLink
             )
         }
 
@@ -292,7 +296,8 @@ private fun PostBody(
     post: Post,
     showCounts: Boolean,
     onOpenProfile: (String) -> Unit,
-    onOpenMedia: (Int) -> Unit
+    onOpenMedia: (Int) -> Unit,
+    shareLink: String
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -403,8 +408,9 @@ private fun PostBody(
             // Straight to X or a browser. Through the app's own link handler
             // this would land back on this screen.
             FilledTonalButton(onClick = { LinkRouter.openOutside(context, url) }) { Text("Open on X") }
-            OutlinedButton(onClick = { share(context, url) }) { Text("Share") }
-            OutlinedButton(onClick = { copy(context, url) }) { Text("Copy link") }
+            // Share and copy follow the reader's choice, x.com or Nitter.
+            OutlinedButton(onClick = { share(context, shareLink) }) { Text("Share") }
+            OutlinedButton(onClick = { copy(context, shareLink) }) { Text("Copy link") }
         }
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -430,12 +436,9 @@ private fun StatsLine(stats: PostStats) {
 }
 
 /** The post on x.com, which anyone can open. Falls back to the source permalink. */
+/** Always x.com, for "Open on X" and "See all replies on X". */
 private fun xUrl(post: Post): String =
-    if (post.id.isNotEmpty() && post.id.all(Char::isDigit)) {
-        "https://x.com/${post.authorHandle}/status/${post.id}"
-    } else {
-        post.permalink
-    }
+    ShareLink.forPost(post.authorHandle, post.id, post.permalink, nitterHost = null)
 
 private fun fullDate(millis: Long): String? {
     if (millis <= 0L) return null

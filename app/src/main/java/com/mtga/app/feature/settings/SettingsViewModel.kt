@@ -10,6 +10,7 @@ import com.mtga.app.data.accounts.SubscriptionCodec
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.Settings
 import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.settings.StartTab
 import com.mtga.app.data.settings.ThemeMode
 import com.mtga.app.sync.SyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -130,6 +131,10 @@ class SettingsViewModel(
     fun setStartMuted(enabled: Boolean) = store.update { it.copy(startMuted = enabled) }
 
     fun setXcomDirect(enabled: Boolean) = store.update { it.copy(useXcomDirect = enabled) }
+
+    fun setStartTab(tab: StartTab) = store.update { it.copy(startTab = tab) }
+
+    fun setShareAsNitter(enabled: Boolean) = store.update { it.copy(shareAsNitter = enabled) }
 
     fun setBackgroundSync(enabled: Boolean) {
         store.update { it.copy(backgroundSync = enabled) }

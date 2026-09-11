@@ -40,6 +40,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mtga.app.core.model.Post
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.settings.StartTab
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.feature.accounts.AccountsScreen
 import com.mtga.app.feature.debug.DebugLogScreen
@@ -192,10 +194,28 @@ private fun MainTabs(
     onOpenSearch: () -> Unit
 ) {
     val tabs = TopDestination.entries
+    val store: SettingsStore = koinInject()
+    // Read once: the start tab only matters when the app opens. After that
+    // the pager state is saved, and coming back from a post keeps the tab.
+    val initialPage = remember {
+        val settings = store.current
+        when (settings.startTab) {
+            StartTab.HOME -> TopDestination.TIMELINE.ordinal
+            StartTab.ACCOUNTS -> TopDestination.ACCOUNTS.ordinal
+            StartTab.LAST -> settings.lastTab.coerceIn(0, tabs.size - 1)
+        }
+    }
     // Outside the width check, so turning a tablet or unfolding a phone keeps
     // the current tab and every scroll position.
-    val pager = rememberPagerState(pageCount = { tabs.size })
+    val pager = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
+
+    // Remembered on every settled switch, so choosing "Last tab" later in
+    // Settings already knows where the reader was.
+    LaunchedEffect(pager.settledPage) {
+        val page = pager.settledPage
+        if (store.current.lastTab != page) store.update { it.copy(lastTab = page) }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val rail = WidthClass.of(maxWidth).usesRail

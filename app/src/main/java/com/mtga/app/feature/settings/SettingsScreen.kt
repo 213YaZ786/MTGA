@@ -53,12 +53,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
+import com.mtga.app.data.settings.StartTab
 import com.mtga.app.data.settings.ThemeMode
 import com.mtga.app.ui.theme.TEXT_SCALES
 import com.mtga.app.ui.theme.textScaleLabel
 import org.koin.androidx.compose.koinViewModel
 
-private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR }
+private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB }
 
 private val KEEP_DAYS = listOf(7, 30, 90, 365, 0)
 
@@ -219,6 +220,11 @@ fun SettingsScreen(
         }
 
         Section("Reading") {
+            SettingRow(
+                title = "Start on",
+                summary = startTabLabel(settings.startTab),
+                onClick = { dialog = OpenDialog.START_TAB }
+            )
             SwitchRow(
                 title = "Newest posts from X",
                 summary = "Shows an account's latest posts faster and more reliably. " +
@@ -235,6 +241,13 @@ fun SettingsScreen(
                         "twitter.com links. Sharing a link to MTGA works either way."
                 },
                 onClick = { openLinkSettings(context) }
+            )
+            SwitchRow(
+                title = "Share links as Nitter",
+                summary = "Share and Copy link use your first enabled server instead of x.com, " +
+                    "so the link opens without X. \"Open on X\" still opens X.",
+                checked = settings.shareAsNitter,
+                onChange = viewModel::setShareAsNitter
             )
         }
 
@@ -340,6 +353,13 @@ fun SettingsScreen(
     }
 
     when (dialog) {
+        OpenDialog.START_TAB -> ChoiceDialog(
+            title = "Start on",
+            options = StartTab.entries.map { it to startTabLabel(it) },
+            selected = settings.startTab,
+            onSelect = viewModel::setStartTab,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
         OpenDialog.THEME -> ChoiceDialog(
             title = "Theme",
             options = ThemeMode.entries.map { it to themeLabel(it) },
@@ -478,6 +498,12 @@ private fun <T> ChoiceDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+private fun startTabLabel(tab: StartTab): String = when (tab) {
+    StartTab.HOME -> "Home"
+    StartTab.ACCOUNTS -> "Accounts"
+    StartTab.LAST -> "Last tab used"
 }
 
 private fun themeLabel(mode: ThemeMode): String = when (mode) {
