@@ -2,11 +2,21 @@ package com.mtga.app.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Text
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -102,26 +112,32 @@ private fun MtgaNavHost(navController: NavHostController) {
                 )
             }
             composable(Routes.SEARCH) {
-                SearchScreen(
-                    onBack = { navController.popBackStack() },
-                    onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
-                )
+                Readable {
+                    SearchScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
+                    )
+                }
             }
             composable(Routes.DEBUG_LOG) {
-                DebugLogScreen(onBack = { navController.popBackStack() })
+                Readable {
+                    DebugLogScreen(onBack = { navController.popBackStack() })
+                }
             }
             composable(
                 route = Routes.FEED_PATTERN,
                 arguments = listOf(navArgument("handle") { type = NavType.StringType })
             ) { entry ->
-                FeedScreen(
-                    handle = entry.arguments?.getString("handle").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                    onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
-                    onOpenPost = { post ->
-                        navController.navigate(Routes.post(post.id, entry.arguments?.getString("handle").orEmpty()))
-                    }
-                )
+                Readable {
+                    FeedScreen(
+                        handle = entry.arguments?.getString("handle").orEmpty(),
+                        onBack = { navController.popBackStack() },
+                        onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                        onOpenPost = { post ->
+                            navController.navigate(Routes.post(post.id, entry.arguments?.getString("handle").orEmpty()))
+                        }
+                    )
+                }
             }
             composable(
                 route = Routes.POST_PATTERN,
@@ -134,16 +150,20 @@ private fun MtgaNavHost(navController: NavHostController) {
                     }
                 )
             ) { entry ->
-                PostDetailScreen(
-                    id = entry.arguments?.getString("id").orEmpty(),
-                    from = entry.arguments?.getString("from"),
-                    onBack = { navController.popBackStack() },
-                    onOpenProfile = { handle -> navController.navigate(Routes.feed(handle)) },
-                    onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.authorHandle)) }
-                )
+                Readable {
+                    PostDetailScreen(
+                        id = entry.arguments?.getString("id").orEmpty(),
+                        from = entry.arguments?.getString("from"),
+                        onBack = { navController.popBackStack() },
+                        onOpenProfile = { handle -> navController.navigate(Routes.feed(handle)) },
+                        onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.authorHandle)) }
+                    )
+                }
             }
             composable(Routes.DIAGNOSTICS) {
-                DiagnosticsScreen(onBack = { navController.popBackStack() })
+                Readable {
+                    DiagnosticsScreen(onBack = { navController.popBackStack() })
+                }
             }
         }
     }
@@ -157,9 +177,11 @@ private fun Post.cacheOwner(): String =
     if (kind == PostKind.REPOST) relatedHandle ?: authorHandle else authorHandle
 
 /**
- * The three tabs side by side in one pager, so a swipe moves between them,
- * with the floating dock on top. Back from Accounts or Settings returns to
- * Home before leaving the app, which is what people expect from tabs.
+ * The three tabs side by side in one pager. On a phone a swipe moves between
+ * them, with the floating dock on top. From 600 dp wide, a tablet, a foldable
+ * or a phone on its side, a navigation rail takes the dock's place and the
+ * content is centred at a readable width. Back from Accounts or Settings
+ * returns to Home before leaving the app, which is what people expect from tabs.
  */
 @Composable
 private fun MainTabs(
@@ -170,45 +192,88 @@ private fun MainTabs(
     onOpenSearch: () -> Unit
 ) {
     val tabs = TopDestination.entries
+    // Outside the width check, so turning a tablet or unfolding a phone keeps
+    // the current tab and every scroll position.
     val pager = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
 
-    fun go(index: Int) {
-        scope.launch { pager.animateScrollToPage(index) }
-    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val rail = WidthClass.of(maxWidth).usesRail
 
-    BackHandler(enabled = pager.currentPage != 0) { go(0) }
+        fun go(index: Int) {
+            scope.launch {
+                // A rail switches in place, as Material describes it. The
+                // dock slides, because there the pages are also swiped.
+                if (rail) pager.scrollToPage(index) else pager.animateScrollToPage(index)
+            }
+        }
 
-    Box(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalDockPadding provides DockClearance) {
+        BackHandler(enabled = pager.currentPage != 0) { go(0) }
+
+        val pages: @Composable (Modifier) -> Unit = { modifier ->
             HorizontalPager(
                 state = pager,
                 // All three stay alive, so switching tabs never reloads or
                 // loses the scroll position.
                 beyondViewportPageCount = tabs.size - 1,
-                modifier = Modifier.fillMaxSize()
+                // With a rail the tabs are side by side on screen already, a
+                // sideways swipe would only fight horizontal gestures.
+                userScrollEnabled = !rail,
+                modifier = modifier
             ) { page ->
-                when (tabs[page]) {
-                    TopDestination.TIMELINE -> TimelineScreen(
-                        onOpenDiagnostics = onOpenDiagnostics,
-                        onOpenAccounts = { go(TopDestination.ACCOUNTS.ordinal) },
-                        onOpenPost = onOpenPost,
-                        onOpenSearch = onOpenSearch
-                    )
-                    TopDestination.ACCOUNTS -> AccountsScreen(onOpenFeed = onOpenFeed)
-                    TopDestination.SETTINGS -> SettingsScreen(
-                        onOpenDiagnostics = onOpenDiagnostics,
-                        onOpenDebugLog = onOpenDebugLog
-                    )
+                Readable {
+                    when (tabs[page]) {
+                        TopDestination.TIMELINE -> TimelineScreen(
+                            onOpenDiagnostics = onOpenDiagnostics,
+                            onOpenAccounts = { go(TopDestination.ACCOUNTS.ordinal) },
+                            onOpenPost = onOpenPost,
+                            onOpenSearch = onOpenSearch
+                        )
+                        TopDestination.ACCOUNTS -> AccountsScreen(onOpenFeed = onOpenFeed)
+                        TopDestination.SETTINGS -> SettingsScreen(
+                            onOpenDiagnostics = onOpenDiagnostics,
+                            onOpenDebugLog = onOpenDebugLog
+                        )
+                    }
                 }
             }
         }
 
-        FloatingDock(
-            items = tabs.map { DockItem(it.icon, it.label) },
-            position = pager.currentPage + pager.currentPageOffsetFraction,
-            onSelect = ::go,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
-        )
+        if (rail) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    // The Scaffold around the NavHost already applied the system bar insets.
+                    windowInsets = WindowInsets(0, 0, 0, 0)
+                ) {
+                    Spacer(Modifier.height(12.dp))
+                    tabs.forEachIndexed { index, tab ->
+                        NavigationRailItem(
+                            selected = pager.currentPage == index,
+                            onClick = { go(index) },
+                            icon = { Icon(tab.icon, contentDescription = null) },
+                            label = { Text(tab.label) }
+                        )
+                    }
+                }
+                // No dock here, so nothing to clear at the bottom.
+                CompositionLocalProvider(LocalDockPadding provides 0.dp) {
+                    pages(Modifier.weight(1f).fillMaxHeight())
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalDockPadding provides DockClearance) {
+                    pages(Modifier.fillMaxSize())
+                }
+
+                FloatingDock(
+                    items = tabs.map { DockItem(it.icon, it.label) },
+                    position = pager.currentPage + pager.currentPageOffsetFraction,
+                    onSelect = ::go,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+                )
+            }
+        }
     }
 }

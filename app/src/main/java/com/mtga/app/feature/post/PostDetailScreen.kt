@@ -60,6 +60,8 @@ import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ContextLine
 import com.mtga.app.ui.component.LinkCardBlock
+import com.mtga.app.ui.component.NoteBlock
+import com.mtga.app.ui.component.PollBlock
 import com.mtga.app.ui.component.MediaBlock
 import com.mtga.app.ui.component.QuoteBlock
 import com.mtga.app.ui.component.compactCount
@@ -353,22 +355,29 @@ private fun PostBody(
             )
         }
 
+        // Nitter's order: poll, link card, quote, then the note.
+        post.poll?.let { PollBlock(it) }
+
+        post.card?.let { card ->
+            LinkCardBlock(card = card, onClick = { card.url?.let(uriHandler::openUri) })
+        }
+
         post.quoted?.let { quote ->
             QuoteBlock(
                 handle = quote.handle,
                 name = quote.name,
                 text = quote.text,
+                note = quote.note,
                 onClick = { uriHandler.openUri(quote.permalink) }
             )
         }
 
-        post.card?.let { card ->
-            LinkCardBlock(
-                title = card.title,
-                description = card.description,
-                destination = card.destination,
-                onClick = { card.url?.let(uriHandler::openUri) }
-            )
+        post.note?.let { note ->
+            val noteLinkColor = MaterialTheme.colorScheme.primary
+            val noteText = remember(post.id, note, noteLinkColor) {
+                linkify(note.text, note.links, noteLinkColor, onOpenProfile)
+            }
+            SelectionContainer { NoteBlock(note, text = noteText) }
         }
 
         fullDate(post.publishedAtMillis)?.let {

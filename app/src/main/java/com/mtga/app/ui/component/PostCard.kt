@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import com.mtga.app.ui.theme.LocalDisplayPrefs
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,13 +29,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.mtga.app.core.model.CommunityNote
+import com.mtga.app.core.model.LinkCard
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
+import com.mtga.app.core.model.Poll
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.ui.icon.MtgaIcons
@@ -88,23 +93,24 @@ fun PostCard(
                         MediaBlock(post = post, onDownload = onDownload, onOpen = onOpenMedia)
                     }
 
+                    // Nitter's order: poll, link card, quote, then the note.
+                    post.poll?.let { PollBlock(it) }
+
+                    post.card?.let { card ->
+                        LinkCardBlock(card = card, onClick = { card.url?.let(onOpenLink) })
+                    }
+
                     post.quoted?.let { quote ->
                         QuoteBlock(
                             handle = quote.handle,
                             name = quote.name,
                             text = quote.text,
+                            note = quote.note,
                             onClick = { onOpenLink(quote.permalink) }
                         )
                     }
 
-                    post.card?.let { card ->
-                        LinkCardBlock(
-                            title = card.title,
-                            description = card.description,
-                            destination = card.destination,
-                            onClick = { card.url?.let(onOpenLink) }
-                        )
-                    }
+                    post.note?.let { NoteBlock(it, maxLines = 6) }
 
                     if (showStats) post.stats?.let { StatsRow(it) }
                 }
@@ -273,7 +279,13 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
 }
 
 @Composable
-internal fun QuoteBlock(handle: String, name: String, text: String, onClick: () -> Unit) {
+internal fun QuoteBlock(
+    handle: String,
+    name: String,
+    text: String,
+    onClick: () -> Unit,
+    note: CommunityNote? = null
+) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
@@ -296,48 +308,248 @@ internal fun QuoteBlock(handle: String, name: String, text: String, onClick: () 
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            note?.let { NoteBlock(it, maxLines = 3) }
         }
     }
 }
 
+/**
+ * A community note, set apart from the post it qualifies. [text] replaces the
+ * plain note text when the caller has made its links tappable. The block has
+ * no click of its own, so a tap on it in a list still opens the post.
+ */
 @Composable
-internal fun LinkCardBlock(
-    title: String,
-    description: String?,
-    destination: String?,
-    onClick: () -> Unit
-) {
+internal fun NoteBlock(note: CommunityNote, text: AnnotatedString? = null, maxLines: Int = Int.MAX_VALUE) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(MtgaIcons.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Community note", style = MaterialTheme.typography.labelLarge)
+            }
+            if (text != null) {
+                Text(text, style = MaterialTheme.typography.bodyMedium, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+            } else {
+                Text(note.text, style = MaterialTheme.typography.bodyMedium, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/**
+ * A link preview. Large cards put the picture on top, small ones beside the
+ * text, as Nitter lays them out. The picture follows the media policy: on a
+ * metered network with Wi-Fi only on, nothing is fetched until the reader
+ * taps the placeholder, and a tap on the text still opens the link.
+ */
+@Composable
+internal fun LinkCardBlock(card: LinkCard, onClick: () -> Unit) {
+    val hold = rememberMediaPolicy().hold
+    var revealed by remember(card.imageUrl) { mutableStateOf(false) }
+    val image = card.imageUrl
+    val waiting = hold && !revealed
+
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            destination?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        if (card.large || image == null) {
+            Column {
+                if (image != null) {
+                    val ratio = if (LocalDisplayPrefs.current.compact) 2.4f else 1.91f
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(ratio)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    ) {
+                        if (waiting) {
+                            HeldCardImage(Modifier.matchParentSize().clickable { revealed = true })
+                        } else {
+                            AsyncImage(
+                                model = image,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.matchParentSize()
+                            )
+                        }
+                        if (card.isArticle) ArticleBadge(Modifier.align(Alignment.BottomStart).padding(8.dp))
+                    }
+                }
+                LinkCardText(card, Modifier.padding(12.dp))
             }
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            description?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(84.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                ) {
+                    if (waiting) {
+                        HeldCardImage(Modifier.matchParentSize().clickable { revealed = true }, short = true)
+                    } else {
+                        AsyncImage(
+                            model = image,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+                }
+                LinkCardText(card, Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp))
             }
         }
     }
+}
+
+@Composable
+private fun LinkCardText(card: LinkCard, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        card.destination?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (card.isArticle && card.imageUrl == null) {
+            ArticleBadge(Modifier)
+        }
+        Text(
+            card.title,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        card.description?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeldCardImage(modifier: Modifier, short: Boolean = false) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            MtgaIcons.Download,
+            contentDescription = "Load the preview image",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        if (!short) {
+            Text(
+                "Preview, tap to load",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArticleBadge(modifier: Modifier) {
+    Text(
+        "Article",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+/**
+ * A poll, read only. Each choice is a bar filled to its share, the leading
+ * one in the accent colour. Voting needs an account, so there is nothing to tap.
+ */
+@Composable
+internal fun PollBlock(poll: Poll) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        poll.options.forEach { option ->
+            val fill = if (option.leader) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                // The fill sits in its own box: under matchParentSize the width
+                // is fixed, and a fraction would be clamped back to full width.
+                Box(Modifier.matchParentSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(option.percent / 100f)
+                            .background(fill)
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        option.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (option.leader) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (option.leader) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${option.percent}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (option.leader) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (option.leader) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(start = 12.dp)
+                    )
+                }
+            }
+        }
+        pollInfo(poll)?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+internal fun pollInfo(poll: Poll): String? {
+    val votes = poll.votes?.let { if (it == 1L) "1 vote" else "%,d votes".format(it) }
+    return listOfNotNull(votes, poll.status).joinToString(" · ").ifBlank { null }
 }
 
 @Composable

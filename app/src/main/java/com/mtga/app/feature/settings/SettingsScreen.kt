@@ -1,7 +1,13 @@
 package com.mtga.app.feature.settings
 
 import com.mtga.app.ui.component.LocalDockPadding
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.ContextCompat
+import com.mtga.app.sync.NewPostNotifier
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,6 +103,44 @@ fun SettingsScreen(
     val importer = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::importAccounts) }
+
+    // Notifications can be blocked in Android at any time, so this is read
+    // again whenever the screen comes back, like the X links state.
+    val notifier = remember { NewPostNotifier(context) }
+    var notificationsAllowed by remember { mutableStateOf(notifier.canNotify()) }
+    LifecycleResumeEffect(Unit) {
+        notificationsAllowed = notifier.canNotify()
+        onPauseOrDispose { }
+    }
+    // Asked at the moment the reader turns notifications on, never before.
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notificationsAllowed = notifier.canNotify()
+        if (granted && notificationsAllowed) {
+            viewModel.setNotifyNewPosts(true)
+        } else {
+            // Refused now or earlier. Android will not ask twice, so its own
+            // screen is the only way left, and the reader decides there.
+            Toast.makeText(context, "Notifications are off for MTGA in Android", Toast.LENGTH_SHORT).show()
+            openNotificationSettings(context)
+        }
+    }
+    val onNotifyChange: (Boolean) -> Unit = { enabled ->
+        when {
+            !enabled -> viewModel.setNotifyNewPosts(false)
+            notifier.canNotify() -> viewModel.setNotifyNewPosts(true)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED ->
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            else -> {
+                // Permission granted or not needed, but switched off in Android.
+                Toast.makeText(context, "Notifications are off for MTGA in Android", Toast.LENGTH_SHORT).show()
+                openNotificationSettings(context)
+            }
+        }
+    }
 
     val message by viewModel.message.collectAsState()
     LaunchedEffect(message) {
@@ -213,6 +257,20 @@ fun SettingsScreen(
                 checked = settings.syncOnWifiOnly,
                 enabled = settings.backgroundSync,
                 onChange = viewModel::setWifiOnly
+            )
+            SwitchRow(
+                title = "Notify about new posts",
+                summary = when {
+                    !settings.backgroundSync -> "Needs \"Check for new posts\"."
+                    settings.notifyNewPosts && !notificationsAllowed ->
+                        "Blocked in Android settings. Tap to allow."
+                    else -> "One notification when a check finds posts Home would show."
+                },
+                checked = settings.notifyNewPosts && notificationsAllowed,
+                enabled = settings.backgroundSync,
+                // Shown off while Android blocks it, so a tap then means
+                // "make it work" and leads to the permission or Android's page.
+                onChange = onNotifyChange
             )
         }
 
@@ -452,6 +510,14 @@ private fun xLinksEnabled(context: Context): Boolean {
 }
 
 /** The system screen where supported links are switched on for this app. */
+/** MTGA's own notification page in Android settings. */
+private fun openNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+}
+
 private fun openLinkSettings(context: Context) {
     val intent = Intent(
         android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,

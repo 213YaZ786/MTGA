@@ -19,6 +19,13 @@ data class Settings(
     val backgroundSync: Boolean = false,
     val syncIntervalMinutes: Int = 60,
     val syncOnWifiOnly: Boolean = true,
+    /** A notification when background checks find new posts. Needs backgroundSync. */
+    val notifyNewPosts: Boolean = false,
+    /**
+     * When notifications were turned on. Nothing older is ever announced, so
+     * switching them on does not flood the shade with the backlog.
+     */
+    val notifySinceMillis: Long = 0,
     /** Home filters. Kept across launches, because a filter is a reading habit. */
     val homeHideReplies: Boolean = false,
     val homeHideReposts: Boolean = false,

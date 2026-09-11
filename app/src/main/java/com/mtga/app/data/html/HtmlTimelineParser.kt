@@ -1,8 +1,11 @@
 package com.mtga.app.data.html
 
+import com.mtga.app.core.model.CommunityNote
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.LinkCard
+import com.mtga.app.core.model.Poll
+import com.mtga.app.core.model.PollOption
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
@@ -124,6 +127,10 @@ class HtmlTimelineParser {
         // body is everything before it.
         val quoteAt = chunk.indexOf("class=\"quote")
         val body = if (quoteAt > 0) chunk.substring(0, quoteAt) else chunk
+        // Nitter draws the post's own community note after the quote, so it
+        // is looked for past the end of the quote block, never inside it.
+        val quoteEnd = if (quoteAt > 0) chunk.blockEnd(quoteAt) else -1
+        val afterQuote = if (quoteEnd > 0) chunk.substring(quoteEnd) else ""
 
         val handle = chunk.attributeNear("data-username=\"", "", 0)
             ?: body.attributeNear("class=\"username\"", "title=\"", 300)?.removePrefix("@")
@@ -165,6 +172,8 @@ class HtmlTimelineParser {
             media = extractMedia(body, host),
             quoted = if (quoteAt > 0) parseQuote(chunk.substring(quoteAt), host) else null,
             card = parseCard(body, host),
+            poll = parsePoll(body),
+            note = parseNote(if (quoteAt > 0) afterQuote else body),
             stats = extractStats(chunk)
         )
     }
@@ -184,25 +193,130 @@ class HtmlTimelineParser {
             name = quoteChunk.attributeNear("class=\"fullname\"", "title=\"", 400)
                 ?.let(::decodeEntities).orEmpty(),
             text = quoteChunk.tagContent("class=\"quote-text\"")?.let(::htmlToText).orEmpty(),
-            permalink = absolute(link.substringBefore("#"), host)
+            permalink = absolute(link.substringBefore("#"), host),
+            note = parseNote(quoteChunk.substring(0, quoteChunk.blockEnd(0).takeIf { it > 0 } ?: quoteChunk.length))
         )
     }
 
+    /**
+     * A community-note block holds a header ("Community note") and a
+     * community-note-text div with the note itself, links included.
+     */
+    private fun parseNote(section: String): CommunityNote? {
+        val at = section.indexOf("class=\"community-note\"").takeIf { it >= 0 } ?: return null
+        val html = section.substring(at).tagContent("class=\"community-note-text\"") ?: return null
+        val text = htmlToText(html).takeIf { it.isNotBlank() } ?: return null
+        return CommunityNote(text = text, links = extractLinks(html))
+    }
+
+    /**
+     * Index just past the div that contains [markerAt], balancing nested divs.
+     * -1 when the markup is cut short, so callers can fall back safely.
+     */
+    private fun String.blockEnd(markerAt: Int): Int {
+        val open = indexOf('>', markerAt).takeIf { it >= 0 } ?: return -1
+        var depth = 1
+        var cursor = open + 1
+        while (cursor < length) {
+            val nextOpen = indexOf("<div", cursor)
+            val nextClose = indexOf("</div", cursor)
+            if (nextClose < 0) return -1
+            if (nextOpen in 0 until nextClose) {
+                depth++
+                cursor = nextOpen + 4
+            } else {
+                depth--
+                val end = indexOf('>', nextClose).takeIf { it >= 0 } ?: return -1
+                if (depth == 0) return end + 1
+                cursor = end + 1
+            }
+        }
+        return -1
+    }
+
     private fun parseCard(body: String, host: String): LinkCard? {
-        if ("class=\"card" !in body) return null
-        val title = body.tagContent("class=\"card-title\"")?.let(::htmlToText)?.takeIf {
+        if ("class=\"card" !in body && "class=\"article-card" !in body) return null
+        val title = body.elementText("class=\"card-title\"", "</h2>")?.takeIf {
             it.isNotBlank()
         } ?: return null
+        // Relative for X articles ("/i/article/<id>"), absolute otherwise. A
+        // titled video attachment reuses card-title without a link container,
+        // so its url stays null and the card simply does not open anything.
+        val url = body.attributeNear("class=\"card-container\"", "href=\"", 200)
+            ?.let { absolute(it, host) }
+        val isArticle = "class=\"article-card" in body
         return LinkCard(
             title = title,
-            description = body.tagContent("class=\"card-description\"")?.let(::htmlToText),
-            destination = body.tagContent("class=\"card-destination\"")?.let(::htmlToText),
+            description = body.elementText("class=\"card-description\"", "</p>"),
+            destination = body.elementText("class=\"card-destination\"", "</span>"),
             imageUrl = body.attributeNear("class=\"card-image\"", "src=\"", 300)
                 ?.let { absolute(it, host) },
-            url = body.attributeNear("class=\"card-container\"", "href=\"", 200)
-                ?.let(::decodeEntities)
+            url = url,
+            // Nitter marks the wide layout with "card large". Articles are always large.
+            large = isArticle || "card large\"" in body,
+            isArticle = isArticle
         )
     }
+
+    /**
+     * Nitter draws a poll as one poll-meter per choice, the leader flagged,
+     * each with a percentage and a label in spans, then one poll-info line
+     * such as "1,234 votes • Final results".
+     */
+    private fun parsePoll(body: String): Poll? {
+        val start = body.indexOf("class=\"poll\"").takeIf { it >= 0 } ?: return null
+        val infoAt = body.indexOf("class=\"poll-info\"", start)
+        val end = if (infoAt > 0) infoAt else body.length
+        val options = mutableListOf<PollOption>()
+        var cursor = start
+        while (true) {
+            val at = body.indexOf("class=\"poll-meter", cursor).takeIf { it in 0 until end } ?: break
+            val next = body.indexOf("class=\"poll-meter", at + 18).takeIf { it in 0 until end } ?: end
+            val meter = body.substring(at, next)
+            val label = meter.spanText("class=\"poll-choice-option\"")
+            if (!label.isNullOrBlank()) {
+                val percent = meter.spanText("class=\"poll-choice-value\"")
+                    ?.filter { it.isDigit() }
+                    ?.toIntOrNull()
+                    ?.coerceIn(0, 100)
+                    ?: 0
+                options += PollOption(
+                    label = label,
+                    percent = percent,
+                    leader = meter.startsWith("class=\"poll-meter leader")
+                )
+            }
+            cursor = next
+            if (next >= end) break
+        }
+        if (options.isEmpty()) return null
+
+        val info = if (infoAt > 0) body.spanText(infoAt) else null
+        val votesPart = info?.substringBefore('•')?.trim()
+        return Poll(
+            options = options,
+            votes = votesPart?.takeIf { "vote" in it }?.filter { it.isDigit() }?.toLongOrNull(),
+            status = info?.takeIf { '•' in it }?.substringAfter('•')?.trim()?.takeIf { it.isNotBlank() }
+        )
+    }
+
+    /**
+     * Text of a non div element whose opening tag contains [marker], up to
+     * [closeTag]. tagContent balances divs only, so on an h2, a p or a span it
+     * would run on to the end of the enclosing div and swallow its siblings.
+     */
+    private fun String.elementText(marker: String, closeTag: String): String? =
+        indexOf(marker).takeIf { it >= 0 }?.let { elementText(it, closeTag) }
+
+    private fun String.elementText(markerAt: Int, closeTag: String): String? {
+        val open = indexOf('>', markerAt).takeIf { it >= 0 } ?: return null
+        val close = indexOf(closeTag, open).takeIf { it >= 0 } ?: return null
+        return htmlToText(substring(open + 1, close)).takeIf { it.isNotBlank() }
+    }
+
+    private fun String.spanText(marker: String): String? = elementText(marker, "</span>")
+
+    private fun String.spanText(markerAt: Int): String? = elementText(markerAt, "</span>")
 
     // ---- media --------------------------------------------------------------
 
@@ -417,6 +531,8 @@ class HtmlTimelineParser {
         .replace("&#39;", "'")
         .replace("&apos;", "'")
         .replace("&nbsp;", " ")
+        .replace("&bull;", "•")
+        .replace("&#8226;", "•")
         .replace("&amp;", "&")
 
     private fun absolute(raw: String, host: String): String = when {
@@ -426,7 +542,7 @@ class HtmlTimelineParser {
     }
 
     companion object {
-        const val SELECTOR_SET_VERSION = 3
+        const val SELECTOR_SET_VERSION = 5
 
         private val TIMESTAMP_PATTERNS = listOf(
             "MMM d, yyyy h:mm a zzz",

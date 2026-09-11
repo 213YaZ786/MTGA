@@ -59,13 +59,21 @@ class FeedCache(
         val known = existing.posts.map { it.id }.toSet()
         val newPosts = incoming.posts.filterNot { it.id in known }
 
+        // A post already stored may come back richer: x.com serves the head
+        // without cards or polls, Nitter serves them for the same ids. Keep
+        // the stored post and fill in what it lacked, plus fresher counts.
+        val seenAgain = incoming.posts.filter { it.id in known }.associateBy { it.id }
+        val refreshed = if (seenAgain.isEmpty()) existing.posts else existing.posts.map { post ->
+            seenAgain[post.id]?.let(post::mergedWith) ?: post
+        }
+
         // A paged fetch that brings back nothing new means the cursor did not
         // advance. Continuing would loop forever on the same page, so stop
         // offering to load more rather than spinning against the instance.
         val exhausted = isPagedFetch && newPosts.isEmpty()
 
         val combined = incoming.copy(
-            posts = (existing.posts + newPosts).sortedByDescending { it.publishedAtMillis },
+            posts = (refreshed + newPosts).sortedByDescending { it.publishedAtMillis },
             displayName = incoming.displayName.ifBlank { existing.displayName },
             avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
             bio = incoming.bio ?: existing.bio,

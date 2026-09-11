@@ -136,6 +136,18 @@ class SettingsViewModel(
         applySchedule()
     }
 
+    /**
+     * Turning notifications on starts the clock: only posts published after
+     * this moment are ever announced. The permission is asked by the screen
+     * before this is called.
+     */
+    fun setNotifyNewPosts(enabled: Boolean) = store.update {
+        it.copy(
+            notifyNewPosts = enabled,
+            notifySinceMillis = if (enabled) System.currentTimeMillis() else it.notifySinceMillis
+        )
+    }
+
     fun setInterval(minutes: Int) {
         store.update { it.copy(syncIntervalMinutes = minutes) }
         applySchedule()

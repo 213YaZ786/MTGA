@@ -26,8 +26,31 @@ data class Post(
     val media: List<MediaItem> = emptyList(),
     val quoted: QuotedPost? = null,
     val card: LinkCard? = null,
+    val poll: Poll? = null,
+    val note: CommunityNote? = null,
     val stats: PostStats? = null
-)
+) {
+    /**
+     * The same post seen again, possibly from a richer source. x.com gives the
+     * head of a feed first, without cards or polls, and Nitter brings them a
+     * moment later for the same id. The stored post keeps its identity and
+     * text, and takes whatever [fresh] knows that it does not, plus the newer
+     * counts, since votes and likes move.
+     */
+    fun mergedWith(fresh: Post): Post {
+        if (fresh.id != id) return this
+        val merged = copy(
+            avatarUrl = avatarUrl ?: fresh.avatarUrl,
+            media = media.ifEmpty { fresh.media },
+            quoted = quoted?.let { q -> q.copy(note = fresh.quoted?.note ?: q.note) } ?: fresh.quoted,
+            card = fresh.card ?: card,
+            poll = fresh.poll ?: poll,
+            note = fresh.note ?: note,
+            stats = stats?.let { old -> fresh.stats?.let(old::mergedWith) ?: old } ?: fresh.stats
+        )
+        return if (merged == this) this else merged
+    }
+}
 
 @Serializable
 enum class PostKind { ORIGINAL, REPOST, REPLY, QUOTE }
@@ -53,16 +76,53 @@ data class QuotedPost(
     val handle: String,
     val name: String,
     val text: String,
-    val permalink: String
+    val permalink: String,
+    val note: CommunityNote? = null
 )
 
+/**
+ * Context written by X's community notes, as the source shows it under a post.
+ * [links] are the sources the note cites, in order of appearance.
+ */
+@Serializable
+data class CommunityNote(
+    val text: String,
+    val links: List<String> = emptyList()
+)
+
+/**
+ * [large] mirrors Nitter's own split: summary, app and player cards are small,
+ * with a thumbnail beside the text, the others put a wide picture on top.
+ * [isArticle] marks an X article preview, which Nitter draws with a badge.
+ */
 @Serializable
 data class LinkCard(
     val title: String,
     val description: String?,
     val destination: String?,
     val imageUrl: String?,
-    val url: String?
+    val url: String?,
+    val large: Boolean = true,
+    val isArticle: Boolean = false
+)
+
+/**
+ * A poll as the server last showed it. Percentages come rounded from the
+ * source, so they may not add up to exactly 100. [status] is the source's own
+ * wording, for example "Final results" or "2 days left".
+ */
+@Serializable
+data class Poll(
+    val options: List<PollOption>,
+    val votes: Long? = null,
+    val status: String? = null
+)
+
+@Serializable
+data class PollOption(
+    val label: String,
+    val percent: Int,
+    val leader: Boolean = false
 )
 
 @Serializable
@@ -71,7 +131,15 @@ data class PostStats(
     val reposts: Int? = null,
     val likes: Int? = null,
     val views: Int? = null
-)
+) {
+    /** Newer counts win, a count the fresh source does not carry is kept. */
+    fun mergedWith(fresh: PostStats) = PostStats(
+        replies = fresh.replies ?: replies,
+        reposts = fresh.reposts ?: reposts,
+        likes = fresh.likes ?: likes,
+        views = fresh.views ?: views
+    )
+}
 
 /** A single account's feed as fetched from one instance. */
 @Serializable
