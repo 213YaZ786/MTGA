@@ -1,21 +1,23 @@
 plugins {
+    // AGP 9 compiles Kotlin itself (built-in Kotlin), so no kotlin-android here.
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "com.mtga.app"
-    compileSdk = 36
+    // 37 because Compose 1.12 compiles against it. targetSdk stays 36 until
+    // Android 17's behaviour changes have been read and tested on a device:
+    // compiling against an API changes nothing at runtime, targeting it does.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.mtga.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 49
-        versionName = "1.15.0"
-        vectorDrawables.useSupportLibrary = true
+        versionCode = 50
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -55,11 +57,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
-        }
-    }
+    // No kotlin { jvmTarget } block any more: with built-in Kotlin the JVM
+    // target follows targetCompatibility above.
 
     buildFeatures {
         compose = true
