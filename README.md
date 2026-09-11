@@ -44,7 +44,7 @@ Kotlin and Jetpack Compose, single module. Build with Android Studio or:
 gradle :app:assembleDebug
 ```
 
-Gradle 9.5.1 and AGP 8.13 are pinned on purpose. Do not accept Android Studio's upgrade prompts. CI builds a debug APK on every push. For a signed release, add the repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
+Built with AGP 9.3 (built-in Kotlin) and Gradle 9.5.1, which needs Android Studio Quail 2 or later. Library updates arrive as Dependabot pull requests. CI builds a debug APK on every push. For a signed release, add the repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`.
 
 ## Thanks
 

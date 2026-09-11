@@ -1,20 +1,19 @@
 # Version catalogue.
-# NOTE: a few of these are pinned optimistically. The first CI run names any
-# artifact that cannot be resolved, and fixing it is a one line change here.
+# 2.0.0 moved the build to AGP 9 (built-in Kotlin, new DSL) and compileSdk 37.
+# Library versions are kept up to date by Dependabot, see .github/dependabot.yml.
 [versions]
-agp = "8.13.0"
+# AGP 9.3 needs Gradle 9.5.0 or later, so the pinned 9.5.1 still fits.
+agp = "9.3.2"
 kotlin = "2.4.0"
 coreKtx = "1.17.0"
 lifecycle = "2.9.4"
 activityCompose = "1.11.0"
-composeBom = "2026.04.01"
-material3 = "1.4.0"
+# 2026.08.00 is Compose 1.12, which compiles against API 37 and needs AGP 9.1.1 or later.
+composeBom = "2026.08.00"
 navigation = "2.9.5"
 koin = "4.1.0"
 ktor = "3.3.0"
 coil = "3.4.0"
-# Media3 1.10.1, not 1.11.0: 1.11 targets API 37 features and may demand
-# compileSdk 37, which we cannot take before the AGP 9 migration. Unverified.
 media3 = "1.10.1"
 junit = "4.13.2"
 
@@ -46,6 +45,9 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+# Never applied to a module: AGP 9 compiles Kotlin itself. Declared only so the
+# root build puts Kotlin Gradle plugin 2.4.0 on the classpath, the version the
+# Compose and serialization plugins below expect, instead of AGP's older default.
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
