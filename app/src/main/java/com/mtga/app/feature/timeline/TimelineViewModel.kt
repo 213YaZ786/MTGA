@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The Home filters. Each is a narrowing, so none selected means everything. */
 data class HomeFilters(
@@ -62,6 +64,20 @@ class TimelineViewModel(
     private val _state = MutableStateFlow(TimelineUiState(filters = settings.current.toFilters()))
     val state: StateFlow<TimelineUiState> = _state.asStateFlow()
 
+    /**
+     * One timeline operation at a time: launch, refresh, follow, unfollow,
+     * paging. Each reads the cache and replaces the post list, so two running
+     * together would overwrite each other, and two fetches together would
+     * double the requests against a fragile host.
+     */
+    private val work = Mutex()
+
+    /** Followed handles, lowercased, that the state reflects. Touched only under [work]. */
+    private var known: Set<String> = emptySet()
+
+    /** Set from a pull until it runs, so a second pull cannot queue a second pass. */
+    private var fullRefreshQueued = false
+
     init {
         settings.settings
             .onEach { _state.value = _state.value.copy(filters = it.toFilters()) }
@@ -70,41 +86,106 @@ class TimelineViewModel(
         viewModelScope.launch {
             // Paint from disk first so the timeline is readable before any
             // request goes out, then refresh over the top.
-            val cached = repository.cached()
-            _state.value = _state.value.copy(
-                allPosts = cached.posts,
-                followedCount = accounts.accounts.value.size,
-                lastUpdatedMillis = cached.oldestFetchedAtMillis,
-                canLoadMore = cached.canLoadMore
-            )
+            work.withLock {
+                known = followedKeys()
+                val cached = repository.cached()
+                _state.value = _state.value.copy(
+                    allPosts = cached.posts,
+                    followedCount = known.size,
+                    lastUpdatedMillis = cached.oldestFetchedAtMillis,
+                    canLoadMore = cached.canLoadMore
+                )
+            }
             refresh()
+        }
+
+        // Home follows the list live. Before 1.3.1 it read the list once at
+        // launch, so an account followed later stayed off Home until a restart.
+        // The flow is conflated, so a burst of changes becomes one pass.
+        viewModelScope.launch {
+            accounts.accounts.collect { reconcile() }
         }
     }
 
     fun refresh() {
-        if (_state.value.loading) return
+        if (_state.value.loading || fullRefreshQueued) return
+        fullRefreshQueued = true
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true)
-            val newestBefore = _state.value.allPosts.maxOfOrNull { it.publishedAtMillis }
-            val merged = repository.refresh()
-            val arrived = if (newestBefore == null) {
-                0
-            } else {
-                merged.posts.count { it.publishedAtMillis > newestBefore && _state.value.filters.keeps(it) }
+            work.withLock {
+                fullRefreshQueued = false
+                known = followedKeys()
+                fetch(only = null)
             }
-            _state.value = _state.value.copy(
-                allPosts = merged.posts,
-                loading = false,
-                errors = merged.errors,
-                followedCount = accounts.accounts.value.size,
-                lastUpdatedMillis = merged.oldestFetchedAtMillis ?: _state.value.lastUpdatedMillis,
-                canLoadMore = merged.canLoadMore,
-                loadingMore = false,
-                pagingFailed = false,
-                newPostCount = _state.value.newPostCount + arrived
-            )
         }
     }
+
+    /**
+     * Brings the state in line with the followed list. An unfollow costs no
+     * request, its posts simply leave. A follow fetches that account only,
+     * after showing whatever its cache already holds, for example from having
+     * just opened its feed.
+     */
+    private suspend fun reconcile() = work.withLock {
+        val current = followedKeys()
+        val added = current - known
+        val removed = known - current
+        if (added.isEmpty() && removed.isEmpty()) return@withLock
+        known = current
+
+        val cached = repository.cached()
+        _state.value = _state.value.copy(
+            allPosts = cached.posts,
+            followedCount = current.size,
+            canLoadMore = cached.canLoadMore,
+            errors = _state.value.errors.filterKeys { it.lowercase() in current },
+            lastUpdatedMillis = if (current.isEmpty()) null else _state.value.lastUpdatedMillis
+        )
+
+        if (added.isNotEmpty()) fetch(only = added)
+    }
+
+    /**
+     * Runs under [work]. [only] limits the network to those handles, and the
+     * errors of every other account are kept, since they were not retried.
+     */
+    private suspend fun fetch(only: Set<String>?) {
+        val before = _state.value
+        _state.value = before.copy(loading = true, followedCount = known.size)
+        val newestBefore = before.allPosts.maxOfOrNull { it.publishedAtMillis }
+
+        val merged = repository.refresh(only)
+
+        val arrived = if (newestBefore == null) {
+            0
+        } else {
+            merged.posts.count { it.publishedAtMillis > newestBefore && _state.value.filters.keeps(it) }
+        }
+        val errors = if (only == null) {
+            merged.errors
+        } else {
+            _state.value.errors.filterKeys { it.lowercase() !in only } + merged.errors
+        }
+        val lastUpdated = if (only == null) {
+            merged.oldestFetchedAtMillis ?: _state.value.lastUpdatedMillis
+        } else {
+            // One account fetched does not make the whole timeline fresh.
+            _state.value.lastUpdatedMillis ?: merged.oldestFetchedAtMillis
+        }
+        _state.value = _state.value.copy(
+            allPosts = merged.posts,
+            loading = false,
+            errors = errors,
+            followedCount = known.size,
+            lastUpdatedMillis = lastUpdated,
+            canLoadMore = merged.canLoadMore,
+            loadingMore = false,
+            pagingFailed = false,
+            newPostCount = _state.value.newPostCount + arrived
+        )
+    }
+
+    private fun followedKeys(): Set<String> =
+        accounts.accounts.value.map { it.handle.lowercase() }.toSet()
 
     /** The reader has seen the top of the list, or tapped the pill. */
     fun clearNewPosts() {
@@ -122,24 +203,30 @@ class TimelineViewModel(
     /**
      * Called when the reader nears the bottom, and by the retry button.
      * [manual] bypasses the failure latch, so a person can insist, but a scroll
-     * gesture cannot.
+     * gesture cannot. Skipped while another operation holds the timeline, the
+     * next scroll asks again.
      */
     fun loadMore(manual: Boolean = false) {
         val current = _state.value
         if (current.loadingMore || current.loading || !current.canLoadMore) return
         if (current.pagingFailed && !manual) return
+        if (!work.tryLock()) return
 
+        _state.value = current.copy(loadingMore = true, pagingFailed = false)
         viewModelScope.launch {
-            _state.value = current.copy(loadingMore = true, pagingFailed = false)
-            val before = current.allPosts.size
-            val merged = repository.loadMore()
-            _state.value = _state.value.copy(
-                allPosts = merged.posts,
-                loadingMore = false,
-                canLoadMore = merged.canLoadMore,
-                errors = merged.errors.ifEmpty { _state.value.errors },
-                pagingFailed = merged.errors.isNotEmpty() || merged.posts.size <= before
-            )
+            try {
+                val before = current.allPosts.size
+                val merged = repository.loadMore()
+                _state.value = _state.value.copy(
+                    allPosts = merged.posts,
+                    loadingMore = false,
+                    canLoadMore = merged.canLoadMore,
+                    errors = merged.errors.ifEmpty { _state.value.errors },
+                    pagingFailed = merged.errors.isNotEmpty() || merged.posts.size <= before
+                )
+            } finally {
+                work.unlock()
+            }
         }
     }
 

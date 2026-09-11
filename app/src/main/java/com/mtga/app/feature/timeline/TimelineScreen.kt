@@ -144,14 +144,27 @@ fun TimelineScreen(
                 modifier = Modifier.padding(padding)
             )
 
-            state.isEmpty && state.errors.isNotEmpty() -> EmptyState(
-                title = "Nothing could be loaded",
-                message = "None of your accounts could be loaded. The connection check shows " +
-                    "which servers are down.",
-                actionLabel = "Check connection",
-                onAction = onOpenDiagnostics,
-                modifier = Modifier.padding(padding)
-            )
+            // Pull works here too. Before 1.3.2 this screen was a dead end: a
+            // failed refresh at launch left Home stuck until a restart.
+            state.isEmpty && state.errors.isNotEmpty() -> PullToRefreshBox(
+                isRefreshing = state.loading,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.fillMaxSize().padding(padding)
+            ) {
+                // A list, because the pull gesture needs something scrollable.
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item(key = "nothing") {
+                        EmptyState(
+                            title = "Nothing could be loaded",
+                            message = "None of your accounts could be loaded. Pull down to try " +
+                                "again. The connection check shows which servers are down.",
+                            actionLabel = "Check connection",
+                            onAction = onOpenDiagnostics,
+                            modifier = Modifier.fillParentMaxSize()
+                        )
+                    }
+                }
+            }
 
             else -> PullToRefreshBox(
                 isRefreshing = state.loading,

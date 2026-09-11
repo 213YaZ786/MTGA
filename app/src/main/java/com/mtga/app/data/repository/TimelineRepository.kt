@@ -51,19 +51,26 @@ class TimelineRepository(
     }
 
     /**
-     * Fetches every followed account, a few at a time.
+     * Fetches followed accounts, a few at a time, and returns the whole merged
+     * timeline.
+     *
+     * [only] narrows the fetch to those handles, lowercased, and leaves every
+     * other account to its cache. Following one account then costs one read,
+     * not a pass over the whole list against a fragile host. Null fetches all.
      *
      * The concurrency limit is the point. Firing twenty simultaneous requests at
      * a single surviving instance is the fastest way to get rate limited, and
      * the pool's backoff would then punish every later read.
      */
-    suspend fun refresh(): Merged = coroutineScope {
+    suspend fun refresh(only: Set<String>? = null): Merged = coroutineScope {
         val handles = accounts.accounts.value.map { it.handle }
         if (handles.isEmpty()) return@coroutineScope Merged()
 
+        val targets = if (only == null) handles else handles.filter { it.lowercase() in only }
+
         val gate = Semaphore(MAX_PARALLEL_FETCHES)
 
-        val results = handles.map { handle ->
+        val results = targets.map { handle ->
             async {
                 gate.withPermit { handle to feeds.loadFeed(handle) }
             }
@@ -77,12 +84,19 @@ class TimelineRepository(
         // It is the only source that cannot be a stale re-serving of someone
         // else's parse, and the cache merges it with whatever the instances
         // provide for depth.
+        //
+        // A fresh head means the account is readable, so a failure on the
+        // depth side is not reported as the account failing. Before 1.3.4 the
+        // error was removed here, before the loop below had recorded it, so
+        // the removal did nothing and Home flagged accounts that had just
+        // updated.
+        val headOk = mutableSetOf<String>()
         if (settings.current.useXcomDirect) {
-            for (handle in handles) {
+            for (handle in targets) {
                 when (val head = xcom.fetchLatest(handle)) {
                     is Outcome.Success -> {
                         cache.append(head.value)
-                        errors.remove(handle)
+                        headOk += handle
                     }
                     is Outcome.Failure -> Unit // instances still had their turn
                 }
@@ -100,7 +114,7 @@ class TimelineRepository(
                     oldest = minOf(oldest ?: outcome.value.fetchedAtMillis, outcome.value.fetchedAtMillis)
                 }
                 is Outcome.Failure -> {
-                    errors[handle] = outcome.error
+                    if (handle !in headOk) errors[handle] = outcome.error
                     cache.read(handle)?.let { if (it.nextCursor != null) more = true }
                 }
             }
@@ -109,8 +123,9 @@ class TimelineRepository(
         // Read back from the cache rather than from this run's results, so the
         // merged view includes everything ever collected, not only what today's
         // fetch happened to return. This is what makes background polling
-        // accumulate history instead of replacing it.
-        val stored = handles.mapNotNull { cache.read(it) }
+        // accumulate history instead of replacing it. The list is read again
+        // here, so an account unfollowed during the fetch does not come back.
+        val stored = accounts.accounts.value.mapNotNull { cache.read(it.handle) }
 
         Merged(
             posts = merge(stored.flatMap { it.posts }),

@@ -83,7 +83,7 @@ val appModule = module {
     single { XComSource(get(), get(), get(), get()) }
     single { TimelineRepository(get(), get(), get(), get(), get()) }
 
-    viewModel { DiagnosticsViewModel(get()) }
+    viewModel { DiagnosticsViewModel(get(), get(), get()) }
     viewModel { AccountsViewModel(get(), get()) }
     viewModel { PostDetailViewModel(get(), get(), get()) }
     viewModel { SearchViewModel(get()) }
