@@ -119,8 +119,13 @@ class PostDetailViewModel(
             is Outcome.Success -> {
                 val conversation = outcome.value
                 RecentPosts.remember(conversation)
+                // The post shown may have come from x.com's embed endpoint,
+                // which cuts long posts off at 280 characters. Nitter returns
+                // the whole text for the same id, so the two are merged rather
+                // than the first one winning outright.
+                val known = _state.value.post
                 _state.value = _state.value.copy(
-                    post = _state.value.post ?: conversation.main,
+                    post = conversation.main?.let { fresh -> known?.mergedWith(fresh) ?: fresh } ?: known,
                     thread = ThreadState.Ready(conversation)
                 )
             }

@@ -151,7 +151,9 @@ class HtmlSource(
                 httpStatus = page.status,
                 bodyBytes = body.length,
                 durationMillis = elapsed,
-                detail = "posts: ${feed.posts.size} | via ${page.via.name} | next cursor: " +
+                detail = "posts: ${feed.posts.size} | via ${page.via.name} | " +
+                    "newest: ${feed.posts.firstOrNull()?.id ?: "NONE"} | " +
+                    "oldest: ${feed.posts.lastOrNull()?.id ?: "NONE"} | next cursor: " +
                     (feed.nextCursor?.take(24)?.plus("...") ?: "NONE FOUND")
             )
             Outcome.Success(feed)

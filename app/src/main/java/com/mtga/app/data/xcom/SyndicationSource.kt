@@ -64,7 +64,7 @@ class SyndicationSource(
             authorHandle = handle,
             authorName = user["name"]?.string() ?: handle,
             avatarUrl = user["profile_image_url_https"]?.string(),
-            text = obj["text"]?.string().orEmpty(),
+            text = fullText(obj),
             publishedAtMillis = snowflakeToMillis(id),
             permalink = "https://x.com/$handle/status/$id",
             kind = if (obj["quoted_tweet"] is JsonObject) PostKind.QUOTE else PostKind.ORIGINAL,
@@ -75,7 +75,7 @@ class SyndicationSource(
                 QuotedPost(
                     handle = quoteHandle,
                     name = quoteUser?.get("name")?.string().orEmpty(),
-                    text = quote["text"]?.string().orEmpty(),
+                    text = fullText(quote),
                     permalink = "https://x.com/$quoteHandle/status/" +
                         quote["id_str"]?.string().orEmpty()
                 )
@@ -85,6 +85,40 @@ class SyndicationSource(
                 likes = obj["favorite_count"]?.int()
             )
         )
+    }
+
+    /**
+     * X keeps only the first 280 characters of a long post in "text" and ends
+     * it with the t.co link of the post's own media, which is why a post could
+     * stop mid sentence. The whole text of a long post lives under note_tweet.
+     * The exact shape of that field on this endpoint could not be checked from
+     * the sandbox, so both spellings seen on x.com are tried and the short text
+     * stays the fallback.
+     */
+    private fun fullText(obj: JsonObject): String {
+        val note = obj["note_tweet"] as? JsonObject
+        val noteText = note?.get("text")?.string()
+            ?: ((note?.get("note_tweet_results") as? JsonObject)?.get("result") as? JsonObject)
+                ?.get("text")?.string()
+        return trimTrailingLink(noteText ?: obj["text"]?.string().orEmpty(), obj)
+    }
+
+    /**
+     * Drops the t.co link X appends for the post's own media or quote, which
+     * points back at the post and is already shown as media. A link the author
+     * typed is listed in entities.urls and is kept.
+     */
+    private fun trimTrailingLink(text: String, obj: JsonObject): String {
+        val trimmed = text.trimEnd()
+        val at = trimmed.lastIndexOf("https://t.co/")
+        if (at < 0) return trimmed
+        val tail = trimmed.substring(at)
+        if (tail.any(Char::isWhitespace)) return trimmed
+        val typed = ((obj["entities"] as? JsonObject)?.get("urls") as? JsonArray)
+            ?.mapNotNull { (it as? JsonObject)?.get("url")?.string() }
+            .orEmpty()
+        if (tail in typed) return trimmed
+        return trimmed.substring(0, at).trimEnd()
     }
 
     /**

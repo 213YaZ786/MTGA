@@ -85,7 +85,7 @@ val appModule = module {
     single { FeedRepository(get(), get(), get(), get(), get(), get()) }
     single {
         val settings: SettingsStore = get()
-        FeedCache(androidContext()) { settings.current.keepPostsDays }
+        FeedCache(androidContext(), get()) { settings.current.keepPostsDays }
     }
     single { SettingsStore(androidContext()) }
     single { SyndicationSource(get(), get()) }

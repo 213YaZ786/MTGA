@@ -1,6 +1,7 @@
 package com.mtga.app.data.cache
 
 import android.content.Context
+import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostId
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class FeedCache(
     context: Context,
+    private val log: RequestLog,
     /** Days to keep saved posts, 0 for no limit. Read at each write. */
     private val retentionDays: () -> Int = { 0 }
 ) {
@@ -94,6 +96,14 @@ class FeedCache(
         val incoming = canonical(page)
         val existing = read(incoming.handle)
         if (existing == null) {
+            log.record(
+                kind = RequestLog.Kind.CACHE,
+                url = "cache/${incoming.handle}",
+                outcome = "first",
+                detail = "nothing stored yet | in: ${incoming.posts.size} | " +
+                    "in newest: ${incoming.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}" +
+                    " oldest: ${incoming.posts.minByOrNull { it.publishedAtMillis }?.id ?: "NONE"}"
+            )
             write(incoming)
             return@withContext incoming
         }
@@ -142,6 +152,39 @@ class FeedCache(
                 exhausted -> null
                 keepDeeperCursor -> existing.nextCursor
                 else -> incoming.nextCursor ?: existing.nextCursor
+            }
+        )
+        // Everything needed to tell a post that was dropped from a post that
+        // was never fetched. A refresh whose page meets nothing already stored
+        // has landed clear of the store, which leaves a hole between the two.
+        val newestStored = existing.posts.maxOfOrNull { it.publishedAtMillis } ?: 0L
+        val oldestIncoming = incoming.posts.minOfOrNull { it.publishedAtMillis } ?: 0L
+        val hole = !isPagedFetch && seenAgain.isEmpty() &&
+            existing.posts.isNotEmpty() && incoming.posts.isNotEmpty() &&
+            oldestIncoming > newestStored
+        log.record(
+            kind = RequestLog.Kind.CACHE,
+            url = "cache/${incoming.handle}",
+            outcome = if (hole) "gap" else "ok",
+            detail = buildString {
+                append(if (isPagedFetch) "paged" else "refresh")
+                append(" | in: ${incoming.posts.size}")
+                append(" | new: ${newPosts.size}")
+                append(" | seen again: ${seenAgain.size}")
+                append(" | stored was: ${existing.posts.size} now: ${combined.posts.size}")
+                append(" | in newest: ${incoming.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
+                append(" oldest: ${incoming.posts.minByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
+                append(" | stored newest was: ${existing.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
+                append(
+                    " | cursor: " + when {
+                        exhausted -> "STOPPED, page brought nothing new"
+                        keepDeeperCursor -> "kept deeper"
+                        incoming.nextCursor != null -> "from this page"
+                        existing.nextCursor != null -> "kept existing"
+                        else -> "none"
+                    }
+                )
+                if (hole) append(" | GAP, posts between the two are not stored and nothing will fetch them")
             }
         )
         write(combined)
