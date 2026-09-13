@@ -102,8 +102,9 @@ class FeedCache(
         val newPosts = incoming.posts.filterNot { it.id in known }
 
         // A post already stored may come back richer: x.com serves the head
-        // without cards or polls, Nitter serves them for the same ids. Keep
-        // the stored post and fill in what it lacked, plus fresher counts.
+        // without cards or polls and with long texts cut off, Nitter serves
+        // them whole for the same ids. Keep the stored post and fill in what
+        // it lacked, take the fuller text, plus fresher counts.
         val seenAgain = incoming.posts.filter { it.id in known }.associateBy { it.id }
         val refreshed = if (seenAgain.isEmpty()) existing.posts else existing.posts.map { post ->
             seenAgain[post.id]?.let(post::mergedWith) ?: post

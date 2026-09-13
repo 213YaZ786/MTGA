@@ -34,15 +34,23 @@ data class Post(
      * The same post seen again, possibly from a richer source. x.com gives the
      * head of a feed first, without cards or polls, and Nitter brings them a
      * moment later for the same id. The stored post keeps its identity and
-     * text, and takes whatever [fresh] knows that it does not, plus the newer
-     * counts, since votes and likes move.
+     * takes whatever [fresh] knows that it does not, plus the newer counts,
+     * since votes and likes move.
+     *
+     * Text is the fuller of the two. x.com's syndication endpoint cuts long
+     * posts off mid sentence, and Nitter returns the whole thing for the same
+     * id, so keeping the stored text unconditionally froze the truncated
+     * version in the cache for good. A cut text is a prefix of the full one,
+     * so length is the honest test and no source can shorten what is stored.
      */
     fun mergedWith(fresh: Post): Post {
         if (fresh.id != id) return this
         val merged = copy(
             avatarUrl = avatarUrl ?: fresh.avatarUrl,
+            text = fullerText(text, fresh.text),
+            links = if (fresh.text.fullerThan(text)) fresh.links.ifEmpty { links } else links,
             media = media.ifEmpty { fresh.media },
-            quoted = quoted?.let { q -> q.copy(note = fresh.quoted?.note ?: q.note) } ?: fresh.quoted,
+            quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
             card = fresh.card ?: card,
             poll = fresh.poll ?: poll,
             note = fresh.note ?: note,
@@ -51,6 +59,16 @@ data class Post(
         return if (merged == this) this else merged
     }
 }
+
+/**
+ * True when this text carries more of the post than [other]. A source that cuts
+ * a long post off produces a prefix of the whole text, so length is the test.
+ */
+internal fun String.fullerThan(other: String): Boolean = trim().length > other.trim().length
+
+/** The more complete of the two, [stored] winning a tie so identity is stable. */
+internal fun fullerText(stored: String, fresh: String): String =
+    if (fresh.fullerThan(stored)) fresh else stored
 
 @Serializable
 enum class PostKind { ORIGINAL, REPOST, REPLY, QUOTE }
@@ -78,7 +96,13 @@ data class QuotedPost(
     val text: String,
     val permalink: String,
     val note: CommunityNote? = null
-)
+) {
+    /** Same rule as the post itself: the fuller text wins, and a note is kept. */
+    fun mergedWith(fresh: QuotedPost?): QuotedPost {
+        if (fresh == null) return this
+        return copy(text = fullerText(text, fresh.text), note = fresh.note ?: note)
+    }
+}
 
 /**
  * Context written by X's community notes, as the source shows it under a post.

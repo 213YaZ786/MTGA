@@ -3,6 +3,7 @@ package com.mtga.app.navigation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -97,11 +98,18 @@ fun MtgaApp() {
 
 @Composable
 private fun MtgaNavHost(navController: NavHostController) {
+    // This Scaffold is the only owner of the window insets. Screens below open
+    // their own Scaffold with a TopAppBar, and without consuming here each of
+    // them would add the status bar and the navigation bar a second time,
+    // which left a band of empty background above and below Home.
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { innerPadding ->
         NavHost(
             navController = navController,
             startDestination = Routes.MAIN,
-            modifier = Modifier.fillMaxSize().padding(innerPadding)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
         ) {
             composable(Routes.MAIN) {
                 MainTabs(
