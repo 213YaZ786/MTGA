@@ -152,8 +152,10 @@ class HtmlSource(
                 bodyBytes = body.length,
                 durationMillis = elapsed,
                 detail = "posts: ${feed.posts.size} | via ${page.via.name} | " +
-                    "newest: ${feed.posts.firstOrNull()?.id ?: "NONE"} | " +
-                    "oldest: ${feed.posts.lastOrNull()?.id ?: "NONE"} | next cursor: " +
+                    "first: ${feed.posts.firstOrNull()?.id ?: "NONE"} | " +
+                    "newest: ${feed.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"} | " +
+                    "oldest: ${feed.posts.minByOrNull { it.publishedAtMillis }?.id ?: "NONE"} | " +
+                    "pinned: ${feed.posts.count { it.isPinned }} | next cursor: " +
                     (feed.nextCursor?.take(24)?.plus("...") ?: "NONE FOUND")
             )
             Outcome.Success(feed)

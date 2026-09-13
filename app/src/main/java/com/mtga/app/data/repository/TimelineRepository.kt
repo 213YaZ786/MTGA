@@ -2,6 +2,7 @@ package com.mtga.app.data.repository
 
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
+import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.cache.FeedCache
@@ -152,7 +153,7 @@ class TimelineRepository(
         val cached = handles.mapNotNull { cache.read(it) }
         val blocking = cached
             .filter { it.nextCursor != null && it.posts.isNotEmpty() }
-            .sortedByDescending { feed -> feed.posts.minOf { it.publishedAtMillis } }
+            .sortedByDescending { feed -> feed.oldestUnpinnedMillis() }
             .take(MAX_PARALLEL_FETCHES)
 
         if (blocking.isEmpty()) {
@@ -187,14 +188,29 @@ class TimelineRepository(
     }
 
     /**
-     * Newest first, deduplicated. Pinned posts lose their pin in the merged
-     * view: a pin is a statement about one profile, and honouring it here would
-     * park an old post at the top of everything.
+     * How far back this feed actually reaches, ignoring the pinned post. A pin
+     * can be months old while the feed has only been read back an hour, and
+     * counting it made the account look already deep, so it was never chosen
+     * for the next page and its older posts were never fetched.
+     */
+    private fun Feed.oldestUnpinnedMillis(): Long =
+        posts.filterNot { it.isPinned }.minOfOrNull { it.publishedAtMillis }
+            ?: posts.minOfOrNull { it.publishedAtMillis }
+            ?: Long.MAX_VALUE
+
+    /**
+     * Pinned posts first, then newest first, deduplicated. Until 2.4.8 a pin
+     * lost its pin here and fell to its own date, which for a pin that is
+     * months old means the very bottom of Home. The author's choice is now
+     * honoured across accounts too, so every followed account's pin sits at
+     * the top, each still labelled "Pinned" on its card.
      */
     private fun merge(posts: List<Post>): List<Post> =
         posts.distinctBy { it.id }
-            .sortedByDescending { it.publishedAtMillis }
-            .map { if (it.isPinned) it.copy(isPinned = false) else it }
+            .sortedWith(
+                compareByDescending<Post> { it.isPinned }
+                    .thenByDescending { it.publishedAtMillis }
+            )
             .take(MAX_TIMELINE_POSTS)
 
     private companion object {

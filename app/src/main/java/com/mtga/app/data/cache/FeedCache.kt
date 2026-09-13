@@ -84,7 +84,7 @@ class FeedCache(
         val known = feed.posts.mapTo(HashSet()) { it.id }
         val missing = extra.filterNot { it.id in known }
         if (missing.isEmpty()) return feed
-        return feed.copy(posts = (feed.posts + missing).sortedByDescending { it.publishedAtMillis })
+        return feed.copy(posts = (feed.posts + missing).sortedWith(PROFILE_ORDER))
     }
 
     /**
@@ -139,7 +139,7 @@ class FeedCache(
                 TwstalkerSource.handles(incoming.nextCursor) == TwstalkerSource.handles(existing.nextCursor))
 
         val combined = incoming.copy(
-            posts = (refreshed + newPosts).sortedByDescending { it.publishedAtMillis },
+            posts = (refreshed + newPosts).sortedWith(PROFILE_ORDER),
             displayName = incoming.displayName.ifBlank { existing.displayName },
             avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
             bio = incoming.bio ?: existing.bio,
@@ -252,7 +252,9 @@ class FeedCache(
         val days = retentionDays()
         val cutoff = if (days > 0) System.currentTimeMillis() - days * DAY_MS else Long.MIN_VALUE
         val kept = feed.posts
-            .filter { it.publishedAtMillis <= 0L || it.publishedAtMillis >= cutoff }
+            // A pin survives the retention window. It is the author's own
+            // statement about their profile, not a post that happens to be old.
+            .filter { it.isPinned || it.publishedAtMillis <= 0L || it.publishedAtMillis >= cutoff }
             .take(MAX_POSTS_PER_ACCOUNT)
         return if (kept.size == feed.posts.size) feed else feed.copy(posts = kept)
     }
@@ -280,5 +282,15 @@ class FeedCache(
         /** Scrolling back further than this in one session drops the oldest again. */
         const val MAX_SCROLLED_BACK_PER_ACCOUNT = 1_000
         const val DAY_MS = 24L * 60 * 60 * 1000
+
+        /**
+         * A profile's own order: the pinned post first, then newest first, which
+         * is how Nitter draws it. Sorting by date alone parked a pin that was a
+         * week old at the very bottom of the feed, where it also became the
+         * oldest post on screen, so paging behaved as though the account had
+         * already been read back a week.
+         */
+        val PROFILE_ORDER: Comparator<Post> = compareByDescending<Post> { it.isPinned }
+            .thenByDescending { it.publishedAtMillis }
     }
 }
