@@ -192,6 +192,32 @@ class TimelineViewModel(
         if (_state.value.newPostCount != 0) _state.value = _state.value.copy(newPostCount = 0)
     }
 
+    /**
+     * The line the "New" separator is drawn on, frozen when the screen opens.
+     * Reading it live would make the separator creep upwards as the reader
+     * scrolls, which is the one thing it must not do.
+     */
+    val unreadBoundaryMillis: Long = settings.current.homeSeenMillis
+
+    /** Highest posting time that has actually been on screen, ever. */
+    private var seenThroughMillis: Long = settings.current.homeSeenMillis
+
+    /**
+     * Called with the newest post currently on screen. Only a post that has
+     * been displayed counts as read, so posts that arrived at the top while
+     * the reader was further down stay unread.
+     */
+    fun markSeen(millis: Long) {
+        if (millis <= seenThroughMillis) return
+        seenThroughMillis = millis
+        settings.update { it.copy(homeSeenMillis = millis) }
+    }
+
+    /** The reader dismissed the separator. Everything stored counts as read. */
+    fun markAllSeen() {
+        _state.value.allPosts.maxOfOrNull { it.publishedAtMillis }?.let(::markSeen)
+    }
+
     fun setFilters(filters: HomeFilters) = settings.update {
         it.copy(
             homeHideReplies = filters.hideReplies,

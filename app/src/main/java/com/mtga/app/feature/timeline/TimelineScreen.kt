@@ -5,6 +5,7 @@ import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.rememberInlineTarget
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -21,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -80,6 +88,21 @@ fun TimelineScreen(
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settings.collectAsState()
     val listState = rememberLazyListState()
+
+    var unreadBoundary by remember { mutableStateOf(viewModel.unreadBoundaryMillis) }
+
+    // Only a post that reached the screen counts as read. The newest one
+    // visible is enough, since everything above it is newer and has therefore
+    // already been scrolled past.
+    LaunchedEffect(listState, state.posts) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String } }
+            .collect { keys ->
+                val seen = state.posts
+                    .filter { it.id in keys && !it.isPinned }
+                    .maxOfOrNull { it.publishedAtMillis }
+                if (seen != null) viewModel.markSeen(seen)
+            }
+    }
     val scope = rememberCoroutineScope()
     var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
 
@@ -224,15 +247,37 @@ fun TimelineScreen(
                         }
                     }
 
-                    items(state.posts, key = { it.id }) { post ->
-                        PostCard(
-                            post = post,
-                            onClick = { onOpenPost(post) },
-                            onOpenLink = { uriHandler.openUri(it) },
-                            onDownload = { downloader.download(it, post.authorHandle) },
-                            showStats = settings.showCounts,
-                            onOpenMedia = { index -> viewing = post to index }
-                        )
+                    // The separator sits under the last unread post. Pinned
+                    // posts are old and ride at the top, so they never count
+                    // as unread and never push the line around.
+                    val firstRead = state.posts.indexOfFirst {
+                        !it.isPinned && it.publishedAtMillis <= unreadBoundary
+                    }
+                    val hasUnread = state.posts.any {
+                        !it.isPinned && it.publishedAtMillis > unreadBoundary
+                    }
+
+                    state.posts.forEachIndexed { index, post ->
+                        if (hasUnread && index == firstRead) {
+                            item(key = "unread") {
+                                UnreadSeparator(
+                                    onClick = {
+                                        viewModel.markAllSeen()
+                                        unreadBoundary = Long.MAX_VALUE
+                                    }
+                                )
+                            }
+                        }
+                        item(key = post.id) {
+                            PostCard(
+                                post = post,
+                                onClick = { onOpenPost(post) },
+                                onOpenLink = { uriHandler.openUri(it) },
+                                onDownload = { downloader.download(it, post.authorHandle) },
+                                showStats = settings.showCounts,
+                                onOpenMedia = { index2 -> viewing = post to index2 }
+                            )
+                        }
                     }
 
                     item(key = "footer") {
@@ -254,8 +299,56 @@ fun TimelineScreen(
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
                     )
                 }
+
+                // Only once the way back is a real chore. Below that the
+                // button would be in the way of the posts it sits on.
+                val showBackToTop by remember {
+                    derivedStateOf { listState.firstVisibleItemIndex >= BACK_TO_TOP_AFTER }
+                }
+                AnimatedVisibility(
+                    visible = showBackToTop,
+                    enter = fadeIn() + scaleIn(initialScale = 0.8f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.8f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = LocalDockPadding.current + 16.dp)
+                ) {
+                    SmallFloatingActionButton(
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ) {
+                        Icon(MtgaIcons.ArrowUp, contentDescription = "Back to the newest post")
+                    }
+                }
             }
         }
+    }
+}
+
+/**
+ * Marks where reading stopped last time. Tapping it says "I have read these",
+ * which is the only way it ever disappears on demand.
+ */
+@Composable
+private fun UnreadSeparator(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "New",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+        )
     }
 }
 
@@ -351,6 +444,9 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
 }
 
 private const val LOAD_MORE_THRESHOLD = 5
+
+/** Posts scrolled past before the way back becomes worth a button. */
+private const val BACK_TO_TOP_AFTER = 5
 
 /**
  * Partial failure is the normal case with a fragile upstream, so it gets a

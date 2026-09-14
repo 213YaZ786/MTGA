@@ -34,6 +34,13 @@ data class Settings(
     val homeHideReplies: Boolean = false,
     val homeHideReposts: Boolean = false,
     val homeMediaOnly: Boolean = false,
+    /**
+     * The newest post that has actually been on screen in Home. Anything newer
+     * is unread, and the separator sits under it on the next visit. Posting
+     * time rather than an id, because posts arrive from several sources and
+     * only their time places them against each other.
+     */
+    val homeSeenMillis: Long = 0,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** True black instead of dark grey in dark mode. */
     val pureBlack: Boolean = false,
