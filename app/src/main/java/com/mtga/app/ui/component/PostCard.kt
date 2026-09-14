@@ -42,6 +42,7 @@ import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Poll
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.mtga.app.ui.icon.MtgaIcons
 import java.util.concurrent.TimeUnit
 
@@ -71,7 +72,7 @@ fun PostCard(
                 .padding(horizontal = 16.dp, vertical = if (compact) 7.dp else 12.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
-            post.contextLine()?.let { ContextLine(it) }
+            post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
@@ -176,12 +177,25 @@ private fun NameRow(post: Post) {
 }
 
 @Composable
-internal fun ContextLine(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary
-    )
+internal fun ContextLine(text: String, icon: ImageVector? = null) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        icon?.let {
+            Icon(
+                it,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
 }
 
 /** Stands in for a picture or video that waits for a tap on mobile data. */

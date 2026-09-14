@@ -115,9 +115,19 @@ class FeedCache(
         // without cards or polls and with long texts cut off, Nitter serves
         // them whole for the same ids. Keep the stored post and fill in what
         // it lacked, take the fuller text, plus fresher counts.
+        //
+        // Pin status is the exception to "the stored post keeps its identity".
+        // Only page one of a Nitter profile read states it with authority:
+        // the pin is marked there, and its absence there means the author
+        // unpinned. mergedWith leaves isPinned alone, so a post stored before
+        // its author pinned it could otherwise never become pinned.
+        val statesPins = !isPagedFetch && incoming.pinAware
         val seenAgain = incoming.posts.filter { it.id in known }.associateBy { it.id }
         val refreshed = if (seenAgain.isEmpty()) existing.posts else existing.posts.map { post ->
-            seenAgain[post.id]?.let(post::mergedWith) ?: post
+            seenAgain[post.id]?.let { fresh ->
+                val merged = post.mergedWith(fresh)
+                if (statesPins && merged.isPinned != fresh.isPinned) merged.copy(isPinned = fresh.isPinned) else merged
+            } ?: post
         }
 
         // A paged fetch that brings back nothing new means the cursor did not
@@ -175,6 +185,8 @@ class FeedCache(
                 append(" | in newest: ${incoming.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
                 append(" oldest: ${incoming.posts.minByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
                 append(" | stored newest was: ${existing.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
+                append(" | pins in: ${incoming.posts.count { it.isPinned }} stored: ${combined.posts.count { it.isPinned }}")
+                append(" | pin authority: ${if (statesPins) "yes" else "no"}")
                 append(
                     " | cursor: " + when {
                         exhausted -> "STOPPED, page brought nothing new"

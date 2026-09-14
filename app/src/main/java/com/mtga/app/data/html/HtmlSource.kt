@@ -123,7 +123,7 @@ class HtmlSource(
                 return@withContext Outcome.Failure(AppError.AccountUnavailable(handle, it))
             }
 
-            val feed = parser.parse(body, handle, instance.host)
+            val feed = parser.parse(body, handle, instance.host)?.copy(pinAware = true)
             if (feed == null) {
                 log.record(
                     kind = kind,

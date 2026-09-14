@@ -334,7 +334,7 @@ private fun PostBody(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        post.contextLine()?.let { ContextLine(it) }
+        post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
 
         Surface(
             onClick = { onOpenProfile(post.authorHandle) },
