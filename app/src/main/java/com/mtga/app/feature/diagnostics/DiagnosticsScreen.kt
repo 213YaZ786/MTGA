@@ -55,8 +55,6 @@ fun DiagnosticsScreen(
     viewModel: DiagnosticsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val twstalkerTest by viewModel.twstalkerTest.collectAsState()
-    val twstalkerEnabled by viewModel.twstalkerEnabled.collectAsState()
     val listStatus by viewModel.listStatus.collectAsState()
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
@@ -110,15 +108,6 @@ fun DiagnosticsScreen(
                     onMoveUp = { viewModel.move(row.instance.id, -1) },
                     onMoveDown = { viewModel.move(row.instance.id, 1) },
                     onRemove = { viewModel.remove(row.instance.id) }
-                )
-            }
-
-            item(key = "twstalker") {
-                TwstalkerCard(
-                    test = twstalkerTest,
-                    enabled = twstalkerEnabled,
-                    onToggle = viewModel::setTwstalkerEnabled,
-                    onTest = viewModel::testTwstalker
                 )
             }
 
@@ -363,85 +352,8 @@ object InstanceRowDefaults {
 }
 
 /**
- * twstalker sits outside the Nitter pool, so it gets its own card rather than a
- * row with a switch. It is only ever used after every Nitter server failed.
- */
-@Composable
-private fun TwstalkerCard(
-    test: TwstalkerTestState,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    onTest: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(
-                    when {
-                        test.passed == true -> HealthStatus.HEALTHY
-                        test.passed == false -> HealthStatus.DOWN
-                        !enabled -> HealthStatus.DISABLED
-                        else -> HealthStatus.UNKNOWN
-                    }
-                )
-                Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                    Text("twstalker.com", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (enabled) {
-                            "Last resort, used only when every server above fails"
-                        } else {
-                            "Off, never contacted while reading"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = enabled, onCheckedChange = onToggle)
-            }
-
-            Text(
-                "It shows ads and runs analytics, so it learns which account is read. " +
-                    "The test contacts it even while it is off." +
-                    (test.handle?.let { " This test reads @$it." } ?: ""),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-
-            test.lines.forEach { line ->
-                Text(
-                    line,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 4.dp)
-            ) {
-                TextButton(onClick = onTest, enabled = !test.running) {
-                    Text(if (test.lines.isEmpty() && test.passed == null) "Test twstalker" else "Test again")
-                }
-                if (test.running) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
  * Where the server list comes from and how old it is. MTGA ships no list, it
- * reads the Nitter wiki once a day, so this is the only place that says so.
+ * reads the Nitter wiki at every launch, so this is the only place that says so.
  */
 @Composable
 private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -> Unit) {

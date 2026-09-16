@@ -151,7 +151,8 @@ fun SearchScreen(
                     onOpenLink = { uriHandler.openUri(it) },
                     onDownload = { downloader.download(it, post.authorHandle) },
                     showStats = settings.showCounts,
-                    onOpenMedia = { index -> viewing = post to index }
+                    onOpenMedia = { index -> viewing = post to index },
+                    modifier = Modifier.animateItem()
                 )
             }
         }

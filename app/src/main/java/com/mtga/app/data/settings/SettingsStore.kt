@@ -35,12 +35,12 @@ data class Settings(
     val homeHideReposts: Boolean = false,
     val homeMediaOnly: Boolean = false,
     /**
-     * The newest post that has actually been on screen in Home. Anything newer
-     * is unread, and the separator sits under it on the next visit. Posting
-     * time rather than an id, because posts arrive from several sources and
-     * only their time places them against each other.
+     * Id of the post that was at the top of Home when the reader last left it.
+     * Home reopens on that post, so the session resumes exactly where it
+     * stopped and everything new is one scroll upwards. An id rather than a
+     * time, because the reader is coming back to a post, not to an instant.
      */
-    val homeSeenMillis: Long = 0,
+    val homeAnchorPostId: String = "",
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** True black instead of dark grey in dark mode. */
     val pureBlack: Boolean = false,
@@ -61,11 +61,6 @@ data class Settings(
     val mediaOnWifiOnly: Boolean = false,
     /** Saved posts older than this many days are dropped. 0 keeps everything. */
     val keepPostsDays: Int = 0,
-    /**
-     * twstalker as the last fallback. Off by default: it shows ads and runs
-     * analytics, so it learns which accounts are read. The person decides.
-     */
-    val useTwstalker: Boolean = false,
     val startTab: StartTab = StartTab.HOME,
     /** Index of the tab shown last, for StartTab.LAST. Recorded on every switch. */
     val lastTab: Int = 0,

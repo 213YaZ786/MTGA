@@ -4,8 +4,8 @@ package com.mtga.app.core.link
  * What an X link points at, when MTGA can show it. Pure, no Android.
  *
  * Recognises x.com and twitter.com in every variant, plus any extra host the
- * caller trusts to use the same paths, which covers Nitter servers and
- * twstalker. Anything else, a search, a list, a settings page, is left to the
+ * caller trusts to use the same paths, which covers the Nitter servers in the
+ * pool. Anything else, a search, a list, a settings page, is left to the
  * browser by returning null.
  */
 sealed interface XLink {

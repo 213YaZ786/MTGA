@@ -3,9 +3,9 @@ package com.mtga.app.data.cache
 import android.content.Context
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.LegacyCursor
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostId
-import com.mtga.app.data.twstalker.TwstalkerSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -140,13 +140,14 @@ class FeedCache(
         // hole, so the deeper cursor kept from earlier paging is still where
         // to continue. Before 2.4.2 the page's own cursor replaced it, the
         // next scroll asked for page two, found only known posts, and paging
-        // ended for that account. Only between cursors of the same source,
-        // since a twstalker cursor can only be continued by twstalker.
+        // ended for that account. Only between cursors of the same source: a
+        // cursor left by the source MTGA dropped cannot continue a Nitter one.
         val keepDeeperCursor = !isPagedFetch &&
             seenAgain.isNotEmpty() &&
             existing.nextCursor != null &&
             (incoming.nextCursor == null ||
-                TwstalkerSource.handles(incoming.nextCursor) == TwstalkerSource.handles(existing.nextCursor))
+                LegacyCursor.fromDroppedSource(incoming.nextCursor) ==
+                LegacyCursor.fromDroppedSource(existing.nextCursor))
 
         val combined = incoming.copy(
             posts = (refreshed + newPosts).sortedWith(PROFILE_ORDER),
@@ -256,9 +257,14 @@ class FeedCache(
     }
 
     /**
-     * Caps what a single account can occupy, so the cache cannot grow without
-     * bound, and drops posts older than the reader's retention. Older posts
-     * can still be read by scrolling back, they are simply not kept.
+     * Drops posts older than the reader's retention, and nothing else.
+     *
+     * There used to be a hard cap of 300 posts per account here. On an account
+     * that posts twenty times in two hours that is barely three days of
+     * history, and it could never be passed: each page fetched deeper pushed
+     * the oldest posts straight back out at the next write, so scrolling back
+     * looked like an upstream failure when it was this line. Depth is now the
+     * reader's own business, governed by "Keep posts" alone.
      */
     private fun trim(feed: Feed): Feed {
         val days = retentionDays()
@@ -267,7 +273,6 @@ class FeedCache(
             // A pin survives the retention window. It is the author's own
             // statement about their profile, not a post that happens to be old.
             .filter { it.isPinned || it.publishedAtMillis <= 0L || it.publishedAtMillis >= cutoff }
-            .take(MAX_POSTS_PER_ACCOUNT)
         return if (kept.size == feed.posts.size) feed else feed.copy(posts = kept)
     }
 
@@ -289,8 +294,6 @@ class FeedCache(
     private fun fileFor(handle: String) = File(directory, "${handle.lowercase()}.json")
 
     private companion object {
-        const val MAX_POSTS_PER_ACCOUNT = 300
-
         /** Scrolling back further than this in one session drops the oldest again. */
         const val MAX_SCROLLED_BACK_PER_ACCOUNT = 1_000
         const val DAY_MS = 24L * 60 * 60 * 1000

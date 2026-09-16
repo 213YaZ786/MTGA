@@ -1,6 +1,6 @@
 package com.mtga.app.navigation
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalUriHandler
@@ -29,6 +30,9 @@ import com.mtga.app.core.link.XLink
 import org.koin.compose.koinInject
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -52,9 +56,18 @@ import com.mtga.app.feature.timeline.TimelineScreen
 import com.mtga.app.ui.component.DockClearance
 import com.mtga.app.ui.component.DockItem
 import com.mtga.app.ui.component.FloatingDock
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import com.mtga.app.ui.component.LocalDockPadding
+import com.mtga.app.ui.component.LocalNavAnimatedScope
+import com.mtga.app.ui.component.LocalSharedTransitionScope
 import com.mtga.app.ui.component.LocalInlinePlaybackAllowed
 import com.mtga.app.ui.component.SideDockClearance
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -80,7 +93,7 @@ fun MtgaApp() {
     }
 
     // Every tap on a link inside the app goes through here. X profiles and
-    // posts, and Nitter or twstalker links to them, open in MTGA. Anything
+    // posts, and Nitter links to them, open in MTGA. Anything
     // else goes to the browser as before.
     val uris = remember(platformUris) {
         object : UriHandler {
@@ -103,15 +116,35 @@ private fun MtgaNavHost(navController: NavHostController) {
     // them would add the status bar and the navigation bar a second time,
     // which left a band of empty background above and below Home.
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { innerPadding ->
+        // Owns the shared elements. A post's avatar flies from its card to the
+        // opened post instead of one fading out while the other fades in. Only
+        // destinations that show posts hand their animated scope down.
+        SharedTransitionLayout {
+        CompositionLocalProvider(LocalSharedTransitionScope provides this) {
         NavHost(
             navController = navController,
             startDestination = Routes.MAIN,
+            // Opening scales up from slightly small, going back scales down.
+            // The same shape as the platform's predictive back, so a screen
+            // dismissed by the gesture keeps moving the way it started rather
+            // than jumping into a different animation halfway.
+            enterTransition = {
+                scaleIn(initialScale = 0.94f, animationSpec = tween(NAV_MS)) +
+                    fadeIn(animationSpec = tween(NAV_MS))
+            },
+            exitTransition = { fadeOut(animationSpec = tween(NAV_MS)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(NAV_MS)) },
+            popExitTransition = {
+                scaleOut(targetScale = 0.94f, animationSpec = tween(NAV_MS)) +
+                    fadeOut(animationSpec = tween(NAV_MS))
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding)
         ) {
             composable(Routes.MAIN) {
+                CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 MainTabs(
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
@@ -119,13 +152,16 @@ private fun MtgaNavHost(navController: NavHostController) {
                     onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) },
                     onOpenSearch = { navController.navigate(Routes.SEARCH) }
                 )
+                }
             }
             composable(Routes.SEARCH) {
+                CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 Readable {
                     SearchScreen(
                         onBack = { navController.popBackStack() },
                         onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
                     )
+                }
                 }
             }
             composable(Routes.DEBUG_LOG) {
@@ -137,6 +173,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 route = Routes.FEED_PATTERN,
                 arguments = listOf(navArgument("handle") { type = NavType.StringType })
             ) { entry ->
+                CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 Readable {
                     FeedScreen(
                         handle = entry.arguments?.getString("handle").orEmpty(),
@@ -146,6 +183,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                             navController.navigate(Routes.post(post.id, entry.arguments?.getString("handle").orEmpty()))
                         }
                     )
+                }
                 }
             }
             composable(
@@ -159,6 +197,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                     }
                 )
             ) { entry ->
+                CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 Readable {
                     PostDetailScreen(
                         id = entry.arguments?.getString("id").orEmpty(),
@@ -168,12 +207,15 @@ private fun MtgaNavHost(navController: NavHostController) {
                         onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.authorHandle)) }
                     )
                 }
+                }
             }
             composable(Routes.DIAGNOSTICS) {
                 Readable {
                     DiagnosticsScreen(onBack = { navController.popBackStack() })
                 }
             }
+        }
+        }
         }
     }
 }
@@ -231,10 +273,16 @@ private fun MainTabs(
         if (store.current.lastTab != page) store.update { it.copy(lastTab = page) }
     }
 
+    val haptics = LocalHapticFeedback.current
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val side = WidthClass.of(maxWidth).usesSideDock
 
         fun go(index: Int) {
+            // A tick on every tab change, the way the system keyboard and the
+            // platform's own navigation confirm a switch. Silent gestures feel
+            // unacknowledged on a phone held in one hand.
+            if (index != pager.currentPage) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             scope.launch {
                 // On the side, tabs switch in place, like a navigation rail.
                 // At the bottom they slide, because there pages are also swiped.
@@ -242,7 +290,22 @@ private fun MainTabs(
             }
         }
 
-        BackHandler(enabled = pager.currentPage != 0) { go(0) }
+        // Predictive back, the platform gesture since Android 14. The tabs
+        // shrink under the finger while the gesture is held, spring back if it
+        // is abandoned, and only then does the tab actually change. A plain
+        // BackHandler swallowed the gesture and showed nothing until it was
+        // over, which read as an unresponsive app.
+        var backProgress by remember { mutableFloatStateOf(0f) }
+        PredictiveBackHandler(enabled = pager.currentPage != 0) { events ->
+            try {
+                events.collect { event -> backProgress = event.progress }
+                backProgress = 0f
+                go(0)
+            } catch (cancelled: CancellationException) {
+                backProgress = 0f
+                throw cancelled
+            }
+        }
 
         fun closeWelcome(openAccounts: Boolean) {
             showWelcome = false
@@ -250,7 +313,14 @@ private fun MainTabs(
             if (openAccounts) go(TopDestination.ACCOUNTS.ordinal)
         }
         // Declared after the tab one, so back closes the guide first.
-        BackHandler(enabled = showWelcome) { closeWelcome(openAccounts = false) }
+        PredictiveBackHandler(enabled = showWelcome) { events ->
+            try {
+                events.collect { }
+                closeWelcome(openAccounts = false)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            }
+        }
 
         val pages: @Composable (Modifier) -> Unit = { modifier ->
             HorizontalPager(
@@ -261,7 +331,12 @@ private fun MainTabs(
                 // With the side dock a sideways swipe would only fight
                 // horizontal gestures in the wide content.
                 userScrollEnabled = !side,
-                modifier = modifier
+                // A quarter of the width at most, the platform's own amount.
+                modifier = modifier.graphicsLayer {
+                    val shrink = 1f - 0.08f * backProgress
+                    scaleX = shrink
+                    scaleY = shrink
+                }
             ) { page ->
                 // Videos in a list play only while that list is the tab in
                 // sight. The pager keeps the others alive next to it.
@@ -334,3 +409,6 @@ private fun MainTabs(
         }
     }
 }
+
+/** Long enough to be read as motion, short enough not to be waited on. */
+private const val NAV_MS = 260

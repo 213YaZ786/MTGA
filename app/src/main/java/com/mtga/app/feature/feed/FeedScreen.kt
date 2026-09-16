@@ -35,6 +35,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
@@ -127,9 +129,17 @@ fun FeedScreen(
         if (shouldLoadMore) viewModel.loadMore()
     }
 
+    // The bar folds away as the reader goes down and comes back on the first
+    // upward flick, which returns a band of screen on a phone without hiding
+    // the way back. enterAlways rather than a pinned bar, because this list is
+    // long and the bar is not needed while reading.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     if (headerGone) {
                         Text(name ?: "@$handle", maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -234,7 +244,8 @@ fun FeedScreen(
                     onOpenLink = { uriHandler.openUri(it) },
                     onDownload = { downloader.download(it, post.authorHandle) },
                     showStats = settings.showCounts,
-                    onOpenMedia = { index -> viewing = post.media to index }
+                    onOpenMedia = { index -> viewing = post.media to index },
+                    modifier = Modifier.animateItem()
                 )
             }
 

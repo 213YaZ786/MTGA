@@ -4,8 +4,8 @@ package com.mtga.app.core.model
  * One canonical form for post ids: the numeric status id, for example "123".
  *
  * Every source must agree on this, because deduplication is by id. Nitter HTML
- * used to yield "/user/status/123", Nitter RSS a full URL, while x.com and
- * twstalker yield "123", so the same post read from two sources appeared twice.
+ * used to yield "/user/status/123" and Nitter RSS a full URL, while x.com
+ * yields "123", so the same post read from two sources appeared twice.
  *
  * Anything that does not contain a recognisable status id is returned
  * unchanged, so an unexpected format degrades to "no deduplication" rather

@@ -193,29 +193,22 @@ class TimelineViewModel(
     }
 
     /**
-     * The line the "New" separator is drawn on, frozen when the screen opens.
-     * Reading it live would make the separator creep upwards as the reader
-     * scrolls, which is the one thing it must not do.
+     * The post Home reopens on, read once at launch. Everything above it is
+     * what arrived since, which is why the reader scrolls upwards to catch up
+     * rather than downwards.
      */
-    val unreadBoundaryMillis: Long = settings.current.homeSeenMillis
+    val openAnchorId: String = settings.current.homeAnchorPostId
 
-    /** Highest posting time that has actually been on screen, ever. */
-    private var seenThroughMillis: Long = settings.current.homeSeenMillis
+    private var anchorId: String = openAnchorId
 
     /**
-     * Called with the newest post currently on screen. Only a post that has
-     * been displayed counts as read, so posts that arrived at the top while
-     * the reader was further down stay unread.
+     * Called with the post sitting at the top of the screen once a scroll
+     * settles. One write per gesture at most, and none when nothing moved.
      */
-    fun markSeen(millis: Long) {
-        if (millis <= seenThroughMillis) return
-        seenThroughMillis = millis
-        settings.update { it.copy(homeSeenMillis = millis) }
-    }
-
-    /** The reader dismissed the separator. Everything stored counts as read. */
-    fun markAllSeen() {
-        _state.value.allPosts.maxOfOrNull { it.publishedAtMillis }?.let(::markSeen)
+    fun setAnchor(id: String) {
+        if (id == anchorId) return
+        anchorId = id
+        settings.update { it.copy(homeAnchorPostId = id) }
     }
 
     fun setFilters(filters: HomeFilters) = settings.update {
@@ -232,10 +225,24 @@ class TimelineViewModel(
      * gesture cannot. Skipped while another operation holds the timeline, the
      * next scroll asks again.
      */
+    /**
+     * When the last paging attempt gave up. The whole pool is swept on every
+     * attempt, so a failed attempt has just asked seven servers and re-armed
+     * two bot checks. The log showed three sweeps in eight seconds, which
+     * deepens the very rate limits that caused the failure. Automatic attempts
+     * wait this out, a deliberate one from the reader does not.
+     */
+    private var pagingFailedAtMillis = 0L
+
     fun loadMore(manual: Boolean = false) {
         val current = _state.value
         if (current.loadingMore || current.loading || !current.canLoadMore) return
         if (current.pagingFailed && !manual) return
+        if (!manual &&
+            System.currentTimeMillis() - pagingFailedAtMillis < PAGING_RETRY_PAUSE_MS
+        ) {
+            return
+        }
         if (!work.tryLock()) return
 
         _state.value = current.copy(loadingMore = true, pagingFailed = false)
@@ -243,12 +250,14 @@ class TimelineViewModel(
             try {
                 val before = current.allPosts.size
                 val merged = repository.loadMore()
+                val failed = merged.errors.isNotEmpty() || merged.posts.size <= before
+                if (failed) pagingFailedAtMillis = System.currentTimeMillis()
                 _state.value = _state.value.copy(
                     allPosts = merged.posts,
                     loadingMore = false,
                     canLoadMore = merged.canLoadMore,
                     errors = merged.errors.ifEmpty { _state.value.errors },
-                    pagingFailed = merged.errors.isNotEmpty() || merged.posts.size <= before
+                    pagingFailed = failed
                 )
             } finally {
                 work.unlock()
@@ -262,3 +271,6 @@ class TimelineViewModel(
         mediaOnly = homeMediaOnly
     )
 }
+
+/** A failed sweep of the whole pool is not worth repeating sooner. */
+private const val PAGING_RETRY_PAUSE_MS = 30_000L

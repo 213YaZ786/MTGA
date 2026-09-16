@@ -6,7 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import com.mtga.app.MainActivity
 import com.mtga.app.data.instances.InstancePool
-import com.mtga.app.data.twstalker.TwstalkerSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,12 +39,12 @@ class LinkRouter(private val pool: InstancePool) {
     }
 
     /**
-     * x.com and twitter.com, plus the Nitter servers in the pool and
-     * twstalker, whose post and profile paths are the same. A mention inside
-     * a Nitter page links to the server it came from, and should open here.
+     * x.com and twitter.com, plus the Nitter servers in the pool. A mention
+     * inside a Nitter page links to the server it came from, and should open
+     * here.
      */
     fun parse(url: String): XLink? =
-        XLink.parse(url, pool.instances.value.map { it.host.lowercase() }.toSet() + TwstalkerSource.HOST)
+        XLink.parse(url, pool.instances.value.map { it.host.lowercase() }.toSet())
 
     companion object {
         /**

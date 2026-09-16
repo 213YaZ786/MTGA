@@ -8,21 +8,22 @@ package com.mtga.app.data.instances
  * status tracker at status.d420.de builds on it, so it is the upstream of
  * every other list.
  *
- * Only the "Official" and "Public" sections are read. Tor and I2P entries are
- * skipped, since MTGA speaks https only. The table layout is the one fetched
- * in September 2026:
+ * Only the "Public" section is read. Tor and I2P entries are skipped, since
+ * MTGA speaks https only, and so is "Official": that table carries no online
+ * or working columns because it names the project's reference instance rather
+ * than a server vetted as serving pages. On this device it never served one.
+ * The table layout is the one fetched in September 2026:
  *
  * | [xcancel.com](https://xcancel.com) | :white_check_mark: | ✅ | :us: | ... |
  *
- * Column two is "online", column three "working". The official table has no
- * such columns, so its entries carry no verdict.
+ * Column two is "online", column three "working".
  */
 object InstanceListParser {
 
     data class Listed(
         val host: String,
         val baseUrl: String,
-        /** Null when the table gives no verdict, as for the official instance. */
+        /** Null when the table gives no verdict for this row. */
         val listedWorking: Boolean?
     )
 
@@ -43,7 +44,7 @@ object InstanceListParser {
             val baseUrl = normalise(url) ?: continue
             val host = baseUrl.substringAfter("://")
 
-            val working = if (section == Section.PUBLIC && cells.size >= 3) {
+            val working = if (cells.size >= 3) {
                 verdict(cells[1]) == true && verdict(cells[2]) == true
             } else {
                 null
@@ -54,15 +55,11 @@ object InstanceListParser {
         return found.values.toList()
     }
 
-    private enum class Section { OFFICIAL, PUBLIC, OTHER }
+    private enum class Section { PUBLIC, OTHER }
 
     private fun sectionOf(heading: String): Section {
         val title = heading.trimStart('#').trim().lowercase()
-        return when {
-            title == "official" -> Section.OFFICIAL
-            title == "public" -> Section.PUBLIC
-            else -> Section.OTHER
-        }
+        return if (title == "public") Section.PUBLIC else Section.OTHER
     }
 
     /** True for a check mark, false for a cross, null when the cell says neither. */

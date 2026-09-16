@@ -178,7 +178,7 @@ data class Feed(
     val nextCursor: String? = null,
     /**
      * True when this feed's source marks pinned posts, which only a Nitter
-     * profile page does. x.com's embed endpoint, twstalker and RSS never
+     * profile page does. x.com's embed endpoint and RSS never
      * mention pins, so their word on [Post.isPinned] carries no weight and
      * must not overwrite what a Nitter page said.
      */

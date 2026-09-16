@@ -25,8 +25,6 @@ import com.mtga.app.data.rss.RssSource
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.SyndicationSource
 import com.mtga.app.data.xcom.XComSource
-import com.mtga.app.data.twstalker.TwstalkerParser
-import com.mtga.app.data.twstalker.TwstalkerSource
 import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.post.PostDetailViewModel
 import com.mtga.app.feature.search.SearchViewModel
@@ -80,9 +78,7 @@ val appModule = module {
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get(), get(), get()) }
-    single { TwstalkerParser() }
-    single { TwstalkerSource(get(), get(), get(), get(), get()) }
-    single { FeedRepository(get(), get(), get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get(), get()) }
     single {
         val settings: SettingsStore = get()
         FeedCache(androidContext(), get()) { settings.current.keepPostsDays }
@@ -92,7 +88,7 @@ val appModule = module {
     single { XComSource(get(), get(), get(), get()) }
     single { TimelineRepository(get(), get(), get(), get(), get()) }
 
-    viewModel { DiagnosticsViewModel(get(), get(), get(), get()) }
+    viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get(), get()) }
     viewModel { PostDetailViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get()) }

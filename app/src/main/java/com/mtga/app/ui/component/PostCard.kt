@@ -78,7 +78,12 @@ fun PostCard(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Avatar(post.avatarUrl, post.authorName, size = if (compact) 36.dp else 44.dp)
+                Avatar(
+                    post.avatarUrl,
+                    post.authorName,
+                    size = if (compact) 36.dp else 44.dp,
+                    sharedKey = post.id
+                )
 
                 Column(
                     Modifier.weight(1f),
@@ -122,11 +127,18 @@ fun PostCard(
 }
 
 @Composable
-internal fun Avatar(url: String?, name: String, size: Dp = 44.dp) {
+internal fun Avatar(
+    url: String?,
+    name: String,
+    size: Dp = 44.dp,
+    /** Post id when this avatar should fly to the opened post, null otherwise. */
+    sharedKey: String? = null
+) {
     val shape = if (LocalDisplayPrefs.current.squareAvatars) RoundedCornerShape(size * 0.22f) else CircleShape
     Box(
         modifier = Modifier
             .size(size)
+            .let { if (sharedKey != null) it.sharedPostElement("avatar-$sharedKey") else it }
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center

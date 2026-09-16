@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -51,6 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -61,6 +65,7 @@ import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -89,22 +94,29 @@ fun TimelineScreen(
     val settings by settingsStore.settings.collectAsState()
     val listState = rememberLazyListState()
 
-    var unreadBoundary by remember { mutableStateOf(viewModel.unreadBoundaryMillis) }
+    // Where the reader stopped last time, and where they stop now. Reading
+    // the anchor once at launch keeps the separator still: recomputing it on
+    // every scroll would make the line creep up the screen.
+    var anchorId by remember { mutableStateOf(viewModel.openAnchorId) }
+    var restored by remember { mutableStateOf(viewModel.openAnchorId.isEmpty()) }
 
-    // Only a post that reached the screen counts as read. The newest one
-    // visible is enough, since everything above it is newer and has therefore
-    // already been scrolled past.
-    LaunchedEffect(listState, state.posts) {
-        snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String } }
-            .collect { keys ->
-                val seen = state.posts
-                    .filter { it.id in keys && !it.isPinned }
-                    .maxOfOrNull { it.publishedAtMillis }
-                if (seen != null) viewModel.markSeen(seen)
+    // Recording must wait for the restore scroll. Both effects start after the
+    // same composition, and this one would otherwise fire first, with the list
+    // still at the top, and save the newest post as the anchor. The restore
+    // would then have nothing to go back to, and the feature would quietly do
+    // nothing from the second session onwards.
+    LaunchedEffect(listState, state.posts, restored) {
+        if (!restored) return@LaunchedEffect
+        snapshotFlow { listState.isScrollInProgress }
+            .filter { scrolling -> !scrolling }
+            .collect {
+                val keys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
+                val top = state.posts.firstOrNull { it.id in keys && !it.isPinned }
+                if (top != null) viewModel.setAnchor(top.id)
             }
     }
-    val scope = rememberCoroutineScope()
-    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
+
+
 
     viewing?.let { (post, index) ->
         MediaViewer(
@@ -121,9 +133,19 @@ fun TimelineScreen(
             .collect { atTop -> if (atTop) viewModel.clearNewPosts() }
     }
 
+    // The bar folds away as the reader goes down and comes back on the first
+    // upward flick, which returns a band of screen on a phone without hiding
+    // the way back. enterAlways rather than a pinned bar, because this list is
+    // long and the bar is not needed while reading.
+    val haptics = LocalHapticFeedback.current
+
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 title = {
                     Column {
                         Text("Home")
@@ -174,7 +196,12 @@ fun TimelineScreen(
             // failed refresh at launch left Home stuck until a restart.
             state.isEmpty && state.errors.isNotEmpty() -> PullToRefreshBox(
                 isRefreshing = state.loading,
-                onRefresh = viewModel::refresh,
+                onRefresh = {
+                    // Confirms the gesture crossed the threshold, so the
+                    // reader can let go without watching for the spinner.
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.refresh()
+                },
                 modifier = Modifier.fillMaxSize().padding(padding)
             ) {
                 // A list, because the pull gesture needs something scrollable.
@@ -194,7 +221,12 @@ fun TimelineScreen(
 
             else -> PullToRefreshBox(
                 isRefreshing = state.loading,
-                onRefresh = viewModel::refresh,
+                onRefresh = {
+                    // Confirms the gesture crossed the threshold, so the
+                    // reader can let go without watching for the spinner.
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.refresh()
+                },
                 modifier = Modifier.fillMaxSize().padding(padding)
             ) {
                 // Prefetch a page before the reader actually hits the bottom,
@@ -216,6 +248,29 @@ fun TimelineScreen(
                     paused = viewing != null
                 )
                 CompositionLocalProvider(LocalInlinePlaying provides inline) {
+                // Rows drawn above the posts, so the anchor can be scrolled to
+                // by index. Counted the same way the list below builds them.
+                val headerCount = 1 +
+                    (if (state.errors.isNotEmpty()) 1 else 0) +
+                    (
+                        if (state.posts.isEmpty() && state.filters.active &&
+                            state.allPosts.isNotEmpty()
+                        ) {
+                            1
+                        } else {
+                            0
+                        }
+                        )
+
+                LaunchedEffect(state.posts, restored) {
+                    if (restored) return@LaunchedEffect
+                    val pos = state.posts.indexOfFirst { it.id == anchorId }
+                    if (pos < 0) return@LaunchedEffect
+                    // Lands on the separator when there is one, on the post
+                    // itself when the reader is already at the newest.
+                    listState.scrollToItem(headerCount + pos)
+                    restored = true
+                }
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(bottom = LocalDockPadding.current),
@@ -247,23 +302,25 @@ fun TimelineScreen(
                         }
                     }
 
-                    // The separator sits under the last unread post. Pinned
-                    // posts are old and ride at the top, so they never count
-                    // as unread and never push the line around.
-                    val firstRead = state.posts.indexOfFirst {
-                        !it.isPinned && it.publishedAtMillis <= unreadBoundary
-                    }
-                    val hasUnread = state.posts.any {
-                        !it.isPinned && it.publishedAtMillis > unreadBoundary
-                    }
+                    // The line sits directly above the post the reader stopped
+                    // on, so Home reopens on the line itself and everything
+                    // that arrived since is one scroll upwards. A pinned post
+                    // rides at the top whatever its age, so it never counts as
+                    // something that arrived.
+                    val anchorPos = state.posts.indexOfFirst { it.id == anchorId }
+                    val showSeparator = anchorPos > 0 &&
+                        state.posts.take(anchorPos).any { !it.isPinned }
 
                     state.posts.forEachIndexed { index, post ->
-                        if (hasUnread && index == firstRead) {
+                        if (showSeparator && index == anchorPos) {
                             item(key = "unread") {
                                 UnreadSeparator(
+                                    modifier = Modifier.animateItem(),
                                     onClick = {
-                                        viewModel.markAllSeen()
-                                        unreadBoundary = Long.MAX_VALUE
+                                        state.posts.firstOrNull { !it.isPinned }?.let {
+                                            viewModel.setAnchor(it.id)
+                                            anchorId = it.id
+                                        }
                                     }
                                 )
                             }
@@ -275,7 +332,11 @@ fun TimelineScreen(
                                 onOpenLink = { uriHandler.openUri(it) },
                                 onDownload = { downloader.download(it, post.authorHandle) },
                                 showStats = settings.showCounts,
-                                onOpenMedia = { index2 -> viewing = post to index2 }
+                                onOpenMedia = { index2 -> viewing = post to index2 },
+                                // Posts arrive and merge while the list is on
+                                // screen. Animating placement means a card
+                                // slides into its row instead of teleporting.
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }
@@ -314,7 +375,10 @@ fun TimelineScreen(
                         .padding(end = 16.dp, bottom = LocalDockPadding.current + 16.dp)
                 ) {
                     SmallFloatingActionButton(
-                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            scope.launch { listState.animateScrollToItem(0) }
+                        },
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     ) {
@@ -331,9 +395,9 @@ fun TimelineScreen(
  * which is the only way it ever disappears on demand.
  */
 @Composable
-private fun UnreadSeparator(onClick: () -> Unit) {
+private fun UnreadSeparator(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),

@@ -122,7 +122,7 @@ class XComSource(
                 fetchedFromHost = HOST,
                 fetchedAtMillis = System.currentTimeMillis(),
                 avatarUrl = own?.avatarUrl,
-                // No cursor exists here. Depth is Nitter and twstalker's job.
+                // No cursor exists here. Depth is Nitter's job.
                 nextCursor = null
             )
         )

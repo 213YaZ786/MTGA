@@ -221,6 +221,6 @@ class TimelineRepository(
          * so concurrency here would buy nothing.
          */
         const val MAX_PARALLEL_FETCHES = 1
-        const val MAX_TIMELINE_POSTS = 2_000
+        const val MAX_TIMELINE_POSTS = 20_000
     }
 }

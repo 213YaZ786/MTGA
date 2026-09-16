@@ -346,7 +346,7 @@ private fun PostBody(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Avatar(url = post.avatarUrl, name = post.authorName, size = 48.dp)
+                Avatar(url = post.avatarUrl, name = post.authorName, size = 48.dp, sharedKey = post.id)
                 Column {
                     Text(
                         post.authorName.ifBlank { "@${post.authorHandle}" },

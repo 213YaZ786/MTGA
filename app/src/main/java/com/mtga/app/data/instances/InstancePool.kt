@@ -58,9 +58,10 @@ class InstancePool(
     }
 
     /**
-     * Fetches the Nitter wiki list and merges it in. Skipped when the list is
-     * less than a day old, unless [force]. A failure keeps the current list,
-     * an outdated list still beats an empty pool.
+     * Fetches the Nitter wiki list and merges it in. Skipped only when the
+     * list was fetched minutes ago, so in practice every launch gets a fresh
+     * one. A failure keeps the current list, an outdated list still beats an
+     * empty pool.
      */
     suspend fun updateList(force: Boolean, reset: Boolean = false) = listMutex.withLock {
         val updatedAt = store.listUpdatedAt()
@@ -95,7 +96,7 @@ class InstancePool(
 
     init {
         // A fresh install has no servers at all until this lands, and an
-        // existing one refreshes a list older than a day.
+        // existing one refreshes the list at every launch.
         updateListAsync(force = false)
     }
 

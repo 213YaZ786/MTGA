@@ -16,11 +16,11 @@ import kotlin.coroutines.cancellation.CancellationException
  *
  * Public instances appear and vanish within weeks, so a list compiled into the
  * app is wrong by the time it is installed. This reads the Nitter project's
- * own wiki page instead, as raw markdown from GitHub, at most once a day and
+ * own wiki page instead, as raw markdown from GitHub, at every launch and
  * whenever the person asks.
  *
- * Trust cost, stated plainly: GitHub sees one request a day from this device.
- * It learns nothing about which accounts are read.
+ * Trust cost, stated plainly: GitHub sees one request per app launch from this
+ * device, about 5 kB. It learns nothing about which accounts are read.
  */
 class InstanceDirectory(
     private val client: HttpClient,
@@ -81,7 +81,17 @@ class InstanceDirectory(
         const val HOST = "raw.githubusercontent.com"
         const val PARSER_VERSION = 1
 
-        /** The list changes over weeks, not hours. */
-        const val MAX_AGE_MS = 24 * 60 * 60_000L
+        /**
+         * How long a fetched list is trusted before the next launch refetches.
+         *
+         * It was a day, on the reasoning that the wiki changes over weeks. The
+         * reasoning was wrong the day xcancel started answering 451: what
+         * changes in hours is not the list, it is which of its servers still
+         * work, and every stale hour is spent on the wrong ones. The floor is
+         * kept short rather than removed so that relaunching the app three
+         * times in a row does not fetch three times. The file is about 5 kB,
+         * from the one host MTGA contacts outside the reading path.
+         */
+        const val MAX_AGE_MS = 15 * 60_000L
     }
 }
