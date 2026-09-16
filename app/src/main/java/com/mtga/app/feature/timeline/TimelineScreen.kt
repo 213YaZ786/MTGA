@@ -116,7 +116,8 @@ fun TimelineScreen(
             }
     }
 
-
+    val scope = rememberCoroutineScope()
+    var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
 
     viewing?.let { (post, index) ->
         MediaViewer(
