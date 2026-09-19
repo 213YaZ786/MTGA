@@ -1,0 +1,187 @@
+# Builds on every push and pull request, and publishes a release for every
+# green build on main.
+#
+# Action versions read on the official repositories on 2026-09-19:
+# actions/checkout v6, actions/setup-java v5, actions/upload-artifact v7,
+# gradle/actions v6.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # This repository has gradle/wrapper/gradle-wrapper.properties but no
+      # gradlew script and no gradle-wrapper.jar, so there is no wrapper to
+      # validate and nothing to run. Gradle is installed instead, pinned to
+      # the same 9.5.1 the properties file names.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: 9.5.1
+
+      - name: Read the version
+        run: |
+          VERSION="$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)"
+          echo "versionName $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      # Says out loud which of the four secrets the run can see, by name and
+      # never by value, and restores the key when all four are there. Both
+      # naming schemes are accepted, ANDROID_KEYSTORE_BASE64 and the shorter
+      # KEYSTORE_BASE64, because either is a reasonable thing to have typed.
+      #
+      # A pull request from a fork or from Dependabot sees no secret at all,
+      # which is normal and only means it builds without signing.
+      #
+      # app/build.gradle.kts reads four Gradle properties, not environment
+      # variables, so they are written to the Gradle home rather than exported.
+      - name: Check the signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 || secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.KEY_PASSWORD }}
+        run: |
+          missing=
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD
+          do
+            if [ -n "${!name}" ]
+            then
+              echo "$name: present"
+            else
+              echo "$name: MISSING"
+              missing=1
+            fi
+          done
+          if [ -n "$missing" ]
+          then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/mtga-release.jks"
+          if [ ! -s "$RUNNER_TEMP/mtga-release.jks" ]
+          then
+            echo "::error::The keystore secret is not valid base64."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "keystore restored, $(stat -c%s "$RUNNER_TEMP/mtga-release.jks") bytes"
+          mkdir -p ~/.gradle
+          cat >> ~/.gradle/gradle.properties <<EOF
+          mtga.storeFile=$RUNNER_TEMP/mtga-release.jks
+          mtga.storePassword=$KEYSTORE_PASSWORD
+          mtga.keyAlias=$KEY_ALIAS
+          mtga.keyPassword=$KEY_PASSWORD
+          EOF
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      # One command, so a failing test stops the release like a failing
+      # compile does. The unit tests are pure Kotlin with no Android
+      # dependency, so a red one here is a real failure and not flake.
+      - name: Build and test
+        run: gradle --stacktrace assembleDebug assembleRelease testDebugUnitTest
+
+      # No ABI splits: MTGA ships no native code, so every split would be the
+      # same bytes under a different name. The two builds that do differ are
+      # the signed release and the debug one, and both are named and hashed.
+      - name: Name the files and note their fingerprints
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/release/app-release.apk "release/MTGA-$VERSION.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "release/MTGA-$VERSION-debug.apk"
+          ( cd release && sha256sum ./*.apk > SHA256SUMS.txt )
+          cat release/SHA256SUMS.txt
+
+      # MTGA declares three permissions and depends on libraries that declare
+      # a few of their own. Anything outside this list fails the build, which
+      # is the point: a new dependency that wants the camera should stop the
+      # release rather than ship quietly.
+      - name: Check release permissions
+        run: |
+          AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2"
+          "$AAPT2" dump permissions "release/MTGA-$VERSION.apk" | tee permissions.txt
+          if grep -E "uses-permission" permissions.txt \
+            | grep -v "android.permission.INTERNET" \
+            | grep -v "android.permission.ACCESS_NETWORK_STATE" \
+            | grep -v "android.permission.POST_NOTIFICATIONS" \
+            | grep -v "android.permission.WAKE_LOCK" \
+            | grep -v "android.permission.RECEIVE_BOOT_COMPLETED" \
+            | grep -v "android.permission.FOREGROUND_SERVICE" \
+            | grep -v "com.mtga.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+          then
+            echo "::error::Unexpected permission in the release APK"
+            exit 1
+          fi
+
+      - name: Upload the test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mtga-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+      - name: Upload the APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: mtga-apks
+          path: release/*
+          if-no-files-found: error
+
+      # One release per green build on main. The first build of a version
+      # takes the plain tag, the next ones carry the run number, so a release
+      # is never overwritten and the history stays readable.
+      - name: Publish the release
+        if: ${{ github.event_name != 'pull_request' && steps.signing.outputs.ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VERSION"
+          TITLE="MTGA $VERSION"
+          if gh release view "$TAG" > /dev/null 2>&1
+          then
+            TAG="v$VERSION-b$GITHUB_RUN_NUMBER"
+            TITLE="MTGA $VERSION (build $GITHUB_RUN_NUMBER)"
+          fi
+          gh release create "$TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TITLE" \
+            --target "$GITHUB_SHA" \
+            --generate-notes
+          echo "published $TAG"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+
+      # Red on purpose. A build that cannot publish used to pass quietly,
+      # which reads as "it worked" while nothing was released.
+      - name: Fail when a push could not be published
+        if: ${{ github.event_name != 'pull_request' && steps.signing.outputs.ready != 'true' }}
+        run: |
+          echo "::error::No release: the signing secrets are missing or unreadable."
+          echo "Read the Check the signing secrets step above to see which one."
+          echo "Names accepted: ANDROID_KEYSTORE_BASE64 or KEYSTORE_BASE64, and the"
+          echo "matching PASSWORD, ALIAS and KEY_PASSWORD."
+          exit 1
