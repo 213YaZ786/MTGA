@@ -90,7 +90,7 @@ class XComSource(
         }
 
         val fetched = ids.mapNotNull { syndication.fetchPost(it) }
-        val posts = withFullText(fetched, body)
+        val posts = NoteTweetText.complete(fetched, body)
         if (posts.isEmpty()) {
             log.record(
                 RequestLog.Kind.PROFILE, url, "ids found but no posts fetched",
@@ -129,66 +129,6 @@ class XComSource(
     }
 
     /**
-     * A post longer than 280 characters is cut everywhere x.com serves it
-     * short: the rendered page shows it with a "Show more" button, and the
-     * embed endpoint returns the same cut text. The whole text is in the page
-     * regardless, in the hydration payload, as a NoteTweet record.
-     *
-     * Tying a note back to its post id would mean walking three levels of
-     * minified references that X renames at will. The cut text is a prefix of
-     * the whole one, so matching on the prefix is enough and survives renaming.
-     */
-    internal fun withFullText(posts: List<Post>, page: String): List<Post> {
-        val notes = noteTexts(page)
-        if (notes.isEmpty()) return posts
-        return posts.map { post ->
-            val head = post.text.trimEnd()
-            if (head.length < MIN_MATCH) return@map post
-            val whole = notes.firstOrNull { it.startsWith(head) }
-                ?: notes.firstOrNull { it.startsWith(head.take(MIN_MATCH)) }
-            if (whole != null && whole.length > head.length) post.copy(text = whole) else post
-        }
-    }
-
-    /** Every NoteTweet text the page carries, unescaped, in order, without repeats. */
-    internal fun noteTexts(page: String): List<String> =
-        NOTE_TEXT.findAll(page).map { unescapeJson(it.groupValues[1]) }.distinct().toList()
-
-    /** The payload is JavaScript, so its string escapes are JSON's. */
-    private fun unescapeJson(raw: String): String {
-        if ('\\' !in raw) return raw
-        val out = StringBuilder(raw.length)
-        var i = 0
-        while (i < raw.length) {
-            val c = raw[i]
-            if (c != '\\' || i == raw.lastIndex) {
-                out.append(c)
-                i++
-                continue
-            }
-            when (val escape = raw[i + 1]) {
-                'n' -> { out.append('\n'); i += 2 }
-                'r' -> { out.append('\r'); i += 2 }
-                't' -> { out.append('\t'); i += 2 }
-                'b' -> { out.append('\b'); i += 2 }
-                'u' -> {
-                    val hex = raw.substring(i + 2, minOf(i + 6, raw.length))
-                    val code = hex.toIntOrNull(16)
-                    if (hex.length == 4 && code != null) {
-                        out.append(code.toChar())
-                        i += 6
-                    } else {
-                        out.append(escape)
-                        i += 2
-                    }
-                }
-                else -> { out.append(escape); i += 2 }
-            }
-        }
-        return out.toString()
-    }
-
-    /**
      * Pulls every "/status/<digits>" out of the page, keeping order and
      * dropping duplicates. Replies and quotes inside the payload belong to
      * other authors, so anything not under this handle's path is discarded.
@@ -222,12 +162,6 @@ class XComSource(
         const val HOST = "x.com"
         private const val MAX_POSTS = 10
         private const val SELECTOR_SET_VERSION = 1
-
-        /** Long enough that no two posts of one page share it by accident. */
-        private const val MIN_MATCH = 40
-
-        private val NOTE_TEXT =
-            Regex("__typename:\"NoteTweet\",text:\"((?:\\\\.|[^\"\\\\])*)\"")
 
         private const val BROWSER_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +

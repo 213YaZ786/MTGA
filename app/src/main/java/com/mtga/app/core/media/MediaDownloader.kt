@@ -18,25 +18,39 @@ import com.mtga.app.core.model.MediaType
  */
 class MediaDownloader(private val context: Context) {
 
-    fun download(item: MediaItem, authorHandle: String) {
+    /**
+     * [silent] is for automatic downloads: no toast and no completion
+     * notification. A reader who asked for one file wants to be told it is
+     * saved, a reader who turned on automatic saving does not want forty
+     * lines in the shade for one refresh.
+     */
+    fun download(item: MediaItem, authorHandle: String, silent: Boolean = false) {
         val url = item.downloadUrl
         val fileName = buildFileName(item, authorHandle, url)
 
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle(fileName)
             .setDescription("Saving from MTGA")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setNotificationVisibility(
+                if (silent) {
+                    DownloadManager.Request.VISIBILITY_VISIBLE
+                } else {
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                }
+            )
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
 
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
         if (manager == null) {
-            toast("Downloads are unavailable on this device")
+            if (!silent) toast("Downloads are unavailable on this device")
             return
         }
 
-        runCatching { manager.enqueue(request) }
+        val enqueued = runCatching { manager.enqueue(request) }
+        if (silent) return
+        enqueued
             .onSuccess { toast("Saving $fileName") }
             .onFailure { toast("Could not start the download") }
     }

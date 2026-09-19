@@ -15,6 +15,16 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 @Serializable
 enum class StartTab { HOME, ACCOUNTS, LAST }
 
+/**
+ * When media of newly arrived posts is saved to Downloads without being asked.
+ *
+ * UNMETERED rather than "Wi-Fi", because that is what the reader means: a
+ * phone hotspot is Wi-Fi and costs data, an unlimited Ethernet dongle is not
+ * Wi-Fi and costs nothing. Android knows which is which.
+ */
+@Serializable
+enum class AutoDownload { OFF, UNMETERED, ANY }
+
 @Serializable
 data class Settings(
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
@@ -59,6 +69,18 @@ data class Settings(
      * default: it is a data saver the reader chooses to impose.
      */
     val mediaOnWifiOnly: Boolean = false,
+    /**
+     * Save the pictures and videos of posts that arrive from now on, without
+     * being asked. Off by default: it writes to the reader's own Downloads
+     * folder and spends their data.
+     */
+    val autoDownloadMedia: AutoDownload = AutoDownload.OFF,
+    /**
+     * Posts published up to this instant have already been through automatic
+     * download. Set to the moment the option is switched on, so turning it on
+     * saves what arrives next and never the whole stored backlog.
+     */
+    val autoDownloadedUntilMillis: Long = 0,
     /** Saved posts older than this many days are dropped. 0 keeps everything. */
     val keepPostsDays: Int = 0,
     val startTab: StartTab = StartTab.HOME,

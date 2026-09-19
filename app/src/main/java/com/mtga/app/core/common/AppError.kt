@@ -168,3 +168,15 @@ enum class Blame { DEVICE, NETWORK, INSTANCE, UPSTREAM, APP }
  * browser engine. The last cannot, it refuses the client before any check.
  */
 enum class ChallengeKind { PROOF_OF_WORK, JS_INTERSTITIAL, WAF_BLOCK }
+
+/**
+ * The check a person can actually pass, or null.
+ *
+ * A WAF block is an [AppError.ChallengeRequired] too and there is nothing to
+ * tap: the host refused the browser as well. Offering a check that cannot
+ * succeed would be worse than saying nothing, so the pill filters on this and
+ * the error panel keeps explaining the block.
+ */
+fun Iterable<AppError>.solvableChallenge(): AppError.ChallengeRequired? =
+    filterIsInstance<AppError.ChallengeRequired>()
+        .firstOrNull { it.kind != ChallengeKind.WAF_BLOCK }
