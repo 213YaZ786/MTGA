@@ -5,7 +5,6 @@ import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.rememberInlineTarget
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,20 +22,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -49,23 +45,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.mtga.app.core.common.solvableChallenge
+import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.core.model.Post
 import com.mtga.app.feature.media.MediaViewer
+import com.mtga.app.ui.component.ChallengePill
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -73,10 +69,10 @@ import org.koin.compose.koinInject
 /**
  * Home: everything you follow in one stream, newest first.
  *
- * Pull down to refresh. Posts that arrive while you are further down stay out
- * of your way, and a pill offers to jump up to them. Filters sit at the top of
- * the list and are remembered. The pulse icon turns red when a source fails
- * and opens Diagnostics.
+ * Pull down to refresh. Home reopens where the last session's newest post
+ * sat, so whatever arrived since is above it and you scroll upwards to catch
+ * up. Filters sit at the top of the list and are remembered. The pulse icon
+ * turns red when a source fails and opens Diagnostics.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,27 +90,11 @@ fun TimelineScreen(
     val settings by settingsStore.settings.collectAsState()
     val listState = rememberLazyListState()
 
-    // Where the reader stopped last time, and where they stop now. Reading
-    // the anchor once at launch keeps the separator still: recomputing it on
-    // every scroll would make the line creep up the screen.
-    var anchorId by remember { mutableStateOf(viewModel.openAnchorId) }
+    // Home reopens on the newest post of the previous session, so everything
+    // that arrived since sits above it and the reader scrolls upwards. The
+    // anchor itself is the view model's business now, this only jumps to it
+    // once per launch.
     var restored by remember { mutableStateOf(viewModel.openAnchorId.isEmpty()) }
-
-    // Recording must wait for the restore scroll. Both effects start after the
-    // same composition, and this one would otherwise fire first, with the list
-    // still at the top, and save the newest post as the anchor. The restore
-    // would then have nothing to go back to, and the feature would quietly do
-    // nothing from the second session onwards.
-    LaunchedEffect(listState, state.posts, restored) {
-        if (!restored) return@LaunchedEffect
-        snapshotFlow { listState.isScrollInProgress }
-            .filter { scrolling -> !scrolling }
-            .collect {
-                val keys = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }
-                val top = state.posts.firstOrNull { it.id in keys && !it.isPinned }
-                if (top != null) viewModel.setAnchor(top.id)
-            }
-    }
 
     val scope = rememberCoroutineScope()
     var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
@@ -128,62 +108,18 @@ fun TimelineScreen(
         )
     }
 
-    // Once the top of the list is on screen, the new posts have been seen.
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex == 0 }
-            .collect { atTop -> if (atTop) viewModel.clearNewPosts() }
-    }
-
-    // The bar folds away as the reader goes down and comes back on the first
-    // upward flick, which returns a band of screen on a phone without hiding
-    // the way back. enterAlways rather than a pinned bar, because this list is
-    // long and the bar is not needed while reading.
     val haptics = LocalHapticFeedback.current
 
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                scrollBehavior = scrollBehavior,
-                title = {
-                    Column {
-                        Text("Home")
-                        subtitle(state)?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    if (state.followedCount > 0) {
-                        IconButton(onClick = onOpenSearch) {
-                            Icon(MtgaIcons.Search, contentDescription = "Search saved posts")
-                        }
-                        IconButton(onClick = onOpenDiagnostics) {
-                            Icon(
-                                MtgaIcons.Pulse,
-                                contentDescription = if (state.errors.isEmpty()) {
-                                    "Sources working"
-                                } else {
-                                    "Some sources failed"
-                                },
-                                tint = if (state.errors.isEmpty()) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                }
-                            )
-                        }
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    // No top bar at all. A bar that folds away and comes back still owns a
+    // band of the screen the whole time it is on it, which on a phone is
+    // several lines of a post. The title and its two actions are the first
+    // zone of the list instead: they scroll away with everything else, one
+    // flick or the back to top button brings them back, and the reading area
+    // is the whole window.
+    Scaffold { padding ->
+        // The check pill lives outside the when, so it is on screen whether
+        // Home is empty, failed or full, and whatever the scroll position.
+        Box(Modifier.fillMaxSize()) {
         when {
             state.followedCount == 0 -> EmptyState(
                 title = "Nothing followed yet",
@@ -251,7 +187,7 @@ fun TimelineScreen(
                 CompositionLocalProvider(LocalInlinePlaying provides inline) {
                 // Rows drawn above the posts, so the anchor can be scrolled to
                 // by index. Counted the same way the list below builds them.
-                val headerCount = 1 +
+                val headerCount = 2 +
                     (if (state.errors.isNotEmpty()) 1 else 0) +
                     (
                         if (state.posts.isEmpty() && state.filters.active &&
@@ -263,20 +199,45 @@ fun TimelineScreen(
                         }
                         )
 
-                LaunchedEffect(state.posts, restored) {
-                    if (restored) return@LaunchedEffect
-                    val pos = state.posts.indexOfFirst { it.id == anchorId }
-                    if (pos < 0) return@LaunchedEffect
-                    // Lands on the separator when there is one, on the post
-                    // itself when the reader is already at the newest.
-                    listState.scrollToItem(headerCount + pos)
+                // Waits for the first refresh: before it the posts that
+                // arrived since are not in the list yet, so the jump would
+                // land on the right post at the wrong moment and the new ones
+                // would then push it off screen. One jump per launch, and none
+                // at all if the reader has already started scrolling, because
+                // moving the list under a reading finger is worse than a
+                // missed anchor.
+                LaunchedEffect(state.initialRefreshDone, state.posts, restored) {
+                    if (restored || !state.initialRefreshDone) return@LaunchedEffect
+                    if (listState.firstVisibleItemIndex > 0 ||
+                        listState.firstVisibleItemScrollOffset > 0
+                    ) {
+                        restored = true
+                        return@LaunchedEffect
+                    }
+                    val pos = state.posts.indexOfFirst { it.id == viewModel.openAnchorId }
                     restored = true
+                    if (pos < 0) return@LaunchedEffect
+                    listState.scrollToItem(headerCount + pos)
                 }
                 LazyColumn(
                     state = listState,
-                    contentPadding = PaddingValues(bottom = LocalDockPadding.current),
+                    // Horizontal padding rather than a narrower list, so a
+                    // drag in the margins of a wide window scrolls too.
+                    contentPadding = PaddingValues(
+                        start = LocalReadableInset.current,
+                        end = LocalReadableInset.current,
+                        bottom = LocalDockPadding.current
+                    ),
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    item(key = "home-header") {
+                        HomeHeader(
+                            state = state,
+                            onOpenSearch = onOpenSearch,
+                            onOpenDiagnostics = onOpenDiagnostics
+                        )
+                    }
+
                     item(key = "filters") {
                         FilterRow(filters = state.filters, onChange = viewModel::setFilters)
                     }
@@ -303,63 +264,25 @@ fun TimelineScreen(
                         }
                     }
 
-                    // The line sits directly above the post the reader stopped
-                    // on, so Home reopens on the line itself and everything
-                    // that arrived since is one scroll upwards. A pinned post
-                    // rides at the top whatever its age, so it never counts as
-                    // something that arrived.
-                    val anchorPos = state.posts.indexOfFirst { it.id == anchorId }
-                    val showSeparator = anchorPos > 0 &&
-                        state.posts.take(anchorPos).any { !it.isPinned }
-
-                    state.posts.forEachIndexed { index, post ->
-                        if (showSeparator && index == anchorPos) {
-                            item(key = "unread") {
-                                UnreadSeparator(
-                                    modifier = Modifier.animateItem(),
-                                    onClick = {
-                                        state.posts.firstOrNull { !it.isPinned }?.let {
-                                            viewModel.setAnchor(it.id)
-                                            anchorId = it.id
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        item(key = post.id) {
-                            PostCard(
-                                post = post,
-                                onClick = { onOpenPost(post) },
-                                onOpenLink = { uriHandler.openUri(it) },
-                                onDownload = { downloader.download(it, post.authorHandle) },
-                                showStats = settings.showCounts,
-                                onOpenMedia = { index2 -> viewing = post to index2 },
-                                // Posts arrive and merge while the list is on
-                                // screen. Animating placement means a card
-                                // slides into its row instead of teleporting.
-                                modifier = Modifier.animateItem()
-                            )
-                        }
+                    items(state.posts, key = { it.id }) { post ->
+                        PostCard(
+                            post = post,
+                            onClick = { onOpenPost(post) },
+                            onOpenLink = { uriHandler.openUri(it) },
+                            onDownload = { downloader.download(it, post.authorHandle) },
+                            showStats = settings.showCounts,
+                            onOpenMedia = { index -> viewing = post to index },
+                            // Posts arrive and merge while the list is on
+                            // screen. Animating placement means a card slides
+                            // into its row instead of teleporting.
+                            modifier = Modifier.animateItem()
+                        )
                     }
 
                     item(key = "footer") {
                         TimelineFooter(state = state, onLoadMore = { viewModel.loadMore(manual = true) })
                     }
                 }
-                }
-
-                val showPill by remember {
-                    derivedStateOf { listState.firstVisibleItemIndex > 0 }
-                }
-                if (showPill && state.newPostCount > 0) {
-                    NewPostsPill(
-                        count = state.newPostCount,
-                        onClick = {
-                            scope.launch { listState.animateScrollToItem(0) }
-                            viewModel.clearNewPosts()
-                        },
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
-                    )
                 }
 
                 // Only once the way back is a real chore. Below that the
@@ -373,7 +296,10 @@ fun TimelineScreen(
                     exit = fadeOut() + scaleOut(targetScale = 0.8f),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = LocalDockPadding.current + 16.dp)
+                        .padding(
+                            end = 16.dp + LocalReadableInset.current,
+                            bottom = LocalDockPadding.current + 16.dp
+                        )
                 ) {
                     SmallFloatingActionButton(
                         onClick = {
@@ -388,32 +314,77 @@ fun TimelineScreen(
                 }
             }
         }
+
+        ChallengePill(
+            challenge = state.errors.values.solvableChallenge(),
+            onVerify = viewModel::verify,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LocalDockPadding.current + 16.dp)
+        )
+        }
     }
 }
 
 /**
- * Marks where reading stopped last time. Tapping it says "I have read these",
- * which is the only way it ever disappears on demand.
+ * Home's title, its freshness line and its two actions, as the first zone of
+ * the list. Centred, because a title is data and not a row of a list.
+ *
+ * The actions sit on the title's own line and the freshness line runs under
+ * them, so a long "Updated an hour ago" never has to fight the icons for room.
  */
 @Composable
-private fun UnreadSeparator(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+private fun HomeHeader(
+    state: TimelineUiState,
+    onOpenSearch: () -> Unit,
+    onOpenDiagnostics: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        Text(
-            "New",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-        HorizontalDivider(
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(Modifier.fillMaxWidth()) {
+                Text(
+                    "Home",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                if (state.followedCount > 0) {
+                    Row(Modifier.align(Alignment.CenterEnd)) {
+                        IconButton(onClick = onOpenSearch) {
+                            Icon(MtgaIcons.Search, contentDescription = "Search saved posts")
+                        }
+                        IconButton(onClick = onOpenDiagnostics) {
+                            Icon(
+                                MtgaIcons.Pulse,
+                                contentDescription = if (state.errors.isEmpty()) {
+                                    "Sources working"
+                                } else {
+                                    "Some sources failed"
+                                },
+                                tint = if (state.errors.isEmpty()) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            subtitle(state)?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
@@ -450,30 +421,6 @@ private fun FilterRow(filters: HomeFilters, onChange: (HomeFilters) -> Unit) {
             onClick = { onChange(filters.copy(hideReposts = !filters.hideReposts)) },
             label = { Text("Hide reposts") }
         )
-    }
-}
-
-@Composable
-private fun NewPostsPill(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shadowElevation = 4.dp,
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(MtgaIcons.ArrowUp, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(
-                if (count == 1) "1 new post" else "$count new posts",
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
     }
 }
 

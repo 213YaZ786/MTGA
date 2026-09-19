@@ -167,6 +167,18 @@ object MtgaIcons {
         build("Pin", "M16,12V4h1V2H7v2h1v8l-2,2v2h5.2v6h1.6v-6H18v-2L16,12z")
     }
 
+    /** Material verified_user, for the pill that asks for a bot check. */
+    val Shield: ImageVector by lazy {
+        build(
+            "Shield",
+            // Material verified_user, copied coordinate for coordinate. The
+            // tick is a second subpath whose winding cuts it out of the
+            // shield, so it must not be redrawn by hand.
+            "M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4z" +
+                "M10,17l-4,-4 1.41,-1.41L10,14.17l6.59,-6.59L18,9l-8,8z"
+        )
+    }
+
     private fun build(name: String, pathData: String): ImageVector =
         ImageVector.Builder(
             name = name,

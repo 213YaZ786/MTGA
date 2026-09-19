@@ -147,6 +147,23 @@ fun DiagnosticsScreen(
     }
 }
 
+/**
+ * The count, not a sentence about how MTGA picks a server. This banner is
+ * read when something is wrong, so it carries numbers and nothing else.
+ */
+private fun healthyLine(state: DiagnosticsUiState): String {
+    val enabled = state.rows.count { it.instance.enabled }
+    val working = state.rows.count {
+        it.instance.enabled && it.health?.lastError == null && it.health?.lastCheckedAt != null
+    }
+    val best = state.rows
+        .filter { it.instance.enabled && it.health?.lastError == null }
+        .mapNotNull { it.health?.latencyMillis }
+        .minOrNull()
+    val latency = best?.let { ", fastest $it ms" }.orEmpty()
+    return "$working of $enabled servers responding$latency."
+}
+
 @Composable
 private fun OverallBanner(state: DiagnosticsUiState) {
     val (headline, detail) = when {
@@ -155,7 +172,7 @@ private fun OverallBanner(state: DiagnosticsUiState) {
         state.probing && state.rows.none { it.health?.lastCheckedAt != null } ->
             "Checking servers" to "Measuring how each server responds."
         state.anyHealthy ->
-            "Reading works" to "MTGA uses the fastest working server first."
+            "Reading works" to healthyLine(state)
         state.allChecked ->
             "No server is reachable" to "Every server failed its last check. Details below."
         else ->

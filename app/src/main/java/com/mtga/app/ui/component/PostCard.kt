@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,13 +62,20 @@ fun PostCard(
     modifier: Modifier = Modifier
 ) {
     val compact = LocalDisplayPrefs.current.compact
+    // A post is an object, so it gets a container of its own with air around
+    // it, the same rounded zone the settings sections use. The hairline that
+    // used to separate two posts is gone with it: two zones with a gap read as
+    // two things without needing a line drawn between them.
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = if (compact) 3.dp else 5.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(
             Modifier.clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = if (compact) 7.dp else 12.dp),
+                .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
             post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
@@ -123,7 +129,6 @@ fun PostCard(
             }
         }
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
 }
 
 @Composable

@@ -9,6 +9,7 @@ import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.accounts.SubscriptionCodec
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.Settings
+import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.settings.StartTab
 import com.mtga.app.data.settings.ThemeMode
@@ -146,6 +147,20 @@ class SettingsViewModel(
      * this moment are ever announced. The permission is asked by the screen
      * before this is called.
      */
+    /**
+     * Switching it on stamps the watermark with the current instant, so what
+     * is already stored is never dumped into Downloads. Switching it off
+     * clears the stamp, so turning it on again starts from that later moment
+     * rather than from the first time.
+     */
+    fun setAutoDownloadMedia(value: AutoDownload) = store.update {
+        it.copy(
+            autoDownloadMedia = value,
+            autoDownloadedUntilMillis =
+                if (value == AutoDownload.OFF) 0 else System.currentTimeMillis()
+        )
+    }
+
     fun setNotifyNewPosts(enabled: Boolean) = store.update {
         it.copy(
             notifyNewPosts = enabled,

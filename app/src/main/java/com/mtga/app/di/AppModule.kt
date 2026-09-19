@@ -2,6 +2,7 @@ package com.mtga.app.di
 
 import com.mtga.app.core.debug.LogExporter
 import com.mtga.app.core.debug.RequestLog
+import com.mtga.app.core.media.AutoMediaDownloader
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HostThrottle
@@ -57,6 +58,7 @@ val appModule = module {
     single { ChallengeGateway(get(), get(), get(), get(), get()) }
     single { ConnectivityMonitor(androidContext()) }
     single { MediaDownloader(androidContext()) }
+    single { AutoMediaDownloader(get(), get(), get()) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }
@@ -93,6 +95,6 @@ val appModule = module {
     viewModel { PostDetailViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), androidContext()) }
 }

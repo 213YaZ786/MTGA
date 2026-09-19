@@ -3,6 +3,8 @@ package com.mtga.app.feature.timeline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mtga.app.core.common.AppError
+import com.mtga.app.core.media.AutoMediaDownloader
+import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.data.accounts.AccountStore
@@ -48,8 +50,13 @@ data class TimelineUiState(
      * is how a 429 turns into a fifteen minute ban.
      */
     val pagingFailed: Boolean = false,
-    /** Posts that arrived above the reader with the last refresh, for the pill. */
-    val newPostCount: Int = 0
+    /**
+     * True once the first full refresh of this launch has come back. Home
+     * only jumps to where the last session stopped after this, because
+     * before it the new posts are not in the list yet and the jump would
+     * land on the wrong row.
+     */
+    val initialRefreshDone: Boolean = false
 ) {
     val posts: List<Post> = if (filters.active) allPosts.filter(filters::keeps) else allPosts
     val isEmpty: Boolean get() = allPosts.isEmpty() && !loading
@@ -58,11 +65,26 @@ data class TimelineUiState(
 class TimelineViewModel(
     private val repository: TimelineRepository,
     private val accounts: AccountStore,
-    private val settings: SettingsStore
+    private val settings: SettingsStore,
+    private val solver: ChallengeSolver,
+    private val autoDownloader: AutoMediaDownloader
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TimelineUiState(filters = settings.current.toFilters()))
     val state: StateFlow<TimelineUiState> = _state.asStateFlow()
+
+    /**
+     * The newest post the previous session had loaded. Home reopens on it,
+     * so everything above it is what arrived since and the reader scrolls
+     * upwards to catch up.
+     *
+     * Read here, before the init block below can run and overwrite it. That
+     * ordering is the whole feature: get it wrong and the anchor becomes the
+     * newest post of this launch, which is always already on screen.
+     */
+    val openAnchorId: String = settings.current.homeAnchorPostId
+
+    private var anchorId: String = openAnchorId
 
     /**
      * One timeline operation at a time: launch, refresh, follow, unfollow,
@@ -151,15 +173,9 @@ class TimelineViewModel(
     private suspend fun fetch(only: Set<String>?) {
         val before = _state.value
         _state.value = before.copy(loading = true, followedCount = known.size)
-        val newestBefore = before.allPosts.maxOfOrNull { it.publishedAtMillis }
 
         val merged = repository.refresh(only)
 
-        val arrived = if (newestBefore == null) {
-            0
-        } else {
-            merged.posts.count { it.publishedAtMillis > newestBefore && _state.value.filters.keeps(it) }
-        }
         val errors = if (only == null) {
             merged.errors
         } else {
@@ -180,35 +196,44 @@ class TimelineViewModel(
             canLoadMore = merged.canLoadMore,
             loadingMore = false,
             pagingFailed = false,
-            newPostCount = _state.value.newPostCount + arrived
+            initialRefreshDone = _state.value.initialRefreshDone || only == null
         )
+        rememberNewest(merged.posts)
+        // Automatic media saving runs here and nowhere else, so it only ever
+        // happens with Home on screen.
+        autoDownloader.consider(merged.posts)
     }
 
     private fun followedKeys(): Set<String> =
         accounts.accounts.value.map { it.handle.lowercase() }.toSet()
 
-    /** The reader has seen the top of the list, or tapped the pill. */
-    fun clearNewPosts() {
-        if (_state.value.newPostCount != 0) _state.value = _state.value.copy(newPostCount = 0)
+    /**
+     * The user tapped the check pill. On success the host is cleared for the
+     * session and the whole timeline is read again, since one bot check
+     * usually blocked every account served by that host.
+     */
+    fun verify(error: AppError.ChallengeRequired) {
+        viewModelScope.launch {
+            val result = solver.solve(error.url, error.host, interactive = true)
+            if (result is ChallengeSolver.Result.Cleared) refresh()
+        }
     }
 
     /**
-     * The post Home reopens on, read once at launch. Everything above it is
-     * what arrived since, which is why the reader scrolls upwards to catch up
-     * rather than downwards.
+     * Records the newest post the app now holds, which is where the next
+     * launch will reopen.
+     *
+     * Driven by what was loaded, not by where the reader scrolled. The scroll
+     * version wrote the top visible post after every gesture, so a reader who
+     * caught up to the top rewrote the anchor to the newest post and the next
+     * launch had nothing above it to scroll to. A pin rides at the top
+     * whatever its age, so it is never the newest anything.
      */
-    val openAnchorId: String = settings.current.homeAnchorPostId
-
-    private var anchorId: String = openAnchorId
-
-    /**
-     * Called with the post sitting at the top of the screen once a scroll
-     * settles. One write per gesture at most, and none when nothing moved.
-     */
-    fun setAnchor(id: String) {
-        if (id == anchorId) return
-        anchorId = id
-        settings.update { it.copy(homeAnchorPostId = id) }
+    private fun rememberNewest(posts: List<Post>) {
+        val newest = posts.firstOrNull { !it.isPinned }?.id ?: return
+        if (newest == anchorId) return
+        anchorId = newest
+        settings.update { it.copy(homeAnchorPostId = newest) }
     }
 
     fun setFilters(filters: HomeFilters) = settings.update {

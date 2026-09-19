@@ -53,13 +53,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
+import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.StartTab
 import com.mtga.app.data.settings.ThemeMode
 import com.mtga.app.ui.theme.TEXT_SCALES
 import com.mtga.app.ui.theme.textScaleLabel
 import org.koin.androidx.compose.koinViewModel
 
-private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB }
+private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB, AUTO_DOWNLOAD }
+
+private fun autoDownloadLabel(value: AutoDownload): String = when (value) {
+    AutoDownload.OFF -> "Off"
+    AutoDownload.UNMETERED -> "Wi-Fi only"
+    AutoDownload.ANY -> "Wi-Fi and mobile data"
+}
 
 private val KEEP_DAYS = listOf(7, 30, 90, 365, 0)
 
@@ -205,6 +212,13 @@ fun SettingsScreen(
                 summary = "On mobile data, pictures and videos wait for a tap. Avatars still load.",
                 checked = settings.mediaOnWifiOnly,
                 onChange = viewModel::setMediaOnWifiOnly
+            )
+            SettingRow(
+                title = "Save media automatically",
+                summary = "Pictures and videos of posts that arrive from then on go to " +
+                    "Downloads without being asked. Only while MTGA is open, never in the " +
+                    "background. Currently: ${autoDownloadLabel(settings.autoDownloadMedia)}.",
+                onClick = { dialog = OpenDialog.AUTO_DOWNLOAD }
             )
             SwitchRow(
                 title = "Play videos automatically",
@@ -379,6 +393,13 @@ fun SettingsScreen(
             options = TEXT_SCALES.map { it to textScaleLabel(it) },
             selected = settings.textScale,
             onSelect = viewModel::setTextScale,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
+        OpenDialog.AUTO_DOWNLOAD -> ChoiceDialog(
+            title = "Save media automatically",
+            options = AutoDownload.entries.map { it to autoDownloadLabel(it) },
+            selected = settings.autoDownloadMedia,
+            onSelect = viewModel::setAutoDownloadMedia,
             onDismiss = { dialog = OpenDialog.NONE }
         )
         OpenDialog.KEEP -> ChoiceDialog(

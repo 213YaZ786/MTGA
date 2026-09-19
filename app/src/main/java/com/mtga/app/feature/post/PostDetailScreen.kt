@@ -1,11 +1,14 @@
 package com.mtga.app.feature.post
 
+import com.mtga.app.navigation.LocalReadableInset
+import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.core.common.present
 import com.mtga.app.core.common.ChallengeKind
 import com.mtga.app.core.common.AppError
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.size
 import android.content.ClipData
@@ -34,7 +37,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -100,7 +102,7 @@ fun PostDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            FloatingTopBar(
                 title = { Text("Post") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -204,7 +206,15 @@ private fun ConversationView(
         )
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        // Horizontal padding rather than a narrower list, so a drag in the
+        // margins of a wide window scrolls too.
+        contentPadding = PaddingValues(
+            start = LocalReadableInset.current,
+            end = LocalReadableInset.current
+        )
+    ) {
         val ancestors = conversation?.ancestors.orEmpty()
         if (ancestors.isNotEmpty()) {
             item(key = "earlier") { SectionLabel("Earlier in the conversation") }
@@ -328,10 +338,17 @@ private fun PostBody(
     val uriHandler = LocalUriHandler.current
     val downloader: MediaDownloader = koinInject()
 
+    // The same zone a post gets in a list, so the opened post reads as the
+    // same object, only larger.
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
@@ -339,7 +356,9 @@ private fun PostBody(
         Surface(
             onClick = { onOpenProfile(post.authorHandle) },
             shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
+            // Same colour as the zone it sits in: this is a tap target, not a
+            // second card inside the first one.
+            color = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Row(
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -438,7 +457,7 @@ private fun PostBody(
             OutlinedButton(onClick = { copy(context, shareLink) }) { Text("Copy link") }
         }
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHigh)
+    }
 }
 
 /** Every count the source gave, spelled out. Counts it did not give are not guessed. */

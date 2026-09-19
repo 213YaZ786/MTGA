@@ -12,6 +12,7 @@ import com.mtga.app.ui.component.rememberMediaPolicy
 import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,7 +35,6 @@ import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -53,6 +53,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mtga.app.core.common.solvableChallenge
+import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.core.model.Feed
@@ -62,7 +64,10 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
+import com.mtga.app.ui.component.ChallengePill
+import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.ErrorPanel
+import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.component.rememberInlineTarget
@@ -138,7 +143,7 @@ fun FeedScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
+            FloatingTopBar(
                 scrollBehavior = scrollBehavior,
                 title = {
                     if (headerGone) {
@@ -162,6 +167,7 @@ fun FeedScreen(
             )
         }
     ) { padding ->
+        Box(Modifier.fillMaxSize()) {
         val inline = rememberInlineTarget(
             listState = listState,
             posts = shown,
@@ -172,6 +178,13 @@ fun FeedScreen(
         CompositionLocalProvider(LocalInlinePlaying provides inline) {
         LazyColumn(
             state = listState,
+            // Horizontal padding rather than a narrower list, so a drag in
+            // the margins of a wide window scrolls too.
+            contentPadding = PaddingValues(
+                start = LocalReadableInset.current,
+                end = LocalReadableInset.current,
+                bottom = LocalDockPadding.current
+            ),
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
             item(key = "header") {
@@ -208,8 +221,7 @@ fun FeedScreen(
                         modifier = Modifier.padding(16.dp),
                         error = it,
                         onRetry = viewModel::refresh,
-                        onOpenDiagnostics = onOpenDiagnostics,
-                        onVerify = viewModel::verify
+                        onOpenDiagnostics = onOpenDiagnostics
                     )
                 }
             }
@@ -271,6 +283,18 @@ fun FeedScreen(
                 }
             }
         }
+        }
+
+        // Same pill as Home, same place. A check asked for halfway down a
+        // profile used to be announced by a card above the header, which the
+        // reader had already scrolled past.
+        ChallengePill(
+            challenge = listOfNotNull(state.error, tabFeed.error).solvableChallenge(),
+            onVerify = viewModel::verify,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = LocalDockPadding.current + 16.dp)
+        )
         }
     }
 }

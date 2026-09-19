@@ -156,7 +156,7 @@ private fun MtgaNavHost(navController: NavHostController) {
             }
             composable(Routes.SEARCH) {
                 CompositionLocalProvider(LocalNavAnimatedScope provides this) {
-                Readable {
+                ReadableScroll {
                     SearchScreen(
                         onBack = { navController.popBackStack() },
                         onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
@@ -174,7 +174,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 arguments = listOf(navArgument("handle") { type = NavType.StringType })
             ) { entry ->
                 CompositionLocalProvider(LocalNavAnimatedScope provides this) {
-                Readable {
+                ReadableScroll {
                     FeedScreen(
                         handle = entry.arguments?.getString("handle").orEmpty(),
                         onBack = { navController.popBackStack() },
@@ -198,7 +198,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 )
             ) { entry ->
                 CompositionLocalProvider(LocalNavAnimatedScope provides this) {
-                Readable {
+                ReadableScroll {
                     PostDetailScreen(
                         id = entry.arguments?.getString("id").orEmpty(),
                         from = entry.arguments?.getString("from"),
@@ -342,7 +342,7 @@ private fun MainTabs(
                 // sight. The pager keeps the others alive next to it.
                 val inSight = pager.settledPage == page && !showWelcome
                 CompositionLocalProvider(LocalInlinePlaybackAllowed provides inSight) {
-                Readable {
+                ReadableScroll {
                     when (tabs[page]) {
                         TopDestination.TIMELINE -> TimelineScreen(
                             onOpenDiagnostics = onOpenDiagnostics,
@@ -350,12 +350,18 @@ private fun MainTabs(
                             onOpenPost = onOpenPost,
                             onOpenSearch = onOpenSearch
                         )
-                        TopDestination.ACCOUNTS -> AccountsScreen(onOpenFeed = onOpenFeed)
-                        TopDestination.SETTINGS -> SettingsScreen(
-                            onOpenDiagnostics = onOpenDiagnostics,
-                            onOpenDebugLog = onOpenDebugLog,
-                            onOpenWelcome = { showWelcome = true }
-                        )
+                        // These two do not take the inset themselves, so
+                        // they keep the narrowed column.
+                        TopDestination.ACCOUNTS -> Readable {
+                            AccountsScreen(onOpenFeed = onOpenFeed)
+                        }
+                        TopDestination.SETTINGS -> Readable {
+                            SettingsScreen(
+                                onOpenDiagnostics = onOpenDiagnostics,
+                                onOpenDebugLog = onOpenDebugLog,
+                                onOpenWelcome = { showWelcome = true }
+                            )
+                        }
                     }
                 }
                 }
