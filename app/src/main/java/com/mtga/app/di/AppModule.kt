@@ -3,6 +3,7 @@ package com.mtga.app.di
 import com.mtga.app.core.debug.LogExporter
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.media.AutoMediaDownloader
+import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HostThrottle
@@ -23,6 +24,7 @@ import com.mtga.app.data.repository.FeedRepository
 import com.mtga.app.data.repository.TimelineRepository
 import com.mtga.app.data.rss.RssFeedParser
 import com.mtga.app.data.rss.RssSource
+import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.SyndicationSource
 import com.mtga.app.data.xcom.XComSource
@@ -32,6 +34,7 @@ import com.mtga.app.feature.search.SearchViewModel
 import com.mtga.app.feature.diagnostics.DiagnosticsViewModel
 import com.mtga.app.feature.settings.SettingsViewModel
 import com.mtga.app.feature.feed.FeedViewModel
+import com.mtga.app.feature.media.SavedMediaViewModel
 import com.mtga.app.feature.timeline.TimelineViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +61,9 @@ val appModule = module {
     single { ChallengeGateway(get(), get(), get(), get(), get()) }
     single { ConnectivityMonitor(androidContext()) }
     single { MediaDownloader(androidContext()) }
-    single { AutoMediaDownloader(get(), get(), get()) }
+    single { OfflineMedia(androidContext()) }
+    single { ReadMarks(androidContext()) }
+    single { AutoMediaDownloader(get(), get(), get(), get(), get()) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }
@@ -96,5 +101,6 @@ val appModule = module {
     viewModel { SearchViewModel(get()) }
     viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get(), get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), get(), androidContext()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), androidContext()) }
+    viewModel { SavedMediaViewModel(get()) }
 }

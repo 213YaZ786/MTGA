@@ -1,5 +1,6 @@
 package com.mtga.app.ui.component
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.mtga.app.core.media.rememberMediaSource
 import com.mtga.app.core.model.CommunityNote
 import com.mtga.app.core.model.LinkCard
 import com.mtga.app.core.model.MediaItem
@@ -59,6 +61,8 @@ fun PostCard(
     onDownload: (MediaItem) -> Unit,
     onOpenMedia: (index: Int) -> Unit = {},
     showStats: Boolean = true,
+    /** Arrived since the last visit and not yet scrolled past. */
+    unread: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val compact = LocalDisplayPrefs.current.compact
@@ -66,12 +70,17 @@ fun PostCard(
     // it, the same rounded zone the settings sections use. The hairline that
     // used to separate two posts is gone with it: two zones with a gap read as
     // two things without needing a line drawn between them.
+    val shape = RoundedCornerShape(24.dp)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = if (compact) 3.dp else 5.dp),
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        // The outline says "you have not been past this one yet" and nothing
+        // else. It needs no label and no legend, which is why it is a border
+        // and not a badge.
+        border = if (unread) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Column(
             Modifier.clickable(onClick = onClick)
@@ -272,15 +281,18 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                 if (waiting) {
                     HeldMedia(item.type, Modifier.fillMaxWidth().aspectRatio(ratio))
                 } else {
+                    // A saved copy wins over the network, which is the whole
+                    // point of saving it.
+                    val source = rememberMediaSource(post.id, index, item)
                     AsyncImage(
-                        model = item.previewUrl,
+                        model = source.preview,
                         contentDescription = null,
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
                     )
                     if (index == inlineIndex) {
                         InlineVideo(
-                            url = item.downloadUrl,
+                            url = source.playback,
                             onClick = { onOpen(index) },
                             modifier = Modifier.matchParentSize()
                         )

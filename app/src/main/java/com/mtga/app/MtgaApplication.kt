@@ -1,7 +1,9 @@
 package com.mtga.app
 
 import android.app.Application
+import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.data.cache.FeedCache
+import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -26,8 +28,20 @@ class MtgaApplication : Application() {
         // schedule honest after an app update or a settings change made while
         // the worker was cancelled.
         val koin = org.koin.core.context.GlobalContext.get()
-        // Old posts go at launch, not only when their account is next fetched.
-        koin.get<CoroutineScope>(named("appScope")).launch { koin.get<FeedCache>().applyRetention() }
+        // Old posts go at launch, not only when their account is next fetched,
+        // and their saved media goes with them. One retention, one sweep.
+        koin.get<CoroutineScope>(named("appScope")).launch {
+            val cache = koin.get<FeedCache>()
+            cache.applyRetention()
+            val kept = cache.storedPostIds()
+            koin.get<OfflineMedia>().keepOnly(kept)
+            // Whatever was already on disk when the app opened is not new.
+            // Without this a reader coming back after a week would face a
+            // border on two hundred posts they had already seen.
+            val marks = koin.get<ReadMarks>()
+            marks.load()
+            marks.markAllRead(kept)
+        }
 
         val settings = koin.get<SettingsStore>()
         if (settings.current.backgroundSync) {

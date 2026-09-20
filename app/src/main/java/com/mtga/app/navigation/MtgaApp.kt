@@ -25,7 +25,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.navigation.NavHostController
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.mtga.app.core.link.LinkRouter
+import com.mtga.app.core.media.LocalOfflineMedia
+import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.core.link.XLink
 import org.koin.compose.koinInject
 import androidx.compose.ui.Alignment
@@ -48,6 +51,7 @@ import com.mtga.app.core.model.PostKind
 import com.mtga.app.feature.accounts.AccountsScreen
 import com.mtga.app.feature.debug.DebugLogScreen
 import com.mtga.app.feature.diagnostics.DiagnosticsScreen
+import com.mtga.app.feature.media.SavedMediaScreen
 import com.mtga.app.feature.feed.FeedScreen
 import com.mtga.app.feature.post.PostDetailScreen
 import com.mtga.app.feature.search.SearchScreen
@@ -77,6 +81,16 @@ fun MtgaApp() {
     val pending by links.pending.collectAsState()
     val platformUris = LocalUriHandler.current
 
+    // Re-read on every return to the app, because DownloadManager finishes in
+    // its own time: files queued during the last visit are on disk now, and
+    // files the reader deleted from a file manager are not.
+    val offlineMedia: OfflineMedia = koinInject()
+    val appScope = rememberCoroutineScope()
+    LifecycleResumeEffect(offlineMedia) {
+        appScope.launch { offlineMedia.refresh() }
+        onPauseOrDispose { }
+    }
+
     fun show(link: XLink) {
         when (link) {
             is XLink.Profile -> navController.navigate(Routes.feed(link.handle))
@@ -104,7 +118,11 @@ fun MtgaApp() {
         }
     }
 
-    CompositionLocalProvider(LocalUriHandler provides uris) {
+    CompositionLocalProvider(
+        LocalUriHandler provides uris,
+        // Every screen that shows media can now ask for the saved copy.
+        LocalOfflineMedia provides offlineMedia
+    ) {
         MtgaNavHost(navController)
     }
 }
@@ -148,6 +166,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 MainTabs(
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
+                    onOpenSavedMedia = { navController.navigate(Routes.SAVED_MEDIA) },
                     onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) },
                     onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) },
                     onOpenSearch = { navController.navigate(Routes.SEARCH) }
@@ -209,6 +228,14 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
                 }
             }
+            composable(Routes.SAVED_MEDIA) {
+                ReadableScroll {
+                    SavedMediaScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenPost = { id -> navController.navigate(Routes.post(id, null)) }
+                    )
+                }
+            }
             composable(Routes.DIAGNOSTICS) {
                 Readable {
                     DiagnosticsScreen(onBack = { navController.popBackStack() })
@@ -238,6 +265,7 @@ private fun Post.cacheOwner(): String =
 private fun MainTabs(
     onOpenDiagnostics: () -> Unit,
     onOpenDebugLog: () -> Unit,
+    onOpenSavedMedia: () -> Unit,
     onOpenFeed: (String) -> Unit,
     onOpenPost: (Post) -> Unit,
     onOpenSearch: () -> Unit
@@ -359,6 +387,7 @@ private fun MainTabs(
                             SettingsScreen(
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onOpenDebugLog = onOpenDebugLog,
+                                onOpenSavedMedia = onOpenSavedMedia,
                                 onOpenWelcome = { showWelcome = true }
                             )
                         }
