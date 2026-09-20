@@ -6,38 +6,18 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.media.AutoMediaDownloader
 import com.mtga.app.core.web.ChallengeSolver
 import com.mtga.app.core.model.Post
-import com.mtga.app.core.model.PostKind
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.repository.TimelineRepository
-import com.mtga.app.data.settings.Settings
 import com.mtga.app.data.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** The Home filters. Each is a narrowing, so none selected means everything. */
-data class HomeFilters(
-    val hideReplies: Boolean = false,
-    val hideReposts: Boolean = false,
-    val mediaOnly: Boolean = false
-) {
-    val active: Boolean get() = hideReplies || hideReposts || mediaOnly
-
-    fun keeps(post: Post): Boolean =
-        !(hideReplies && post.kind == PostKind.REPLY) &&
-            !(hideReposts && post.kind == PostKind.REPOST) &&
-            !(mediaOnly && post.media.isEmpty())
-}
-
 data class TimelineUiState(
-    /** Everything stored, unfiltered. */
-    val allPosts: List<Post> = emptyList(),
-    val filters: HomeFilters = HomeFilters(),
+    val posts: List<Post> = emptyList(),
     val loading: Boolean = false,
     val errors: Map<String, AppError> = emptyMap(),
     val followedCount: Int = 0,
@@ -50,16 +30,8 @@ data class TimelineUiState(
      * is how a 429 turns into a fifteen minute ban.
      */
     val pagingFailed: Boolean = false,
-    /**
-     * True once the first full refresh of this launch has come back. Home
-     * only jumps to where the last session stopped after this, because
-     * before it the new posts are not in the list yet and the jump would
-     * land on the wrong row.
-     */
-    val initialRefreshDone: Boolean = false
 ) {
-    val posts: List<Post> = if (filters.active) allPosts.filter(filters::keeps) else allPosts
-    val isEmpty: Boolean get() = allPosts.isEmpty() && !loading
+    val isEmpty: Boolean get() = posts.isEmpty() && !loading
 }
 
 class TimelineViewModel(
@@ -70,21 +42,9 @@ class TimelineViewModel(
     private val autoDownloader: AutoMediaDownloader
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(TimelineUiState(filters = settings.current.toFilters()))
+    private val _state = MutableStateFlow(TimelineUiState())
     val state: StateFlow<TimelineUiState> = _state.asStateFlow()
 
-    /**
-     * The newest post the previous session had loaded. Home reopens on it,
-     * so everything above it is what arrived since and the reader scrolls
-     * upwards to catch up.
-     *
-     * Read here, before the init block below can run and overwrite it. That
-     * ordering is the whole feature: get it wrong and the anchor becomes the
-     * newest post of this launch, which is always already on screen.
-     */
-    val openAnchorId: String = settings.current.homeAnchorPostId
-
-    private var anchorId: String = openAnchorId
 
     /**
      * One timeline operation at a time: launch, refresh, follow, unfollow,
@@ -101,10 +61,6 @@ class TimelineViewModel(
     private var fullRefreshQueued = false
 
     init {
-        settings.settings
-            .onEach { _state.value = _state.value.copy(filters = it.toFilters()) }
-            .launchIn(viewModelScope)
-
         viewModelScope.launch {
             // Paint from disk first so the timeline is readable before any
             // request goes out, then refresh over the top.
@@ -112,7 +68,7 @@ class TimelineViewModel(
                 known = followedKeys()
                 val cached = repository.cached()
                 _state.value = _state.value.copy(
-                    allPosts = cached.posts,
+                    posts = cached.posts,
                     followedCount = known.size,
                     lastUpdatedMillis = cached.oldestFetchedAtMillis,
                     canLoadMore = cached.canLoadMore
@@ -156,7 +112,7 @@ class TimelineViewModel(
 
         val cached = repository.cached()
         _state.value = _state.value.copy(
-            allPosts = cached.posts,
+            posts = cached.posts,
             followedCount = current.size,
             canLoadMore = cached.canLoadMore,
             errors = _state.value.errors.filterKeys { it.lowercase() in current },
@@ -188,17 +144,15 @@ class TimelineViewModel(
             _state.value.lastUpdatedMillis ?: merged.oldestFetchedAtMillis
         }
         _state.value = _state.value.copy(
-            allPosts = merged.posts,
+            posts = merged.posts,
             loading = false,
             errors = errors,
             followedCount = known.size,
             lastUpdatedMillis = lastUpdated,
             canLoadMore = merged.canLoadMore,
             loadingMore = false,
-            pagingFailed = false,
-            initialRefreshDone = _state.value.initialRefreshDone || only == null
+            pagingFailed = false
         )
-        rememberNewest(merged.posts)
         // Automatic media saving runs here and nowhere else, so it only ever
         // happens with Home on screen.
         autoDownloader.consider(merged.posts)
@@ -217,31 +171,6 @@ class TimelineViewModel(
             val result = solver.solve(error.url, error.host, interactive = true)
             if (result is ChallengeSolver.Result.Cleared) refresh()
         }
-    }
-
-    /**
-     * Records the newest post the app now holds, which is where the next
-     * launch will reopen.
-     *
-     * Driven by what was loaded, not by where the reader scrolled. The scroll
-     * version wrote the top visible post after every gesture, so a reader who
-     * caught up to the top rewrote the anchor to the newest post and the next
-     * launch had nothing above it to scroll to. A pin rides at the top
-     * whatever its age, so it is never the newest anything.
-     */
-    private fun rememberNewest(posts: List<Post>) {
-        val newest = posts.firstOrNull { !it.isPinned }?.id ?: return
-        if (newest == anchorId) return
-        anchorId = newest
-        settings.update { it.copy(homeAnchorPostId = newest) }
-    }
-
-    fun setFilters(filters: HomeFilters) = settings.update {
-        it.copy(
-            homeHideReplies = filters.hideReplies,
-            homeHideReposts = filters.hideReposts,
-            homeMediaOnly = filters.mediaOnly
-        )
     }
 
     /**
@@ -273,12 +202,12 @@ class TimelineViewModel(
         _state.value = current.copy(loadingMore = true, pagingFailed = false)
         viewModelScope.launch {
             try {
-                val before = current.allPosts.size
+                val before = current.posts.size
                 val merged = repository.loadMore()
                 val failed = merged.errors.isNotEmpty() || merged.posts.size <= before
                 if (failed) pagingFailedAtMillis = System.currentTimeMillis()
                 _state.value = _state.value.copy(
-                    allPosts = merged.posts,
+                    posts = merged.posts,
                     loadingMore = false,
                     canLoadMore = merged.canLoadMore,
                     errors = merged.errors.ifEmpty { _state.value.errors },
@@ -290,11 +219,6 @@ class TimelineViewModel(
         }
     }
 
-    private fun Settings.toFilters() = HomeFilters(
-        hideReplies = homeHideReplies,
-        hideReposts = homeHideReposts,
-        mediaOnly = homeMediaOnly
-    )
 }
 
 /** A failed sweep of the whole pool is not worth repeating sooner. */

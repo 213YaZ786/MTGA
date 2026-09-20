@@ -291,6 +291,20 @@ class FeedCache(
         }
     }
 
+    /**
+     * Every post id the disk still holds.
+     *
+     * Read by the media store so a saved picture never outlives the post it
+     * belongs to. Retention is set once, in "Keep posts", and it governs the
+     * files as well as the text.
+     */
+    suspend fun storedPostIds(): Set<String> = withContext(Dispatchers.IO) {
+        directory.listFiles().orEmpty().flatMapTo(HashSet()) { file ->
+            runCatching { json.decodeFromString<Feed>(file.readText()).posts.map { it.id } }
+                .getOrDefault(emptyList())
+        }
+    }
+
     private fun fileFor(handle: String) = File(directory, "${handle.lowercase()}.json")
 
     private companion object {

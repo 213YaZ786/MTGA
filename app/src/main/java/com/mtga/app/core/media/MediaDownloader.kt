@@ -7,53 +7,69 @@ import android.os.Environment
 import android.widget.Toast
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
+import java.io.File
 
 /**
- * Saves media to the device's public Downloads folder.
+ * Fetches media to disk, to one of two places.
  *
  * Uses the system DownloadManager rather than fetching bytes ourselves: it
  * survives the app being backgrounded, shows progress in the notification
- * shade, and needs no storage permission on modern Android because the file
- * lands in a public collection it owns.
+ * shade, and needs no storage permission on modern Android.
+ *
+ * A file the reader asked for goes to Downloads/MTGA, theirs to keep and to
+ * move. A file saved automatically goes to the app's own folder, where the
+ * post it belongs to can find it again, see [OfflineMedia]. They used to
+ * share the public Downloads folder, which buried a deliberate save under
+ * forty automatic ones.
  */
 class MediaDownloader(private val context: Context) {
 
-    /**
-     * [silent] is for automatic downloads: no toast and no completion
-     * notification. A reader who asked for one file wants to be told it is
-     * saved, a reader who turned on automatic saving does not want forty
-     * lines in the shade for one refresh.
-     */
-    fun download(item: MediaItem, authorHandle: String, silent: Boolean = false) {
-        val url = item.downloadUrl
-        val fileName = buildFileName(item, authorHandle, url)
-
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle(fileName)
-            .setDescription("Saving from MTGA")
-            .setNotificationVisibility(
-                if (silent) {
-                    DownloadManager.Request.VISIBILITY_VISIBLE
-                } else {
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                }
+    /** A file the reader asked for. Lands in Downloads/MTGA, with a toast. */
+    fun download(item: MediaItem, authorHandle: String) {
+        val fileName = buildFileName(item, authorHandle, item.downloadUrl)
+        val request = baseRequest(item, fileName)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            // A sub folder of a public collection, still no permission needed.
+            .setDestinationInExternalPublicDir(
+                Environment.DIRECTORY_DOWNLOADS,
+                "$PUBLIC_FOLDER/$fileName"
             )
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
 
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        val manager = manager()
         if (manager == null) {
-            if (!silent) toast("Downloads are unavailable on this device")
+            toast("Downloads are unavailable on this device")
             return
         }
-
-        val enqueued = runCatching { manager.enqueue(request) }
-        if (silent) return
-        enqueued
-            .onSuccess { toast("Saving $fileName") }
+        runCatching { manager.enqueue(request) }
+            .onSuccess { toast("Saving to Downloads/$PUBLIC_FOLDER") }
             .onFailure { toast("Could not start the download") }
     }
+
+    /**
+     * A file saved without being asked, for offline reading.
+     *
+     * No toast and no completion notification: a reader who turned on
+     * automatic saving does not want forty lines in the shade for one
+     * refresh. Returns false when the download could not even be queued, so
+     * the caller can say so in the log rather than guess.
+     */
+    fun cache(target: File, item: MediaItem): Boolean {
+        if (target.exists()) return false
+        val manager = manager() ?: return false
+        val request = baseRequest(item, target.name)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, target.name)
+        return runCatching { manager.enqueue(request) }.isSuccess
+    }
+
+    private fun manager() = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+
+    private fun baseRequest(item: MediaItem, title: String) =
+        DownloadManager.Request(Uri.parse(item.downloadUrl))
+            .setTitle(title)
+            .setDescription("Saving from MTGA")
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(true)
 
     /**
      * Nitter proxies media through URL encoded paths, so the tail is rarely a
@@ -79,4 +95,9 @@ class MediaDownloader(private val context: Context) {
 
     private fun toast(message: String) =
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+
+    private companion object {
+        /** Deliberate saves get their own drawer inside Downloads. */
+        const val PUBLIC_FOLDER = "MTGA"
+    }
 }

@@ -66,6 +66,7 @@ fun SearchScreen(
 
     viewing?.let { (post, index) ->
         MediaViewer(
+            postId = post.id,
             media = post.media,
             startIndex = index,
             onDownload = { downloader.download(it, post.authorHandle) },

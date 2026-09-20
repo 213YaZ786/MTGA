@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mtga.app.BuildConfig
 import com.mtga.app.data.settings.AutoDownload
@@ -88,10 +89,14 @@ fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
     onOpenDebugLog: () -> Unit,
     onOpenWelcome: () -> Unit,
+    onOpenSavedMedia: () -> Unit,
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
     val storageBytes by viewModel.storageBytes.collectAsState()
+    val imageCacheBytes by viewModel.imageCacheBytes.collectAsState()
+    val offlineBytes by viewModel.offlineBytes.collectAsState()
+    val offlineCount by viewModel.offlineCount.collectAsState()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
@@ -303,13 +308,38 @@ fun SettingsScreen(
             )
         }
 
-        Section("Data") {
+        Section("Storage") {
             SettingRow(
                 title = "Keep posts",
                 summary = keepLabel(settings.keepPostsDays) +
-                    ". Older posts can still be read by scrolling back.",
+                    ". Saved media follows the same limit.",
                 onClick = { dialog = OpenDialog.KEEP }
             )
+            SettingRow(
+                title = "Saved posts",
+                summary = storageBytes
+                    ?.let { Formatter.formatShortFileSize(context, it) }
+                    ?.let { "$it. Tap to delete." } ?: "Measuring",
+                onClick = { dialog = OpenDialog.CLEAR }
+            )
+            SettingRow(
+                title = "Saved media",
+                summary = offlineBytes?.let {
+                    "$offlineCount files, ${Formatter.formatShortFileSize(context, it)}. " +
+                        "Tap to browse and delete."
+                } ?: "Measuring",
+                onClick = onOpenSavedMedia
+            )
+            SettingRow(
+                title = "Cached images",
+                summary = imageCacheBytes
+                    ?.let { Formatter.formatShortFileSize(context, it) }
+                    ?.let { "$it. Tap to delete." } ?: "Measuring",
+                onClick = viewModel::clearImageCache
+            )
+        }
+
+        Section("Accounts file") {
             SettingRow(
                 title = "Export accounts",
                 summary = "Save the accounts you follow to a file. Fritter and Squawker can read it.",
@@ -319,18 +349,6 @@ fun SettingsScreen(
                 title = "Import accounts",
                 summary = "From an MTGA, Fritter or Squawker export, or a text file of handles.",
                 onClick = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
-            )
-            SettingRow(
-                title = "Saved posts",
-                summary = storageBytes?.let {
-                    "${Formatter.formatShortFileSize(context, it)} on this phone. Readable offline."
-                } ?: "Measuring",
-                onClick = null
-            )
-            SettingRow(
-                title = "Clear saved posts",
-                summary = "Frees space. The accounts you follow are kept.",
-                onClick = { dialog = OpenDialog.CLEAR }
             )
         }
 
@@ -439,11 +457,16 @@ fun SettingsScreen(
 /** A titled group of rows on one rounded card, the Obtainium way. */
 @Composable
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+    // Centred and at title size: a section heading names what the zone below
+    // holds, which is data about the screen and not one of its rows.
     Text(
         title,
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 20.dp, bottom = 8.dp)
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 28.dp, top = 24.dp, bottom = 10.dp)
     )
     Surface(
         shape = RoundedCornerShape(24.dp),

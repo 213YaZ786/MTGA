@@ -40,17 +40,6 @@ data class Settings(
      * switching them on does not flood the shade with the backlog.
      */
     val notifySinceMillis: Long = 0,
-    /** Home filters. Kept across launches, because a filter is a reading habit. */
-    val homeHideReplies: Boolean = false,
-    val homeHideReposts: Boolean = false,
-    val homeMediaOnly: Boolean = false,
-    /**
-     * Id of the post that was at the top of Home when the reader last left it.
-     * Home reopens on that post, so the session resumes exactly where it
-     * stopped and everything new is one scroll upwards. An id rather than a
-     * time, because the reader is coming back to a post, not to an instant.
-     */
-    val homeAnchorPostId: String = "",
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** True black instead of dark grey in dark mode. */
     val pureBlack: Boolean = false,

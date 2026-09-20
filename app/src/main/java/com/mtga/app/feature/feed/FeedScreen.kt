@@ -100,14 +100,17 @@ fun FeedScreen(
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settings.collectAsState()
     val listState = rememberLazyListState()
-    var viewing by remember { mutableStateOf<Pair<List<MediaItem>, Int>?>(null) }
+    // Post id, attachments, start index. The id is what lets the viewer find
+    // a saved copy, and it is empty for the avatar, which belongs to no post.
+    var viewing by remember { mutableStateOf<Triple<String, List<MediaItem>, Int>?>(null) }
 
     val feed = state.feed
     val name = feed?.displayName?.takeIf { it.isNotBlank() && it != handle }
     val headerGone by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
 
-    viewing?.let { (media, index) ->
+    viewing?.let { (postId, media, index) ->
         MediaViewer(
+            postId = postId,
             media = media,
             startIndex = index,
             onDownload = { downloader.download(it, handle) },
@@ -195,9 +198,17 @@ fun FeedScreen(
                     isFollowing = isFollowing,
                     onToggleFollow = viewModel::toggleFollow,
                     onOpenAvatar = { small ->
-                        viewing = listOf(
-                            MediaItem(previewUrl = small, downloadUrl = largeAvatar(small), type = MediaType.PHOTO)
-                        ) to 0
+                        viewing = Triple(
+                            "",
+                            listOf(
+                                MediaItem(
+                                    previewUrl = small,
+                                    downloadUrl = largeAvatar(small),
+                                    type = MediaType.PHOTO
+                                )
+                            ),
+                            0
+                        )
                     }
                 )
             }
@@ -256,7 +267,7 @@ fun FeedScreen(
                     onOpenLink = { uriHandler.openUri(it) },
                     onDownload = { downloader.download(it, post.authorHandle) },
                     showStats = settings.showCounts,
-                    onOpenMedia = { index -> viewing = post.media to index },
+                    onOpenMedia = { index -> viewing = Triple(post.id, post.media, index) },
                     modifier = Modifier.animateItem()
                 )
             }

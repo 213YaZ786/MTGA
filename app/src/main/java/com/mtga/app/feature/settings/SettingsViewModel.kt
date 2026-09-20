@@ -9,6 +9,8 @@ import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.accounts.SubscriptionCodec
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.Settings
+import coil3.SingletonImageLoader
+import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.settings.StartTab
@@ -25,6 +27,7 @@ class SettingsViewModel(
     private val store: SettingsStore,
     private val cache: FeedCache,
     private val accounts: AccountStore,
+    private val offline: OfflineMedia,
     private val context: Context
 ) : ViewModel() {
 
@@ -40,6 +43,7 @@ class SettingsViewModel(
         store.update { it.copy(keepPostsDays = days) }
         viewModelScope.launch {
             cache.applyRetention()
+            offline.keepOnly(cache.storedPostIds())
             measureStorage()
         }
     }
@@ -109,6 +113,24 @@ class SettingsViewModel(
     private val _storageBytes = MutableStateFlow<Long?>(null)
     val storageBytes: StateFlow<Long?> = _storageBytes.asStateFlow()
 
+    /**
+     * Pictures Coil keeps on disk so a second look at a post costs nothing.
+     *
+     * Counted separately because it is what makes the number Android shows in
+     * app info far larger than the saved posts. Those are text and weigh
+     * kilobytes, the images weigh megabytes, and reading one number for the
+     * other looks like the app is lying about its own size.
+     */
+    private val _imageCacheBytes = MutableStateFlow<Long?>(null)
+    val imageCacheBytes: StateFlow<Long?> = _imageCacheBytes.asStateFlow()
+
+    /** Media saved for offline reading, and how many files that is. */
+    private val _offlineBytes = MutableStateFlow<Long?>(null)
+    val offlineBytes: StateFlow<Long?> = _offlineBytes.asStateFlow()
+
+    private val _offlineCount = MutableStateFlow(0)
+    val offlineCount: StateFlow<Int> = _offlineCount.asStateFlow()
+
     init {
         measureStorage()
     }
@@ -148,17 +170,12 @@ class SettingsViewModel(
      * before this is called.
      */
     /**
-     * Switching it on stamps the watermark with the current instant, so what
-     * is already stored is never dumped into Downloads. Switching it off
-     * clears the stamp, so turning it on again starts from that later moment
-     * rather than from the first time.
+     * The watermark is cleared either way. Zero means "first pass", and the
+     * first pass saves the newest posts already on screen rather than waiting
+     * for the next one to be published.
      */
     fun setAutoDownloadMedia(value: AutoDownload) = store.update {
-        it.copy(
-            autoDownloadMedia = value,
-            autoDownloadedUntilMillis =
-                if (value == AutoDownload.OFF) 0 else System.currentTimeMillis()
-        )
+        it.copy(autoDownloadMedia = value, autoDownloadedUntilMillis = 0)
     }
 
     fun setNotifyNewPosts(enabled: Boolean) = store.update {
@@ -187,7 +204,34 @@ class SettingsViewModel(
     }
 
     fun measureStorage() {
-        viewModelScope.launch { _storageBytes.value = cache.sizeBytes() }
+        viewModelScope.launch {
+            _storageBytes.value = cache.sizeBytes()
+            _imageCacheBytes.value = withContext(Dispatchers.IO) {
+                runCatching { SingletonImageLoader.get(context).diskCache?.size ?: 0L }
+                    .getOrDefault(0L)
+            }
+            _offlineBytes.value = offline.sizeBytes()
+            _offlineCount.value = offline.entries().size
+        }
+    }
+
+    fun clearOfflineMedia() {
+        viewModelScope.launch {
+            offline.clear()
+            _message.value = "Saved media cleared"
+            measureStorage()
+        }
+    }
+
+    /** Frees the pictures. They come back on their own the next time a post is read. */
+    fun clearImageCache() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching { SingletonImageLoader.get(context).diskCache?.clear() }
+            }
+            _message.value = "Cached images cleared"
+            measureStorage()
+        }
     }
 
     private fun applySchedule() {

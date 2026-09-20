@@ -61,6 +61,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
+import com.mtga.app.core.media.rememberMediaSource
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.ui.icon.MtgaIcons
@@ -81,6 +82,8 @@ import androidx.media3.common.MediaItem as PlayableItem
  */
 @Composable
 fun MediaViewer(
+    /** The post the media belongs to, so a saved copy can be found. */
+    postId: String,
     media: List<MediaItem>,
     startIndex: Int,
     onDownload: (MediaItem) -> Unit,
@@ -132,12 +135,19 @@ fun MediaViewer(
             ) { page ->
                 val item = media[page]
                 val active = pager.currentPage == page
+                // The saved copy when there is one, so a post read on the
+                // train opens without touching the network.
+                val source = rememberMediaSource(postId, page, item)
                 when (item.type) {
                     MediaType.PHOTO -> ZoomableImage(
-                        url = item.downloadUrl,
+                        url = source.playback,
                         onZoomChanged = { if (active) zoomed = it }
                     )
-                    MediaType.VIDEO, MediaType.GIF -> VideoPage(item = item, active = active)
+                    MediaType.VIDEO, MediaType.GIF -> VideoPage(
+                        item = item,
+                        url = source.playback,
+                        active = active
+                    )
                 }
             }
 
@@ -241,23 +251,24 @@ private fun ZoomableImage(url: String, onZoomChanged: (Boolean) -> Unit) {
  * it leaves. Plays only while its page is current and the app is in front.
  */
 @Composable
-private fun VideoPage(item: MediaItem, active: Boolean) {
+private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val policy = rememberMediaPolicy()
     val isGif = item.type == MediaType.GIF
-    var failed by remember(item.downloadUrl) { mutableStateOf(false) }
+    var failed by remember(url) { mutableStateOf(false) }
 
     // On mobile data with Wi-Fi only on, nothing is fetched until the reader
     // taps play. Otherwise the player prepares as soon as the page exists.
-    var started by remember(item.downloadUrl) { mutableStateOf(!policy.hold) }
-    var tappedPlay by remember(item.downloadUrl) { mutableStateOf(false) }
+    // A saved file costs no data, so "Wi-Fi only" never holds it back.
+    var started by remember(url) { mutableStateOf(!policy.hold || url.startsWith("/")) }
+    var tappedPlay by remember(url) { mutableStateOf(false) }
     // GIFs have no sound. Videos follow the setting, and the button below.
-    var muted by remember(item.downloadUrl) { mutableStateOf(isGif || policy.startMuted) }
+    var muted by remember(url) { mutableStateOf(isGif || policy.startMuted) }
 
-    val exo = remember(item.downloadUrl) {
+    val exo = remember(url) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(PlayableItem.fromUri(item.downloadUrl))
+            setMediaItem(PlayableItem.fromUri(url))
             if (isGif) repeatMode = Player.REPEAT_MODE_ALL
         }
     }

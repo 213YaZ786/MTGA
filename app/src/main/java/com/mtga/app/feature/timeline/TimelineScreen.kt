@@ -4,7 +4,6 @@ import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.rememberInlineTarget
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +20,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
@@ -45,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -53,6 +52,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mtga.app.core.common.solvableChallenge
+import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.data.settings.SettingsStore
@@ -69,10 +69,9 @@ import org.koin.compose.koinInject
 /**
  * Home: everything you follow in one stream, newest first.
  *
- * Pull down to refresh. Home reopens where the last session's newest post
- * sat, so whatever arrived since is above it and you scroll upwards to catch
- * up. Filters sit at the top of the list and are remembered. The pulse icon
- * turns red when a source fails and opens Diagnostics.
+ * Pull down to refresh. A post that arrived since the last visit wears an
+ * outline until you have scrolled past it. The pulse icon turns red when a
+ * source fails and opens Diagnostics.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,17 +89,12 @@ fun TimelineScreen(
     val settings by settingsStore.settings.collectAsState()
     val listState = rememberLazyListState()
 
-    // Home reopens on the newest post of the previous session, so everything
-    // that arrived since sits above it and the reader scrolls upwards. The
-    // anchor itself is the view model's business now, this only jumps to it
-    // once per launch.
-    var restored by remember { mutableStateOf(viewModel.openAnchorId.isEmpty()) }
-
     val scope = rememberCoroutineScope()
     var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
 
     viewing?.let { (post, index) ->
         MediaViewer(
+            postId = post.id,
             media = post.media,
             startIndex = index,
             onDownload = { downloader.download(it, post.authorHandle) },
@@ -109,6 +103,12 @@ fun TimelineScreen(
     }
 
     val haptics = LocalHapticFeedback.current
+
+    // A post is read once it has gone past the top of the screen. Everything
+    // before the first visible row has, by definition, and one pass of the
+    // list costs one write rather than one per card.
+    val marks: ReadMarks = koinInject()
+    val readIds by marks.read.collectAsState()
 
     // No top bar at all. A bar that folds away and comes back still owns a
     // band of the screen the whole time it is on it, which on a phone is
@@ -185,39 +185,19 @@ fun TimelineScreen(
                     paused = viewing != null
                 )
                 CompositionLocalProvider(LocalInlinePlaying provides inline) {
-                // Rows drawn above the posts, so the anchor can be scrolled to
-                // by index. Counted the same way the list below builds them.
-                val headerCount = 2 +
-                    (if (state.errors.isNotEmpty()) 1 else 0) +
-                    (
-                        if (state.posts.isEmpty() && state.filters.active &&
-                            state.allPosts.isNotEmpty()
-                        ) {
-                            1
-                        } else {
-                            0
-                        }
-                        )
+                // The Home zone is the one row drawn above the posts, so an
+                // index in the list turns back into an index in the posts by
+                // subtracting it.
+                val headerCount = 1
 
-                // Waits for the first refresh: before it the posts that
-                // arrived since are not in the list yet, so the jump would
-                // land on the right post at the wrong moment and the new ones
-                // would then push it off screen. One jump per launch, and none
-                // at all if the reader has already started scrolling, because
-                // moving the list under a reading finger is worse than a
-                // missed anchor.
-                LaunchedEffect(state.initialRefreshDone, state.posts, restored) {
-                    if (restored || !state.initialRefreshDone) return@LaunchedEffect
-                    if (listState.firstVisibleItemIndex > 0 ||
-                        listState.firstVisibleItemScrollOffset > 0
-                    ) {
-                        restored = true
-                        return@LaunchedEffect
-                    }
-                    val pos = state.posts.indexOfFirst { it.id == viewModel.openAnchorId }
-                    restored = true
-                    if (pos < 0) return@LaunchedEffect
-                    listState.scrollToItem(headerCount + pos)
+                LaunchedEffect(listState, state.posts, headerCount) {
+                    snapshotFlow { listState.firstVisibleItemIndex }
+                        .collect { first ->
+                            val past = first - headerCount
+                            if (past > 0) {
+                                marks.markRead(state.posts.take(past).map { it.id })
+                            }
+                        }
                 }
                 LazyColumn(
                     state = listState,
@@ -238,35 +218,13 @@ fun TimelineScreen(
                         )
                     }
 
-                    item(key = "filters") {
-                        FilterRow(filters = state.filters, onChange = viewModel::setFilters)
-                    }
-
-                    if (state.errors.isNotEmpty()) {
-                        item(key = "failures") {
-                            PartialFailureNotice(
-                                failed = state.errors.keys.toList(),
-                                onOpenDiagnostics = onOpenDiagnostics
-                            )
-                        }
-                    }
-
-                    if (state.posts.isEmpty() && state.filters.active && state.allPosts.isNotEmpty()) {
-                        item(key = "nomatch") {
-                            Text(
-                                "No stored post matches these filters yet. Older posts load as you " +
-                                    "scroll, or clear a filter.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(32.dp)
-                            )
-                        }
-                    }
-
                     items(state.posts, key = { it.id }) { post ->
                         PostCard(
                             post = post,
+                            // Unknown until the file is read, and unknown
+                            // means read: a border flashed on every card for
+                            // one frame at launch would be worse than none.
+                            unread = marks.ready && post.id !in readIds,
                             onClick = { onOpenPost(post) },
                             onOpenLink = { uriHandler.openUri(it) },
                             onDownload = { downloader.download(it, post.authorHandle) },
@@ -344,45 +302,61 @@ private fun HomeHeader(
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.fillMaxWidth()) {
-                Text(
-                    "Home",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                if (state.followedCount > 0) {
-                    Row(Modifier.align(Alignment.CenterEnd)) {
-                        IconButton(onClick = onOpenSearch) {
-                            Icon(MtgaIcons.Search, contentDescription = "Search saved posts")
-                        }
-                        IconButton(onClick = onOpenDiagnostics) {
-                            Icon(
-                                MtgaIcons.Pulse,
-                                contentDescription = if (state.errors.isEmpty()) {
-                                    "Sources working"
-                                } else {
-                                    "Some sources failed"
-                                },
-                                tint = if (state.errors.isEmpty()) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                }
-                            )
-                        }
+            val failing = state.errors.isNotEmpty()
+            if (state.followedCount > 0) {
+                FilledTonalIconButton(
+                    onClick = onOpenDiagnostics,
+                    modifier = Modifier.size(BUTTON_SIZE),
+                    // A failing source is the one thing here that needs
+                    // noticing, so it fills rather than tints.
+                    colors = if (failing) {
+                        IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    } else {
+                        IconButtonDefaults.filledTonalIconButtonColors()
                     }
+                ) {
+                    Icon(
+                        MtgaIcons.Pulse,
+                        contentDescription = if (failing) "Some sources failed" else "Sources working",
+                        modifier = Modifier.size(ICON_SIZE)
+                    )
                 }
             }
-            subtitle(state)?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+
+            // The two buttons are the same width, so the title lands on the
+            // centre of the zone without being measured against them.
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Home", style = MaterialTheme.typography.titleLarge)
+                subtitle(state)?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (state.followedCount > 0) {
+                FilledTonalIconButton(
+                    onClick = onOpenSearch,
+                    modifier = Modifier.size(BUTTON_SIZE)
+                ) {
+                    Icon(
+                        MtgaIcons.Search,
+                        contentDescription = "Search saved posts",
+                        modifier = Modifier.size(ICON_SIZE)
+                    )
+                }
             }
         }
     }
@@ -395,33 +369,6 @@ private fun subtitle(state: TimelineUiState): String? = when {
         if (age.isEmpty() || age == "now") "Updated just now" else "Updated $age ago"
     }
     else -> null
-}
-
-@Composable
-private fun FilterRow(filters: HomeFilters, onChange: (HomeFilters) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = filters.mediaOnly,
-            onClick = { onChange(filters.copy(mediaOnly = !filters.mediaOnly)) },
-            label = { Text("Media only") }
-        )
-        FilterChip(
-            selected = filters.hideReplies,
-            onClick = { onChange(filters.copy(hideReplies = !filters.hideReplies)) },
-            label = { Text("Hide replies") }
-        )
-        FilterChip(
-            selected = filters.hideReposts,
-            onClick = { onChange(filters.copy(hideReposts = !filters.hideReposts)) },
-            label = { Text("Hide reposts") }
-        )
-    }
 }
 
 @Composable
@@ -455,31 +402,18 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
     }
 }
 
+/**
+ * Matched to the dock at the bottom: its slots are 48 dp across and its icons
+ * are Material's default 24 dp. Two controls of the same app should not be two
+ * different sizes.
+ */
+private val BUTTON_SIZE = 48.dp
+private val ICON_SIZE = 24.dp
+
 private const val LOAD_MORE_THRESHOLD = 5
 
 /** Posts scrolled past before the way back becomes worth a button. */
 private const val BACK_TO_TOP_AFTER = 5
-
-/**
- * Partial failure is the normal case with a fragile upstream, so it gets a
- * quiet line rather than a blocking error. The posts that did load stay
- * readable above everything.
- */
-@Composable
-private fun PartialFailureNotice(failed: List<String>, onOpenDiagnostics: () -> Unit) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            text = if (failed.size == 1) {
-                "@${failed.first()} couldn't be updated. Showing saved posts."
-            } else {
-                "${failed.size} accounts couldn't be updated. Showing saved posts."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        TextButton(onClick = onOpenDiagnostics) { Text("Details") }
-    }
-}
 
 @Composable
 private fun EmptyState(
