@@ -9,6 +9,12 @@
     -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
+        Install time, asks nothing by itself. Lets the app show Android's own
+        dialog to be left out of battery optimisation, only when the reader
+        turns background checks on. See BatteryExemption.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!--
         Granted at install, asks nothing and reads nothing. It only lets
         automatic saving hide the per file download lines, so a batch shows
         one progress line instead of twenty. See MediaSavingNotice.

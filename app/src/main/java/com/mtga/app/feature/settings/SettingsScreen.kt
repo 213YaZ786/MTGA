@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.core.system.BatteryExemption
 import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.LocalDockPadding
@@ -303,7 +304,12 @@ fun SettingsScreen(
                 title = "Check for new posts",
                 summary = "Keeps Home up to date and saves new posts, even when the app is closed.",
                 checked = settings.backgroundSync,
-                onChange = viewModel::setBackgroundSync
+                onChange = { enabled ->
+                    viewModel.setBackgroundSync(enabled)
+                    // Asked here and nowhere else: the reader just asked for
+                    // work that runs with the app closed. See BatteryExemption.
+                    if (enabled) BatteryExemption.request(context)
+                }
             )
             SettingRow(
                 title = "Frequency",
