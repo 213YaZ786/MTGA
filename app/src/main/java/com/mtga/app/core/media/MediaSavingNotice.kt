@@ -7,88 +7,120 @@ import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.mtga.app.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * One notification for a batch of automatic saves, instead of one per file.
+ * One notification for every automatic save in progress, instead of one per
+ * file.
  *
  * The files themselves are hidden from the shade (see
  * [MediaDownloader.cache]), since twenty pictures would be twenty lines. This
  * line says how many are left, so nobody has to guess whether it is safe to
- * leave the app, and then what was saved.
+ * leave the app, then what was saved and what failed.
  *
- * Ported from LinkedOut, where it was tuned on the device: the default
- * importance, the "saved" line that stays a minute, the timeout that clears a
- * bar the process was killed before finishing.
+ * Batches are pooled. The first version, taken from LinkedOut, followed each
+ * batch on its own: in MTGA two refreshes close together ran two followers
+ * that wrote over each other's counts, and in LinkedOut the follower held the
+ * prefetch lock for up to ten minutes, so the next batch was not even handed
+ * to DownloadManager until the previous one had landed. Here [track] only adds
+ * ids, and a single watcher reports on all of them.
+ *
+ * Polling rather than a broadcast receiver: a receiver would have to be
+ * declared in the manifest and be woken with the app closed, which MTGA does
+ * not do.
  */
-class MediaSavingNotice(private val context: Context) {
+class MediaSavingNotice(
+    private val context: Context,
+    private val scope: CoroutineScope
+) {
 
-    /**
-     * Watches the batch until it is done. Polling rather than a broadcast
-     * receiver: a receiver would have to be declared in the manifest and be
-     * woken with the app closed, which MTGA does not do.
-     */
-    suspend fun follow(ids: List<Long>) {
+    private val lock = Any()
+    private val tracked = LinkedHashSet<Long>()
+    private var watcher: Job? = null
+
+    /** Adds a batch to what is being reported on. Returns at once. */
+    fun track(ids: List<Long>) {
         if (ids.isEmpty()) return
+        synchronized(lock) {
+            tracked += ids
+            if (watcher?.isActive != true) watcher = scope.launch { watch() }
+        }
+    }
+
+    private suspend fun watch() {
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return
-        val total = ids.size
-        notify(left = total, total = total, done = false)
-        var left = total
         var rounds = 0
-        while (left > 0 && rounds < MAX_ROUNDS) {
+        while (true) {
+            val ids = synchronized(lock) { tracked.toList() }
+            val tally = runCatching { tally(manager, ids) }.getOrDefault(Tally(done = ids.size))
+            if (tally.running == 0 || rounds >= MAX_ROUNDS) {
+                synchronized(lock) {
+                    // A batch added while this pass was reading is still to
+                    // report on, so the watcher only stops when nothing new
+                    // came in.
+                    if (tracked.size == ids.size) {
+                        tracked.clear()
+                        watcher = null
+                        show(Progress.finished(tally))
+                        return
+                    }
+                }
+            } else {
+                show(Progress.running(tally))
+            }
             delay(POLL_MILLIS)
             rounds++
-            left = runCatching { stillRunning(manager, ids) }.getOrDefault(0)
-            if (left > 0) notify(left = left, total = total, done = false)
         }
-        // Not a bare cancel. A handful of pictures lands in about a second,
-        // and a bar that exists for one poll is a bar nobody sees. What stays
-        // is a line saying what was saved, which Android clears by itself.
-        notify(left = 0, total = total, done = true)
     }
 
-    private fun stillRunning(manager: DownloadManager, ids: List<Long>): Int {
-        val query = DownloadManager.Query().setFilterById(*ids.toLongArray())
-        manager.query(query)?.use { cursor ->
+    /**
+     * Where each download stands. Paused counts as still running: it is
+     * DownloadManager waiting for the network or for a retry, and calling
+     * that finished announced files as saved while they were still coming.
+     */
+    private fun tally(manager: DownloadManager, ids: List<Long>): Tally {
+        if (ids.isEmpty()) return Tally()
+        var running = 0
+        var saved = 0
+        var failed = 0
+        manager.query(DownloadManager.Query().setFilterById(*ids.toLongArray()))?.use { cursor ->
             val column = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-            if (column < 0) return 0
-            var running = 0
+            if (column < 0) return Tally(done = ids.size)
             while (cursor.moveToNext()) {
-                val status = cursor.getInt(column)
-                if (status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING) {
-                    running++
+                when (cursor.getInt(column)) {
+                    DownloadManager.STATUS_SUCCESSFUL -> saved++
+                    DownloadManager.STATUS_FAILED -> failed++
+                    else -> running++
                 }
             }
-            return running
         }
-        return 0
+        // An id the system no longer knows was removed, from the Downloads
+        // app for instance. It is over, and it was not saved by us.
+        val missing = ids.size - running - saved - failed
+        return Tally(running = running, saved = saved, failed = failed + missing.coerceAtLeast(0))
     }
 
-    private fun notify(left: Int, total: Int, done: Boolean) {
+    private fun show(progress: Progress) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         ensureChannel()
-        val finished = total - left
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_mtga)
             .setSilent(true)
             .setOngoing(false)
+            .setContentTitle(progress.title)
+            .setContentText(progress.text)
             // If the process dies mid batch nobody is left to clear this, so
             // Android is told to do it rather than leaving a stuck bar.
-            .setTimeoutAfter(if (done) DONE_TIMEOUT_MILLIS else TIMEOUT_MILLIS)
-        if (done) {
-            builder
-                .setContentTitle("Media saved for offline reading")
-                .setContentText(if (total == 1) "1 file" else "$total files")
-                .setAutoCancel(true)
+            .setTimeoutAfter(if (progress.done) DONE_TIMEOUT_MILLIS else TIMEOUT_MILLIS)
+        if (progress.done) {
+            builder.setAutoCancel(true)
         } else {
-            builder
-                .setContentTitle("Saving media for offline reading")
-                .setContentText("$finished of $total")
-                .setProgress(total, finished, false)
+            builder.setProgress(progress.total, progress.finished, false)
         }
-        runCatching {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        }
+        runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build()) }
     }
 
     private fun ensureChannel() {
@@ -103,6 +135,55 @@ class MediaSavingNotice(private val context: Context) {
                 setShowBadge(false)
             }
         )
+    }
+
+    /** How a set of downloads stands. [done] is for a read that could not tell. */
+    internal data class Tally(
+        val running: Int = 0,
+        val saved: Int = 0,
+        val failed: Int = 0,
+        val done: Int = 0
+    ) {
+        val total: Int get() = running + saved + failed + done
+    }
+
+    /** What the notification says, pure so the wording can be tested. */
+    internal data class Progress(
+        val title: String,
+        val text: String,
+        val finished: Int,
+        val total: Int,
+        val done: Boolean
+    ) {
+        companion object {
+            fun running(tally: Tally) = Progress(
+                title = "Saving media for offline reading",
+                text = "${tally.total - tally.running} of ${tally.total}",
+                finished = tally.total - tally.running,
+                total = tally.total,
+                done = false
+            )
+
+            /** Says what failed. The first version counted a failed file as saved. */
+            fun finished(tally: Tally): Progress {
+                val saved = tally.saved + tally.done
+                val failed = tally.failed
+                return Progress(
+                    title = if (saved == 0 && failed > 0) "Media could not be saved" else "Media saved for offline reading",
+                    text = listOfNotNull(
+                        files(saved).takeIf { saved > 0 }?.let { "$it saved" },
+                        files(failed).takeIf { failed > 0 }?.let { "$it failed" },
+                        // Only after ten minutes of watching, then left to the system.
+                        files(tally.running).takeIf { tally.running > 0 }?.let { "$it still downloading" }
+                    ).joinToString(", ").ifEmpty { "Nothing to save" },
+                    finished = tally.total,
+                    total = tally.total,
+                    done = true
+                )
+            }
+
+            private fun files(count: Int) = if (count == 1) "1 file" else "$count files"
+        }
     }
 
     private companion object {

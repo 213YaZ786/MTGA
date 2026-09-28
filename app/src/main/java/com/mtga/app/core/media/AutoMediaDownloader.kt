@@ -5,9 +5,7 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -34,8 +32,7 @@ class AutoMediaDownloader(
     private val settings: SettingsStore,
     private val connectivity: ConnectivityMonitor,
     private val log: RequestLog,
-    private val notice: MediaSavingNotice,
-    private val scope: CoroutineScope
+    private val notice: MediaSavingNotice
 ) {
 
     /**
@@ -74,10 +71,9 @@ class AutoMediaDownloader(
             }
         }
         val queued = ids.size
-        // Followed from the app scope, because the batch outlives this call:
-        // the timeline must not wait for the files to land before it shows
-        // what it read.
-        scope.launch { notice.follow(ids) }
+        // Returns at once: the batch outlives this call, and the timeline must
+        // not wait for the files to land before it shows what it read.
+        notice.track(ids)
         val watermark = fresh.maxOf { it.publishedAtMillis }
         settings.update { it.copy(autoDownloadedUntilMillis = watermark) }
         note(

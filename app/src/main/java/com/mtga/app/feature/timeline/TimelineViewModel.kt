@@ -222,7 +222,23 @@ class TimelineViewModel(
         _state.value = before.copy(loading = true, followedCount = known.size)
         val asked = folder
 
-        val network = repository.refresh(only, if (everything) null else asked)
+        val network = if (everything && only == null && asked != null) {
+            // Two steps when a folder is on screen: its accounts first, painted
+            // as soon as they are in, then everyone else. One pass over every
+            // account left the reader looking at stale posts until the last
+            // account of the last folder had answered.
+            val shown = repository.refresh(null, asked)
+            if (folder == asked) _state.value = _state.value.copy(posts = shown.posts, errors = shown.errors)
+            val inShown = accounts.accounts.value.filter { it.folder == asked }.map { it.handle.lowercase() }.toSet()
+            val rest = known - inShown
+            val others = if (rest.isEmpty()) repository.cached(null) else repository.refresh(rest, null)
+            others.copy(
+                errors = shown.errors + others.errors,
+                oldestFetchedAtMillis = listOfNotNull(shown.oldestFetchedAtMillis, others.oldestFetchedAtMillis).minOrNull()
+            )
+        } else {
+            repository.refresh(only, if (everything) null else asked)
+        }
         if (everything && only == null) everythingFetched = true
         // What goes on screen is the folder shown now. It differs from what
         // was fetched after a pass over everything, and after a switch made

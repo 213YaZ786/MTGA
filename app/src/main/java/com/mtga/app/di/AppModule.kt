@@ -64,8 +64,8 @@ val appModule = module {
     single { MediaDownloader(androidContext()) }
     single { OfflineMedia(androidContext()) }
     single { ReadMarks(androidContext()) }
-    single { MediaSavingNotice(androidContext()) }
-    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get(), get(named("appScope"))) }
+    single { MediaSavingNotice(androidContext(), get(named("appScope"))) }
+    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get()) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }
