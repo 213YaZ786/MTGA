@@ -186,7 +186,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
             }
             composable(Routes.DEBUG_LOG) {
-                Readable {
+                ReadableScroll {
                     DebugLogScreen(onBack = { navController.popBackStack() })
                 }
             }
@@ -231,7 +231,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
             }
             composable(Routes.FOLDERS) {
-                Readable {
+                ReadableScroll {
                     FoldersScreen(onBack = { navController.popBackStack() })
                 }
             }
@@ -244,7 +244,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
             }
             composable(Routes.DIAGNOSTICS) {
-                Readable {
+                ReadableScroll {
                     DiagnosticsScreen(onBack = { navController.popBackStack() })
                 }
             }
@@ -386,12 +386,12 @@ private fun MainTabs(
                             onOpenPost = onOpenPost,
                             onOpenSearch = onOpenSearch
                         )
-                        // These two do not take the inset themselves, so
-                        // they keep the narrowed column.
-                        TopDestination.ACCOUNTS -> Readable {
+                        // Every scrolling screen takes the inset, so no margin of a
+                        // tablet is a dead zone. Up to 2.9.7 these two did not.
+                        TopDestination.ACCOUNTS -> ReadableScroll {
                             AccountsScreen(onOpenFeed = onOpenFeed, onOpenFolders = onOpenFolders)
                         }
-                        TopDestination.SETTINGS -> Readable {
+                        TopDestination.SETTINGS -> ReadableScroll {
                             SettingsScreen(
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onOpenDebugLog = onOpenDebugLog,

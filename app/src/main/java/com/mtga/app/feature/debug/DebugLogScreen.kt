@@ -1,5 +1,6 @@
 package com.mtga.app.feature.debug
 
+import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -61,6 +62,8 @@ fun DebugLogScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
+                // Over the reading column, like the content under it.
+                modifier = Modifier.padding(horizontal = LocalReadableInset.current),
                 title = { Text("Activity log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -78,7 +81,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(padding)) {
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp + LocalReadableInset.current),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 TextButton(onClick = {
@@ -102,11 +105,16 @@ fun DebugLogScreen(onBack: () -> Unit) {
                         "come back here.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp)
+                    modifier = Modifier.padding(horizontal = 24.dp + LocalReadableInset.current, vertical = 24.dp)
                 )
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(12.dp),
+                    contentPadding = PaddingValues(
+                        start = 12.dp + LocalReadableInset.current,
+                        end = 12.dp + LocalReadableInset.current,
+                        top = 12.dp,
+                        bottom = 12.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(entries.reversed()) { entry ->

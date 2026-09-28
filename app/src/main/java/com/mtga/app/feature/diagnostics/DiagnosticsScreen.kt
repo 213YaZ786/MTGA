@@ -1,5 +1,6 @@
 package com.mtga.app.feature.diagnostics
 
+import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,8 @@ fun DiagnosticsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                // Over the reading column, like the content under it.
+                modifier = Modifier.padding(horizontal = LocalReadableInset.current),
                 title = { Text("Connection check") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -88,7 +91,12 @@ fun DiagnosticsScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp + LocalReadableInset.current,
+                end = 16.dp + LocalReadableInset.current,
+                top = 16.dp,
+                bottom = 16.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { OverallBanner(state) }

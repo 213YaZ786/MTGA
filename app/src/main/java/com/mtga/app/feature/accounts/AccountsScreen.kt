@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.FolderDialog
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.widthIn
@@ -104,7 +105,12 @@ fun AccountsScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(
+                start = 24.dp + LocalReadableInset.current,
+                end = 24.dp + LocalReadableInset.current,
+                top = 24.dp,
+                bottom = 12.dp
+            ),
             verticalAlignment = Alignment.Bottom
         ) {
             Column(Modifier.weight(1f)) {
@@ -151,12 +157,17 @@ fun AccountsScreen(
                     else -> focus.clearFocus()
                 }
             }),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp + LocalReadableInset.current)
         )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + LocalDockPadding.current),
+            contentPadding = PaddingValues(
+                start = 16.dp + LocalReadableInset.current,
+                top = 16.dp,
+                end = 16.dp + LocalReadableInset.current,
+                bottom = 16.dp + LocalDockPadding.current
+            ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (candidate != null && !alreadyFollowed) {

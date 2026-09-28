@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.LocalDockPadding
 import android.Manifest
 import android.content.Context
@@ -183,8 +184,13 @@ fun SettingsScreen(
         }
     }
 
+    // Scrolls at full width, rows pushed in by the readable inset, so the
+    // margins of a tablet scroll like the rest. See ReadableScroll.
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = LocalReadableInset.current)
     ) {
         Text(
             "Settings",
