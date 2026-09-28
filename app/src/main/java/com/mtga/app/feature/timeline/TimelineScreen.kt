@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,7 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +62,7 @@ import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.core.model.Post
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.ChallengePill
+import com.mtga.app.ui.component.FolderDialog
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
@@ -104,6 +108,30 @@ fun TimelineScreen(
 
     val haptics = LocalHapticFeedback.current
 
+    var choosingFolder by remember { mutableStateOf(false) }
+    if (choosingFolder) {
+        FolderDialog(
+            title = "Show on Home",
+            folders = state.folders,
+            selected = state.folder,
+            everything = "Every account",
+            onSelect = { name ->
+                choosingFolder = false
+                // A name typed under New folder creates it, empty, and Home
+                // shows it so the reader sees where the next filing lands.
+                viewModel.showFolder(name?.let(viewModel::createFolder))
+            },
+            onDismiss = { choosingFolder = false }
+        )
+    }
+    // Offered once the reader has made a folder. With Main alone there is
+    // nothing to choose, and the title stays a title.
+    val chooseFolder: (() -> Unit)? = if (state.folders.size > 1) {
+        { choosingFolder = true }
+    } else {
+        null
+    }
+
     // A post is read once it has gone past the top of the screen. Everything
     // before the first visible row has, by definition, and one pass of the
     // list costs one write rather than one per card.
@@ -143,6 +171,16 @@ fun TimelineScreen(
             ) {
                 // A list, because the pull gesture needs something scrollable.
                 LazyColumn(Modifier.fillMaxSize()) {
+                    // The header stays, so a folder whose accounts all failed
+                    // is not a dead end: the reader can still switch away.
+                    item(key = "home-header") {
+                        HomeHeader(
+                            state = state,
+                            onOpenSearch = onOpenSearch,
+                            onOpenDiagnostics = onOpenDiagnostics,
+                            onChooseFolder = chooseFolder
+                        )
+                    }
                     item(key = "nothing") {
                         EmptyState(
                             title = "Nothing could be loaded",
@@ -150,7 +188,7 @@ fun TimelineScreen(
                                 "again. The connection check shows which servers are down.",
                             actionLabel = "Check connection",
                             onAction = onOpenDiagnostics,
-                            modifier = Modifier.fillParentMaxSize()
+                            modifier = Modifier.fillParentMaxHeight(0.8f)
                         )
                     }
                 }
@@ -214,8 +252,21 @@ fun TimelineScreen(
                         HomeHeader(
                             state = state,
                             onOpenSearch = onOpenSearch,
-                            onOpenDiagnostics = onOpenDiagnostics
+                            onOpenDiagnostics = onOpenDiagnostics,
+                            onChooseFolder = chooseFolder
                         )
+                    }
+
+                    if (state.posts.isEmpty() && !state.loading && state.folder != null) {
+                        item(key = "folder-empty") {
+                            EmptyState(
+                                title = "Nothing in ${state.folder} yet",
+                                message = "File accounts here from Accounts, or show every account.",
+                                actionLabel = "Show every account",
+                                onAction = { viewModel.showFolder(null) },
+                                modifier = Modifier.fillMaxWidth().padding(top = 48.dp)
+                            )
+                        }
                     }
 
                     items(state.posts, key = { it.id }) { post ->
@@ -295,7 +346,9 @@ fun TimelineScreen(
 private fun HomeHeader(
     state: TimelineUiState,
     onOpenSearch: () -> Unit,
-    onOpenDiagnostics: () -> Unit
+    onOpenDiagnostics: () -> Unit,
+    /** Null until the reader has made a folder, see TimelineScreen. */
+    onChooseFolder: (() -> Unit)?
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -333,10 +386,37 @@ private fun HomeHeader(
             // The two buttons are the same width, so the title lands on the
             // centre of the zone without being measured against them.
             Column(
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .then(
+                        if (onChooseFolder != null) {
+                            Modifier.clickable(onClickLabel = "Choose which folder to show", onClick = onChooseFolder)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Home", style = MaterialTheme.typography.titleLarge)
+                if (onChooseFolder == null) {
+                    Text("Home", style = MaterialTheme.typography.titleLarge)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            state.folder ?: "Home",
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Icon(
+                            MtgaIcons.ArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.padding(start = 4.dp).size(20.dp)
+                        )
+                    }
+                }
                 subtitle(state)?.let {
                     Text(
                         it,

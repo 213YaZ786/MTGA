@@ -37,9 +37,13 @@ class TimelineRepository(
         val canLoadMore: Boolean = false
     )
 
-    /** Instant, offline, no network touched. */
-    suspend fun cached(): Merged {
-        val handles = accounts.accounts.value.map { it.handle }
+    /** Null means every account, which is Home with no folder chosen. */
+    private fun handlesIn(folder: String?): List<String> =
+        accounts.accounts.value.filter { folder == null || it.folder == folder }.map { it.handle }
+
+    /** Instant, offline, no network touched. [folder] as in [handlesIn]. */
+    suspend fun cached(folder: String? = null): Merged {
+        val handles = handlesIn(folder)
         if (handles.isEmpty()) return Merged()
 
         val loaded = handles.mapNotNull { cache.read(it) }
@@ -63,8 +67,8 @@ class TimelineRepository(
      * a single surviving instance is the fastest way to get rate limited, and
      * the pool's backoff would then punish every later read.
      */
-    suspend fun refresh(only: Set<String>? = null): Merged = coroutineScope {
-        val handles = accounts.accounts.value.map { it.handle }
+    suspend fun refresh(only: Set<String>? = null, folder: String? = null): Merged = coroutineScope {
+        val handles = handlesIn(folder)
         if (handles.isEmpty()) return@coroutineScope Merged()
 
         val targets = if (only == null) handles else handles.filter { it.lowercase() in only }
@@ -126,7 +130,7 @@ class TimelineRepository(
         // fetch happened to return. This is what makes background polling
         // accumulate history instead of replacing it. The list is read again
         // here, so an account unfollowed during the fetch does not come back.
-        val stored = accounts.accounts.value.mapNotNull { cache.read(it.handle) }
+        val stored = handlesIn(folder).mapNotNull { cache.read(it) }
 
         Merged(
             posts = merge(stored.flatMap { it.posts }),
@@ -145,9 +149,13 @@ class TimelineRepository(
      * so those get paged first. Asking every account for another page instead
      * would waste requests on accounts that already reach back weeks, and with
      * one fragile instance in the pool, wasted requests are the scarce resource.
+     *
+     * Only the accounts of [folder] are paged. LinkedOut pages every account
+     * whatever folder is on screen, which spends requests on posts the
+     * reader is not looking at.
      */
-    suspend fun loadMore(): Merged = coroutineScope {
-        val handles = accounts.accounts.value.map { it.handle }
+    suspend fun loadMore(folder: String? = null): Merged = coroutineScope {
+        val handles = handlesIn(folder)
         if (handles.isEmpty()) return@coroutineScope Merged()
 
         val cached = handles.mapNotNull { cache.read(it) }

@@ -2,9 +2,11 @@ package com.mtga.app.feature.accounts
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mtga.app.core.link.XLink
 import com.mtga.app.core.model.FollowedAccount
 import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.cache.FeedCache
+import com.mtga.app.data.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +21,8 @@ data class AccountRow(
     val handle: String,
     val name: String?,
     val avatarUrl: String?,
-    val lastPostMillis: Long?
+    val lastPostMillis: Long?,
+    val folder: String = FollowedAccount.MAIN
 )
 
 /**
@@ -29,7 +32,8 @@ data class AccountRow(
  */
 class AccountsViewModel(
     private val store: AccountStore,
-    private val cache: FeedCache
+    private val cache: FeedCache,
+    private val settings: SettingsStore
 ) : ViewModel() {
 
     private data class Summary(val name: String?, val avatarUrl: String?, val lastPostMillis: Long?)
@@ -44,7 +48,8 @@ class AccountsViewModel(
                 handle = account.handle,
                 name = summary?.name ?: account.displayName,
                 avatarUrl = summary?.avatarUrl,
-                lastPostMillis = summary?.lastPostMillis
+                lastPostMillis = summary?.lastPostMillis,
+                folder = account.folder
             )
         }.sortedBy { (it.name ?: it.handle).lowercase() }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -76,8 +81,45 @@ class AccountsViewModel(
         store.add(handle)
     }
 
+    /** Every folder, Main first. */
+    val folders: StateFlow<List<String>> = store.folders
+
+    /** Returns the folder to open, the existing one when the name is taken. */
+    fun createFolder(name: String): String? = store.createFolder(name)
+
+    fun setFolder(handle: String, folder: String) = store.setFolder(handle, folder)
+
+    fun deleteFolder(name: String) = store.deleteFolder(name)
+
+    /**
+     * Returns the folder's new name. When Home was showing it, Home moves to
+     * the new name with it rather than falling back to every account.
+     */
+    fun renameFolder(from: String, to: String): String? {
+        val renamed = store.renameFolder(from, to) ?: return null
+        if (settings.current.homeFolder == from) settings.update { it.copy(homeFolder = renamed) }
+        return renamed
+    }
+
     companion object {
-        /** The query as a handle, or null when it cannot be one. */
-        fun asHandle(query: String): String? = FollowedAccount.normalise(query)
+        /**
+         * The query as a handle, or null when it cannot be one.
+         *
+         * A pasted link is read as a link: a profile gives its handle, a post
+         * gives its author. Before 2.9.6 the last path segment was taken, so
+         * x.com/nasa/status/123 offered to follow an account called 123.
+         * The scheme is optional, since a link copied from the address bar
+         * of some browsers arrives without it.
+         */
+        fun asHandle(query: String): String? {
+            val trimmed = query.trim()
+            if ('/' !in trimmed && '.' !in trimmed) return FollowedAccount.normalise(trimmed)
+            val url = if ("://" in trimmed) trimmed else "https://$trimmed"
+            return when (val link = XLink.parse(url)) {
+                is XLink.Profile -> link.handle
+                is XLink.Post -> link.handle
+                null -> null
+            }
+        }
     }
 }

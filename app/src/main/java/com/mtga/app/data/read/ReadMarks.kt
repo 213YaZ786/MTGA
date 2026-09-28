@@ -1,5 +1,6 @@
 package com.mtga.app.data.read
 
+import com.mtga.app.core.common.writeTextAtomically
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,7 +74,7 @@ class ReadMarks(context: Context) {
         if (merged == _read.value) return
         _read.value = merged
         withContext(Dispatchers.IO) {
-            runCatching { file.writeText(json.encodeToString(merged.toList())) }
+            runCatching { file.writeTextAtomically(json.encodeToString(merged.toList())) }
         }
     }
 

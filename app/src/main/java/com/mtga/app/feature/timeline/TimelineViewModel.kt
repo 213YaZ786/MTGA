@@ -30,6 +30,10 @@ data class TimelineUiState(
      * is how a 429 turns into a fifteen minute ban.
      */
     val pagingFailed: Boolean = false,
+    /** The folder Home shows, null for every account. */
+    val folder: String? = null,
+    /** Every folder, Main first. One entry means the reader has made none. */
+    val folders: List<String> = emptyList(),
 ) {
     val isEmpty: Boolean get() = posts.isEmpty() && !loading
 }
@@ -60,21 +64,43 @@ class TimelineViewModel(
     /** Set from a pull until it runs, so a second pull cannot queue a second pass. */
     private var fullRefreshQueued = false
 
+    /** The folder Home shows, null for every account. Kept across launches. */
+    @Volatile
+    private var folder: String? = settings.current.homeFolder
+
+    /**
+     * Where each followed handle is filed, as the state reflects it. Moving
+     * an account between folders leaves [known] unchanged, so without this a
+     * folder being read would not notice an account arriving in it. Touched
+     * only under [work].
+     */
+    private var filed: Map<String, String> = emptyMap()
+
+    /**
+     * True once a pass over every followed account, whatever its folder, has
+     * finished in this run. From then on switching folders is a repaint from
+     * disk. Touched only under [work].
+     */
+    private var everythingFetched = false
+
     init {
         viewModelScope.launch {
             // Paint from disk first so the timeline is readable before any
             // request goes out, then refresh over the top.
             work.withLock {
                 known = followedKeys()
-                val cached = repository.cached()
+                filed = filedIn()
+                val cached = repository.cached(folder)
                 _state.value = _state.value.copy(
                     posts = cached.posts,
                     followedCount = known.size,
                     lastUpdatedMillis = cached.oldestFetchedAtMillis,
-                    canLoadMore = cached.canLoadMore
+                    canLoadMore = cached.canLoadMore,
+                    folder = folder,
+                    folders = accounts.folders.value
                 )
             }
-            refresh()
+            refresh(everything = true)
         }
 
         // Home follows the list live. Before 1.3.1 it read the list once at
@@ -83,18 +109,81 @@ class TimelineViewModel(
         viewModelScope.launch {
             accounts.accounts.collect { reconcile() }
         }
+
+        // The folder list is its own flow: creating or renaming a folder
+        // moves no handle, so reconcile would not see it.
+        viewModelScope.launch {
+            accounts.folders.collect { onFolders(it) }
+        }
     }
 
-    fun refresh() {
+    /**
+     * [everything] reads every followed account, whichever folder is on
+     * screen. The launch does that, once, so each folder is fresh when the
+     * reader moves to it instead of every switch starting its own round of
+     * requests. A pull reads the folder on screen, which is what was asked
+     * for, at a lower cost to hosts that are already rate limiting.
+     */
+    fun refresh(everything: Boolean = false) {
         if (_state.value.loading || fullRefreshQueued) return
         fullRefreshQueued = true
         viewModelScope.launch {
             work.withLock {
                 fullRefreshQueued = false
                 known = followedKeys()
+                filed = filedIn()
+                fetch(only = null, everything = everything)
+            }
+        }
+    }
+
+    /**
+     * Switches Home to another folder, from disk and at once. Only when the
+     * pass over everything never finished, the launch having been offline
+     * for instance, does the switch fetch the folder's own accounts.
+     *
+     * The repaint does not wait for [work], so a switch made while the launch
+     * is still reading shows the new folder immediately rather than when the
+     * last request returns. The fetch in flight paints the folder shown at
+     * the moment it finishes, see [fetch].
+     */
+    fun showFolder(name: String?) {
+        if (folder == name) return
+        folder = name
+        settings.update { it.copy(homeFolder = name) }
+        viewModelScope.launch {
+            val cached = repository.cached(name)
+            if (folder != name) return@launch
+            _state.value = _state.value.copy(
+                folder = name,
+                posts = cached.posts,
+                lastUpdatedMillis = cached.oldestFetchedAtMillis,
+                canLoadMore = cached.canLoadMore,
+                errors = errorsIn(_state.value.errors, name),
+                pagingFailed = false
+            )
+            if (_state.value.loading) return@launch
+            work.withLock {
+                if (everythingFetched || folder != name) return@withLock
+                known = followedKeys()
+                filed = filedIn()
                 fetch(only = null)
             }
         }
+    }
+
+    /**
+     * Takes the folder list as it is now. Costs no request. The one case that
+     * touches the stream is the folder being read having gone. A rename is
+     * followed, since the screen that renames also moves the Home setting to
+     * the new name, and a delete falls back to every account rather than to
+     * an empty Home.
+     */
+    private fun onFolders(names: List<String>) {
+        _state.value = _state.value.copy(folders = names)
+        val shown = folder ?: return
+        if (shown in names) return
+        showFolder(settings.current.homeFolder?.takeIf { it in names })
     }
 
     /**
@@ -107,10 +196,12 @@ class TimelineViewModel(
         val current = followedKeys()
         val added = current - known
         val removed = known - current
-        if (added.isEmpty() && removed.isEmpty()) return@withLock
+        val placed = filedIn()
+        if (added.isEmpty() && removed.isEmpty() && placed == filed) return@withLock
         known = current
+        filed = placed
 
-        val cached = repository.cached()
+        val cached = repository.cached(folder)
         _state.value = _state.value.copy(
             posts = cached.posts,
             followedCount = current.size,
@@ -126,11 +217,21 @@ class TimelineViewModel(
      * Runs under [work]. [only] limits the network to those handles, and the
      * errors of every other account are kept, since they were not retried.
      */
-    private suspend fun fetch(only: Set<String>?) {
+    private suspend fun fetch(only: Set<String>?, everything: Boolean = false) {
         val before = _state.value
         _state.value = before.copy(loading = true, followedCount = known.size)
+        val asked = folder
 
-        val merged = repository.refresh(only)
+        val network = repository.refresh(only, if (everything) null else asked)
+        if (everything && only == null) everythingFetched = true
+        // What goes on screen is the folder shown now. It differs from what
+        // was fetched after a pass over everything, and after a switch made
+        // while the requests were out.
+        val merged = if (everything || folder != asked) {
+            repository.cached(folder).copy(errors = errorsIn(network.errors, folder))
+        } else {
+            network
+        }
 
         val errors = if (only == null) {
             merged.errors
@@ -154,12 +255,28 @@ class TimelineViewModel(
             pagingFailed = false
         )
         // Automatic media saving runs here and nowhere else, so it only ever
-        // happens with Home on screen.
-        autoDownloader.consider(merged.posts)
+        // happens with Home on screen. It always sees every account: it keeps
+        // a watermark on the newest post it handled, and given one folder
+        // only, it would move that mark past posts of other folders it never
+        // saw, which would then never be saved.
+        autoDownloader.consider(if (everything || asked == null) network.posts else repository.cached(null).posts)
     }
+
+    /** Creates the folder if it is new and returns the name to show, see AccountStore.createFolder. */
+    fun createFolder(name: String): String? = accounts.createFolder(name)
 
     private fun followedKeys(): Set<String> =
         accounts.accounts.value.map { it.handle.lowercase() }.toSet()
+
+    private fun filedIn(): Map<String, String> =
+        accounts.accounts.value.associate { it.handle.lowercase() to it.folder }
+
+    /** The errors of the accounts in [folder], all of them for null. */
+    private fun errorsIn(errors: Map<String, AppError>, folder: String?): Map<String, AppError> {
+        if (folder == null) return errors
+        val inFolder = accounts.accounts.value.filter { it.folder == folder }.map { it.handle.lowercase() }.toSet()
+        return errors.filterKeys { it.lowercase() in inFolder }
+    }
 
     /**
      * The user tapped the check pill. On success the host is cleared for the
@@ -203,7 +320,7 @@ class TimelineViewModel(
         viewModelScope.launch {
             try {
                 val before = current.posts.size
-                val merged = repository.loadMore()
+                val merged = repository.loadMore(folder)
                 val failed = merged.errors.isNotEmpty() || merged.posts.size <= before
                 if (failed) pagingFailedAtMillis = System.currentTimeMillis()
                 _state.value = _state.value.copy(

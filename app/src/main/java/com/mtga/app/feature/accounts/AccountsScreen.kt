@@ -1,5 +1,10 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.FolderDialog
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.AssistChip
 import com.mtga.app.ui.component.LocalDockPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,17 +56,36 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun AccountsScreen(
     onOpenFeed: (String) -> Unit,
+    onOpenFolders: () -> Unit,
     viewModel: AccountsViewModel = koinViewModel()
 ) {
     val rows by viewModel.rows.collectAsState()
+    val folders by viewModel.folders.collectAsState()
+    var filing by remember { mutableStateOf<AccountRow?>(null) }
+
+    filing?.let { row ->
+        FolderDialog(
+            title = "File @${row.handle}",
+            folders = folders,
+            selected = row.folder,
+            everything = null,
+            onSelect = { name ->
+                viewModel.setFolder(row.handle, name.orEmpty())
+                filing = null
+            },
+            onDismiss = { filing = null }
+        )
+    }
     var query by rememberSaveable { mutableStateOf("") }
     val focus = LocalFocusManager.current
 
     // Coming back from a profile may have brought new posts or an avatar.
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    val trimmed = query.trim().removePrefix("@")
     val candidate = AccountsViewModel.asHandle(query)
+    // A pasted link filters by the handle it names, so a link to an account
+    // already followed finds that account instead of matching nothing.
+    val trimmed = if ('/' in query) candidate.orEmpty() else query.trim().removePrefix("@")
     val alreadyFollowed = candidate != null &&
         rows.any { it.handle.equals(candidate, ignoreCase = true) }
     val visible = if (trimmed.isEmpty()) {
@@ -83,13 +107,18 @@ fun AccountsScreen(
             modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            Text("Accounts", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            if (rows.isNotEmpty()) {
-                Text(
-                    "${rows.size} followed",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Column(Modifier.weight(1f)) {
+                Text("Accounts", style = MaterialTheme.typography.headlineMedium)
+                if (rows.isNotEmpty()) {
+                    Text(
+                        "${rows.size} followed",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            FilledTonalIconButton(onClick = onOpenFolders) {
+                Icon(MtgaIcons.Folder, contentDescription = "Folders")
             }
         }
 
@@ -145,7 +174,13 @@ fun AccountsScreen(
             }
 
             items(visible, key = { it.handle }) { row ->
-                AccountCard(row = row, onClick = { open(row.handle) })
+                AccountCard(
+                    row = row,
+                    onClick = { open(row.handle) },
+                    // Only once the reader has made a folder. With Main alone
+                    // the chip would name the one place everything is.
+                    onFile = if (folders.size > 1) ({ filing = row }) else null
+                )
             }
 
             if (rows.isEmpty() && trimmed.isEmpty()) {
@@ -156,7 +191,7 @@ fun AccountsScreen(
 }
 
 @Composable
-private fun AccountCard(row: AccountRow, onClick: () -> Unit) {
+private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Unit)?) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
@@ -186,11 +221,23 @@ private fun AccountCard(row: AccountRow, onClick: () -> Unit) {
                     )
                 }
             }
-            Text(
-                row.lastPostMillis?.let(::relativeTime) ?: "Not read yet",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    row.lastPostMillis?.let(::relativeTime) ?: "Not read yet",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                // The folder is a control, not a label: tapping the card opens
+                // the account, tapping this files it.
+                if (onFile != null) {
+                    AssistChip(
+                        onClick = onFile,
+                        label = { Text(row.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingIcon = { Icon(MtgaIcons.Folder, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        modifier = Modifier.widthIn(max = 140.dp)
+                    )
+                }
+            }
         }
     }
 }

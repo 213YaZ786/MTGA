@@ -51,8 +51,9 @@ class SettingsViewModel(
     /** Writes the followed list to a file the reader picked. */
     fun exportAccounts(uri: Uri) {
         val list = accounts.accounts.value
+        val folders = accounts.folders.value
         viewModelScope.launch {
-            val text = SubscriptionCodec.export(list)
+            val text = SubscriptionCodec.export(list, folders)
             val written = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray()) } != null
@@ -93,13 +94,16 @@ class SettingsViewModel(
                 _message.value = "Could not read that file"
                 return@launch
             }
-            val handles = SubscriptionCodec.import(text)
-            _message.value = if (handles.isEmpty()) {
+            val entries = SubscriptionCodec.import(text)
+            _message.value = if (entries.isEmpty()) {
                 "No accounts found in that file"
             } else {
-                val added = accounts.addAll(handles)
-                val already = handles.size - added
-                "Followed $added new accounts" + if (already > 0) ", $already already followed" else ""
+                val added = accounts.addAll(entries)
+                val already = entries.size - added
+                val folders = entries.mapNotNull { it.folder }.distinct().size
+                "Followed $added new accounts" +
+                    (if (already > 0) ", $already already followed" else "") +
+                    (if (folders > 0) ", in $folders folders" else "")
             }
         }
     }

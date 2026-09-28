@@ -49,6 +49,7 @@ import com.mtga.app.feature.welcome.WelcomeScreen
 import com.mtga.app.data.settings.StartTab
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.feature.accounts.AccountsScreen
+import com.mtga.app.feature.accounts.FoldersScreen
 import com.mtga.app.feature.debug.DebugLogScreen
 import com.mtga.app.feature.diagnostics.DiagnosticsScreen
 import com.mtga.app.feature.media.SavedMediaScreen
@@ -167,6 +168,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
                     onOpenSavedMedia = { navController.navigate(Routes.SAVED_MEDIA) },
+                    onOpenFolders = { navController.navigate(Routes.FOLDERS) },
                     onOpenFeed = { handle -> navController.navigate(Routes.feed(handle)) },
                     onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) },
                     onOpenSearch = { navController.navigate(Routes.SEARCH) }
@@ -228,6 +230,11 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
                 }
             }
+            composable(Routes.FOLDERS) {
+                Readable {
+                    FoldersScreen(onBack = { navController.popBackStack() })
+                }
+            }
             composable(Routes.SAVED_MEDIA) {
                 ReadableScroll {
                     SavedMediaScreen(
@@ -266,6 +273,7 @@ private fun MainTabs(
     onOpenDiagnostics: () -> Unit,
     onOpenDebugLog: () -> Unit,
     onOpenSavedMedia: () -> Unit,
+    onOpenFolders: () -> Unit,
     onOpenFeed: (String) -> Unit,
     onOpenPost: (Post) -> Unit,
     onOpenSearch: () -> Unit
@@ -381,7 +389,7 @@ private fun MainTabs(
                         // These two do not take the inset themselves, so
                         // they keep the narrowed column.
                         TopDestination.ACCOUNTS -> Readable {
-                            AccountsScreen(onOpenFeed = onOpenFeed)
+                            AccountsScreen(onOpenFeed = onOpenFeed, onOpenFolders = onOpenFolders)
                         }
                         TopDestination.SETTINGS -> Readable {
                             SettingsScreen(

@@ -1,5 +1,6 @@
 package com.mtga.app.data.cache
 
+import com.mtga.app.core.common.writeTextAtomically
 import android.content.Context
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
@@ -62,7 +63,7 @@ class FeedCache(
             remember(feed.handle, feed.posts.filterNot { it.id in keptIds })
         }
         runCatching {
-            fileFor(feed.handle).writeText(json.encodeToString(kept))
+            fileFor(feed.handle).writeTextAtomically(json.encodeToString(kept))
         }
         Unit
     }
@@ -212,7 +213,7 @@ class FeedCache(
     suspend fun find(id: String, hint: String?): Post? = withContext(Dispatchers.IO) {
         val wanted = PostId.normalize(id)
         hint?.let { read(it) }?.posts?.firstOrNull { it.id == wanted }?.let { return@withContext it }
-        directory.listFiles().orEmpty().asSequence()
+        feedFiles().asSequence()
             .mapNotNull { file -> runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull() }
             .map(::canonical)
             .firstNotNullOfOrNull { feed -> feed.posts.firstOrNull { it.id == wanted } }
@@ -220,7 +221,7 @@ class FeedCache(
 
     /** Every saved post across all accounts, each once, newest first. */
     suspend fun allPosts(): List<Post> = withContext(Dispatchers.IO) {
-        directory.listFiles().orEmpty().asSequence()
+        feedFiles().asSequence()
             .mapNotNull { file -> runCatching { json.decodeFromString<Feed>(file.readText()) }.getOrNull() }
             .flatMap { canonical(it).posts.asSequence() }
             .distinctBy { it.id }
@@ -282,11 +283,11 @@ class FeedCache(
      */
     suspend fun applyRetention() = withContext(Dispatchers.IO) {
         if (retentionDays() <= 0) return@withContext
-        directory.listFiles().orEmpty().forEach { file ->
+        feedFiles().forEach { file ->
             runCatching {
                 val feed = json.decodeFromString<Feed>(file.readText())
                 val trimmed = trim(feed)
-                if (trimmed !== feed) file.writeText(json.encodeToString(trimmed))
+                if (trimmed !== feed) file.writeTextAtomically(json.encodeToString(trimmed))
             }
         }
     }
@@ -299,13 +300,20 @@ class FeedCache(
      * files as well as the text.
      */
     suspend fun storedPostIds(): Set<String> = withContext(Dispatchers.IO) {
-        directory.listFiles().orEmpty().flatMapTo(HashSet()) { file ->
+        feedFiles().flatMapTo(HashSet()) { file ->
             runCatching { json.decodeFromString<Feed>(file.readText()).posts.map { it.id } }
                 .getOrDefault(emptyList())
         }
     }
 
     private fun fileFor(handle: String) = File(directory, "${handle.lowercase()}.json")
+
+    /**
+     * The feed files, and only those. A write goes through a temporary file
+     * beside the real one, and a crash between the two can leave it behind:
+     * read as a feed, it would bring back posts retention already dropped.
+     */
+    private fun feedFiles(): List<File> = directory.listFiles().orEmpty().filter { it.name.endsWith(".json") }
 
     private companion object {
         /** Scrolling back further than this in one session drops the oldest again. */

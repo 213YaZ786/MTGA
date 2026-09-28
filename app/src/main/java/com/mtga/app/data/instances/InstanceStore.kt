@@ -1,5 +1,6 @@
 package com.mtga.app.data.instances
 
+import com.mtga.app.core.common.writeTextAtomically
 import android.content.Context
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -37,7 +38,7 @@ class InstanceStore(context: Context) {
     }
 
     fun save(instances: List<NitterInstance>) {
-        runCatching { file.writeText(json.encodeToString(instances)) }
+        runCatching { file.writeTextAtomically(json.encodeToString(instances)) }
     }
 
     /** Null until the public list has been merged in once. */
@@ -45,6 +46,6 @@ class InstanceStore(context: Context) {
         runCatching { listedAtFile.readText().trim().toLong() }.getOrNull()
 
     fun markListUpdated(atMillis: Long) {
-        runCatching { listedAtFile.writeText(atMillis.toString()) }
+        runCatching { listedAtFile.writeTextAtomically(atMillis.toString()) }
     }
 }

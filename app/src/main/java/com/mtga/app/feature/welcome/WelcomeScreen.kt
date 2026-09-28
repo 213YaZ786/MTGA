@@ -1,5 +1,21 @@
 package com.mtga.app.feature.welcome
 
+import org.koin.compose.koinInject
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.data.settings.AutoDownload
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.os.Build
+import android.content.pm.PackageManager
+import android.Manifest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,7 +61,9 @@ private data class WelcomePage(
     val intro: String,
     val points: List<String>,
     /** Shows "x.com/nytimes" with the handle picked out. */
-    val showLinkExample: Boolean = false
+    val showLinkExample: Boolean = false,
+    /** The last page asks for a decision instead of explaining anything. */
+    val showMediaChoice: Boolean = false
 )
 
 private val PAGES = listOf(
@@ -76,14 +94,35 @@ private val PAGES = listOf(
         points = listOf(
             "In Accounts, type the handle or paste the profile link in the search bar, then tap Follow.",
             "In the X app or a browser, share a profile to MTGA. It opens here, then tap Follow.",
-            "Coming from Fritter or Squawker? Import your list in Settings, under Data."
+            "Coming from Fritter or Squawker? Import your list in Settings, under Data. Their groups become folders."
         )
+    ),
+    WelcomePage(
+        icon = MtgaIcons.Folder,
+        title = "Sort into folders",
+        intro = "Folders give one stream each, news in one, friends in another.",
+        points = listOf(
+            "Create them in Accounts with the folder button, then file each account with its chip.",
+            "Home switches between them from its title, and shows every account by default.",
+            "Everything loads when the app opens, so switching folders is instant."
+        )
+    ),
+    WelcomePage(
+        icon = MtgaIcons.Download,
+        title = "Saving media",
+        intro = "Pictures and videos can be kept on the phone, so a post read once opens again with no connection.",
+        points = listOf(
+            "It costs space and, on mobile data, data.",
+            "Changeable at any time in Settings, under Media."
+        ),
+        showMediaChoice = true
     )
 )
 
 /**
- * A short guide shown on first launch, and again from Settings. Three pages:
- * what MTGA is, what a handle is and where to find one, and how to follow.
+ * A short guide shown on first launch, and again from Settings. Five pages:
+ * what MTGA is, what a handle is and where to find one, how to follow, how to
+ * sort into folders, and the one decision that spends the reader's data.
  *
  * [onFinish] receives true when the reader asks to go to Accounts.
  */
@@ -92,6 +131,32 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
     val pager = rememberPagerState(pageCount = { PAGES.size })
     val scope = rememberCoroutineScope()
     val last = pager.currentPage == PAGES.lastIndex
+    val settings: SettingsStore = koinInject()
+    val context = LocalContext.current
+    // On first launch nothing is picked: this is the only setting that spends
+    // the reader's data without asking again, so it is not left as a default
+    // they never saw. Reopened from Settings, the current choice is shown.
+    // LinkedOut starts blank every time, which locked the last button for a
+    // reader who had already chosen.
+    var chosen by remember {
+        mutableStateOf(settings.current.takeIf { it.welcomeSeen }?.autoDownloadMedia)
+    }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val choose: (AutoDownload) -> Unit = { choice ->
+        chosen = choice
+        // Same as the Settings dialog: the watermark restarts, so what is on
+        // screen now is saved on the next refresh.
+        settings.update { it.copy(autoDownloadMedia = choice, autoDownloadedUntilMillis = 0) }
+        // The progress line of a batch is a notification, and Android 13 and
+        // later want the permission for it. Asked here, where saving was asked for.
+        if (choice != AutoDownload.OFF &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -101,7 +166,7 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
         HorizontalPager(
             state = pager,
             modifier = Modifier.weight(1f).fillMaxWidth()
-        ) { index -> PageContent(PAGES[index]) }
+        ) { index -> PageContent(page = PAGES[index], chosen = chosen, onChoose = choose) }
 
         Dots(count = PAGES.size, current = pager.currentPage)
 
@@ -116,6 +181,9 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
             }
             Spacer(Modifier.weight(1f))
             Button(
+                // The last page has no way forward until the choice is made.
+                // Skip, top right, still leaves at any time.
+                enabled = !last || chosen != null,
                 onClick = {
                     if (last) onFinish(true) else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) }
                 }
@@ -125,7 +193,7 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
 }
 
 @Composable
-private fun PageContent(page: WelcomePage) {
+private fun PageContent(page: WelcomePage, chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -156,12 +224,47 @@ private fun PageContent(page: WelcomePage) {
             textAlign = TextAlign.Center
         )
         if (page.showLinkExample) LinkExample()
+        if (page.showMediaChoice) MediaChoice(chosen = chosen, onChoose = onChoose)
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             page.points.forEach { Point(it) }
         }
+    }
+}
+
+/** Three rows, one of which has to be tapped before the guide can be left. */
+@Composable
+private fun MediaChoice(chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MediaOption("Only when I open them", AutoDownload.OFF, chosen, onChoose)
+        MediaOption("Save them on Wi-Fi", AutoDownload.UNMETERED, chosen, onChoose)
+        MediaOption("Save them on any network", AutoDownload.ANY, chosen, onChoose)
+    }
+}
+
+/** A filled primary colour when picked, so the answer is unmistakable. */
+@Composable
+private fun MediaOption(label: String, value: AutoDownload, chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
+    val picked = chosen == value
+    val haptics = LocalHapticFeedback.current
+    Surface(
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onChoose(value)
+        },
+        shape = RoundedCornerShape(16.dp),
+        color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = if (picked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
+        )
     }
 }
 

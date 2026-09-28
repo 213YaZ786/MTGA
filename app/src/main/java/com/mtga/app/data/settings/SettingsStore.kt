@@ -1,6 +1,7 @@
 package com.mtga.app.data.settings
 
 import android.content.Context
+import com.mtga.app.core.common.writeTextAtomically
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -85,7 +86,9 @@ data class Settings(
      * The first launch guide was closed. It is only offered when nothing is
      * followed yet, so an update never shows it to someone already set up.
      */
-    val welcomeSeen: Boolean = false
+    val welcomeSeen: Boolean = false,
+    /** The folder Home shows, or null for every account. */
+    val homeFolder: String? = null
 )
 
 /**
@@ -111,6 +114,6 @@ class SettingsStore(context: Context) {
     fun update(transform: (Settings) -> Settings) {
         val updated = transform(_settings.value)
         _settings.value = updated
-        runCatching { file.writeText(json.encodeToString(updated)) }
+        runCatching { file.writeTextAtomically(json.encodeToString(updated)) }
     }
 }
