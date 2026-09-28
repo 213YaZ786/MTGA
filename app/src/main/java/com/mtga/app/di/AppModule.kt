@@ -5,6 +5,7 @@ import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.media.AutoMediaDownloader
 import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.core.media.MediaDownloader
+import com.mtga.app.core.media.MediaSavingNotice
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.network.HttpClientFactory
@@ -63,7 +64,8 @@ val appModule = module {
     single { MediaDownloader(androidContext()) }
     single { OfflineMedia(androidContext()) }
     single { ReadMarks(androidContext()) }
-    single { AutoMediaDownloader(get(), get(), get(), get(), get()) }
+    single { MediaSavingNotice(androidContext()) }
+    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get(), get(named("appScope"))) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { HtmlTimelineParser() }

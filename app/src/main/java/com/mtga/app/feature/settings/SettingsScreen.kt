@@ -126,6 +126,25 @@ fun SettingsScreen(
         notificationsAllowed = notifier.canNotify()
         onPauseOrDispose { }
     }
+    /*
+     * The progress line of automatic saving is a notification like any
+     * other, so Android 13 and later want the same permission. Asked at the
+     * moment automatic saving is turned on, and a refusal changes nothing to
+     * the saving itself, only to seeing how far it is. Same as LinkedOut.
+     */
+    val downloadNotificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { notificationsAllowed = notifier.canNotify() }
+    val askForDownloadNotifications: () -> Unit = {
+        if (!notifier.canNotify() &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            downloadNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Asked at the moment the reader turns notifications on, never before.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -417,7 +436,10 @@ fun SettingsScreen(
             title = "Save media automatically",
             options = AutoDownload.entries.map { it to autoDownloadLabel(it) },
             selected = settings.autoDownloadMedia,
-            onSelect = viewModel::setAutoDownloadMedia,
+            onSelect = { choice ->
+                viewModel.setAutoDownloadMedia(choice)
+                if (choice != AutoDownload.OFF) askForDownloadNotifications()
+            },
             onDismiss = { dialog = OpenDialog.NONE }
         )
         OpenDialog.KEEP -> ChoiceDialog(

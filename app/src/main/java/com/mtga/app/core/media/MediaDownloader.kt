@@ -48,18 +48,23 @@ class MediaDownloader(private val context: Context) {
     /**
      * A file saved without being asked, for offline reading.
      *
-     * No toast and no completion notification: a reader who turned on
-     * automatic saving does not want forty lines in the shade for one
-     * refresh. Returns false when the download could not even be queued, so
-     * the caller can say so in the log rather than guess.
+     * No toast and no line of its own in the shade: a reader who turned on
+     * automatic saving does not want forty lines for one refresh. The batch
+     * gets one line instead, see [MediaSavingNotice]. Hiding the per file line
+     * needs DOWNLOAD_WITHOUT_NOTIFICATION in the manifest, without it the
+     * enqueue itself throws.
+     *
+     * Returns the download id to follow, or null when the file was already
+     * there or could not even be queued, so the caller can say so in the log
+     * rather than guess.
      */
-    fun cache(target: File, item: MediaItem): Boolean {
-        if (target.exists()) return false
-        val manager = manager() ?: return false
+    fun cache(target: File, item: MediaItem): Long? {
+        if (target.exists()) return null
+        val manager = manager() ?: return null
         val request = baseRequest(item, target.name)
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
             .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, target.name)
-        return runCatching { manager.enqueue(request) }.isSuccess
+        return runCatching { manager.enqueue(request) }.getOrNull()
     }
 
     private fun manager() = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager

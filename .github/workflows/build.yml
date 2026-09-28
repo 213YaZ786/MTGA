@@ -116,7 +116,7 @@ jobs:
           ( cd release && sha256sum ./*.apk > SHA256SUMS.txt )
           cat release/SHA256SUMS.txt
 
-      # MTGA declares three permissions and depends on libraries that declare
+      # MTGA declares four permissions and depends on libraries that declare
       # a few of their own. Anything outside this list fails the build, which
       # is the point: a new dependency that wants the camera should stop the
       # release rather than ship quietly.
@@ -128,6 +128,7 @@ jobs:
             | grep -v "android.permission.INTERNET" \
             | grep -v "android.permission.ACCESS_NETWORK_STATE" \
             | grep -v "android.permission.POST_NOTIFICATIONS" \
+            | grep -v "android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" \
             | grep -v "android.permission.WAKE_LOCK" \
             | grep -v "android.permission.RECEIVE_BOOT_COMPLETED" \
             | grep -v "android.permission.FOREGROUND_SERVICE" \

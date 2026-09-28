@@ -5,7 +5,9 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,7 +33,9 @@ class AutoMediaDownloader(
     private val store: OfflineMedia,
     private val settings: SettingsStore,
     private val connectivity: ConnectivityMonitor,
-    private val log: RequestLog
+    private val log: RequestLog,
+    private val notice: MediaSavingNotice,
+    private val scope: CoroutineScope
 ) {
 
     /**
@@ -62,13 +66,18 @@ class AutoMediaDownloader(
             return@withContext 0
         }
 
-        var queued = 0
+        val ids = mutableListOf<Long>()
         fresh.forEach { post ->
             post.media.forEachIndexed { index, item ->
                 val target = store.fileFor(post.id, post.authorHandle, index, item)
-                if (downloader.cache(target, item)) queued++
+                downloader.cache(target, item)?.let(ids::add)
             }
         }
+        val queued = ids.size
+        // Followed from the app scope, because the batch outlives this call:
+        // the timeline must not wait for the files to land before it shows
+        // what it read.
+        scope.launch { notice.follow(ids) }
         val watermark = fresh.maxOf { it.publishedAtMillis }
         settings.update { it.copy(autoDownloadedUntilMillis = watermark) }
         note(

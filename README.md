@@ -16,7 +16,7 @@ Read public X (Twitter) posts on Android, with no account, no tracking and no ad
 ## Privacy
 
 - No account, no sign in, no ads, no analytics, no crash reporting.
-- Only two permissions: internet access and network status.
+- Few permissions: internet access and network status, notifications only if you turn on new post alerts or automatic saving, and one that lets a batch of saves show a single progress line instead of one per file.
 - The accounts you follow and the posts you saved never leave your phone.
 - Posts are read from public servers (see below). The option "Newest posts from X" in Settings reads the latest posts straight from X, which is faster but lets X see your IP address. You can turn it off.
 
