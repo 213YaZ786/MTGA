@@ -16,21 +16,20 @@ import kotlinx.coroutines.launch
  * One notification for every automatic save in progress, instead of one per
  * file.
  *
- * The files themselves are hidden from the shade (see
- * [MediaDownloader.cache]), since twenty pictures would be twenty lines. This
+ * The files themselves are hidden from the shade by whoever enqueues them
+ * (VISIBILITY_HIDDEN, which needs DOWNLOAD_WITHOUT_NOTIFICATION in the
+ * manifest), since twenty pictures would be twenty lines. This
  * line says how many are left, so nobody has to guess whether it is safe to
  * leave the app, then what was saved and what failed.
  *
- * Batches are pooled. The first version, taken from LinkedOut, followed each
- * batch on its own: in MTGA two refreshes close together ran two followers
- * that wrote over each other's counts, and in LinkedOut the follower held the
- * prefetch lock for up to ten minutes, so the next batch was not even handed
- * to DownloadManager until the previous one had landed. Here [track] only adds
- * ids, and a single watcher reports on all of them.
+ * Batches are pooled. Following each batch on its own let two close
+ * refreshes write over each other's counts, and following it under a lock
+ * held the next batch back for up to ten minutes. Here [track] only adds ids,
+ * and a single watcher reports on all of them.
  *
  * Polling rather than a broadcast receiver: a receiver would have to be
- * declared in the manifest and be woken with the app closed, which MTGA does
- * not do.
+ * declared in the manifest and be woken with the app closed, which
+ * MTGA does not do.
  */
 class MediaSavingNotice(
     private val context: Context,
