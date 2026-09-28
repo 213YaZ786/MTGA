@@ -1,5 +1,6 @@
 package com.mtga.app.feature.feed
 
+import com.mtga.app.ui.component.BoldButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
@@ -282,7 +283,7 @@ fun FeedScreen(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp
                         )
-                        canMore -> TextButton(onClick = { viewModel.loadMore(manual = true) }) {
+                        canMore -> BoldButton(onClick = { viewModel.loadMore(manual = true) }) {
                             Text(if (pagingFailed) "Try again" else "Load older posts")
                         }
                         else -> Text(
@@ -409,11 +410,11 @@ private fun ProfileHeader(
         }
 
         if (isFollowing) {
-            OutlinedButton(onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
+            BoldButton(onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Following")
             }
         } else {
-            FilledTonalButton(onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
+            BoldButton(filled = true, onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
                 Text("Follow")
             }
         }

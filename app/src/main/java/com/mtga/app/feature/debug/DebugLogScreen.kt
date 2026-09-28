@@ -1,5 +1,6 @@
 package com.mtga.app.feature.debug
 
+import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -84,12 +85,12 @@ fun DebugLogScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp + LocalReadableInset.current),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                TextButton(onClick = {
+                BoldButton(onClick = {
                     clipboard.setText(AnnotatedString(log.render()))
                     scope.launch { snackbar.showSnackbar("Log copied") }
                 }) { Text("Copy all") }
 
-                TextButton(onClick = {
+                BoldButton(onClick = {
                     scope.launch {
                         val name = "mtga-log-${System.currentTimeMillis()}.txt"
                         exporter.exportText(name, log.render())

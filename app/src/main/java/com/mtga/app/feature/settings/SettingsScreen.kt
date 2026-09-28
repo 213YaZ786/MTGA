@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.LocalDockPadding
 import android.Manifest
@@ -498,7 +499,7 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
     )
     Surface(
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
     ) {
         Column(content = content)

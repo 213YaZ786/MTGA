@@ -44,17 +44,17 @@ fun ErrorPanel(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             when (presentation.action) {
-                ErrorAction.RETRY -> TextButton(onClick = onRetry) { Text("Try again") }
+                ErrorAction.RETRY -> BoldButton(onClick = onRetry) { Text("Try again") }
                 ErrorAction.OPEN_DIAGNOSTICS,
-                ErrorAction.CHANGE_INSTANCE -> TextButton(onClick = onOpenDiagnostics) {
+                ErrorAction.CHANGE_INSTANCE -> BoldButton(onClick = onOpenDiagnostics) {
                     Text("Check connection")
                 }
                 ErrorAction.OPEN_FALLBACK_VIEWER -> {
                     val check = error as? AppError.ChallengeRequired
                     if (check != null && onVerify != null) {
-                        TextButton(onClick = { onVerify(check) }) { Text("Do the check") }
+                        BoldButton(onClick = { onVerify(check) }) { Text("Do the check") }
                     } else {
-                        TextButton(onClick = onOpenDiagnostics) { Text("Check connection") }
+                        BoldButton(onClick = onOpenDiagnostics) { Text("Check connection") }
                     }
                 }
                 ErrorAction.NONE -> Unit

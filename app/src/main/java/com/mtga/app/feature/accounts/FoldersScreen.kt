@@ -1,5 +1,7 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.theme.zone
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -182,7 +184,7 @@ private fun FolderZone(
     val count = rows.count { it.folder == name }
     Surface(
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {
@@ -203,12 +205,12 @@ private fun FolderZone(
                     )
                 }
                 if (name != FollowedAccount.MAIN) {
-                    TextButton(onClick = onRename) { Text("Rename") }
+                    BoldButton(onClick = onRename) { Text("Rename") }
                     IconButton(onClick = onDelete) {
                         Icon(MtgaIcons.Delete, contentDescription = "Delete $name", modifier = Modifier.size(20.dp))
                     }
                 }
-                TextButton(onClick = onToggle) { Text(if (open) "Close" else "Open") }
+                BoldButton(onClick = onToggle) { Text(if (open) "Close" else "Open") }
             }
 
             AnimatedVisibility(visible = open) {

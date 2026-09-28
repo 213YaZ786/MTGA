@@ -1,5 +1,7 @@
 package com.mtga.app.feature.media
 
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.theme.zone
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -124,7 +126,7 @@ private fun AccountGroup(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        color = MaterialTheme.colorScheme.zone
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(
@@ -141,7 +143,7 @@ private fun AccountGroup(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = onDeleteAccount) { Text("Delete all") }
+                BoldButton(onClick = onDeleteAccount) { Text("Delete all") }
             }
 
             group.posts.forEach { post ->

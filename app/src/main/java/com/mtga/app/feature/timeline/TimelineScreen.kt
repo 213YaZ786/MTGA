@@ -1,5 +1,11 @@
 package com.mtga.app.feature.timeline
 
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.foundation.border
+import com.mtga.app.ui.component.boldBorder
+import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.theme.zone
 import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
 import com.mtga.app.ui.component.rememberInlineTarget
@@ -316,7 +322,10 @@ fun TimelineScreen(
                             scope.launch { listState.animateScrollToItem(0) }
                         },
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        // The floating action has no border parameter, so the
+                        // edge every action carries is drawn around its shape.
+                        modifier = Modifier.border(boldBorder(), FloatingActionButtonDefaults.smallShape)
                     ) {
                         Icon(MtgaIcons.ArrowUp, contentDescription = "Back to the newest post")
                     }
@@ -353,7 +362,7 @@ private fun HomeHeader(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        color = MaterialTheme.colorScheme.zone
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
@@ -361,7 +370,7 @@ private fun HomeHeader(
         ) {
             val failing = state.errors.isNotEmpty()
             if (state.followedCount > 0) {
-                FilledTonalIconButton(
+                BoldIconButton(
                     onClick = onOpenDiagnostics,
                     modifier = Modifier.size(BUTTON_SIZE),
                     // A failing source is the one thing here that needs
@@ -373,7 +382,8 @@ private fun HomeHeader(
                         )
                     } else {
                         IconButtonDefaults.filledTonalIconButtonColors()
-                    }
+                    },
+                    edge = if (failing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 ) {
                     Icon(
                         MtgaIcons.Pulse,
@@ -427,7 +437,7 @@ private fun HomeHeader(
             }
 
             if (state.followedCount > 0) {
-                FilledTonalIconButton(
+                BoldIconButton(
                     onClick = onOpenSearch,
                     modifier = Modifier.size(BUTTON_SIZE)
                 ) {
@@ -470,9 +480,9 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-                TextButton(onClick = onLoadMore) { Text("Try again") }
+                BoldButton(onClick = onLoadMore) { Text("Try again") }
             }
-            state.canLoadMore -> TextButton(onClick = onLoadMore) { Text("Load older posts") }
+            state.canLoadMore -> BoldButton(onClick = onLoadMore) { Text("Load older posts") }
             else -> Text(
                 "No older posts available.",
                 style = MaterialTheme.typography.bodySmall,
@@ -516,6 +526,6 @@ private fun EmptyState(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
         )
-        TextButton(onClick = onAction) { Text(actionLabel) }
+        BoldButton(onClick = onAction) { Text(actionLabel) }
     }
 }

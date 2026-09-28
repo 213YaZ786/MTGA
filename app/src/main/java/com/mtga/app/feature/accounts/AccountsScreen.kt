@@ -1,5 +1,8 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.FolderDialog
 import androidx.compose.runtime.remember
@@ -123,7 +126,7 @@ fun AccountsScreen(
                     )
                 }
             }
-            FilledTonalIconButton(onClick = onOpenFolders) {
+            BoldIconButton(onClick = onOpenFolders) {
                 Icon(MtgaIcons.Folder, contentDescription = "Folders")
             }
         }
@@ -206,7 +209,7 @@ private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Uni
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -281,7 +284,7 @@ private fun CandidateCard(handle: String, onOpen: () -> Unit, onFollow: () -> Un
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
-            FilledTonalButton(onClick = onFollow) { Text("Follow") }
+            BoldButton(onClick = onFollow, filled = true) { Text("Follow") }
         }
     }
 }

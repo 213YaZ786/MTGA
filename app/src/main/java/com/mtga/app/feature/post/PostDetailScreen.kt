@@ -1,5 +1,7 @@
 package com.mtga.app.feature.post
 
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.PostCard
@@ -274,9 +276,9 @@ private fun ConversationView(
                     )
                     val check = thread.error as? AppError.ChallengeRequired
                     if (check != null && check.kind != ChallengeKind.WAF_BLOCK) {
-                        TextButton(onClick = { onVerify(check) }) { Text("Do the check") }
+                        BoldButton(onClick = { onVerify(check) }) { Text("Do the check") }
                     } else if (gone == null) {
-                        TextButton(onClick = onRetry) { Text("Try again") }
+                        BoldButton(onClick = onRetry) { Text("Try again") }
                     }
                 }
             }
@@ -305,7 +307,7 @@ private fun ConversationView(
                     }
                     item(key = "more") {
                         Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            TextButton(onClick = { LinkRouter.openOutside(context, xUrl(post)) }) {
+                            BoldButton(onClick = { LinkRouter.openOutside(context, xUrl(post)) }) {
                                 Text("See all replies on X")
                             }
                         }
@@ -344,7 +346,7 @@ private fun PostBody(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        color = MaterialTheme.colorScheme.zone
     ) {
     Column(
         modifier = Modifier
@@ -359,7 +361,7 @@ private fun PostBody(
             shape = RoundedCornerShape(16.dp),
             // Same colour as the zone it sits in: this is a tap target, not a
             // second card inside the first one.
-            color = MaterialTheme.colorScheme.surfaceContainerLow
+            color = MaterialTheme.colorScheme.zone
         ) {
             Row(
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -452,10 +454,10 @@ private fun PostBody(
         ) {
             // Straight to X or a browser. Through the app's own link handler
             // this would land back on this screen.
-            FilledTonalButton(onClick = { LinkRouter.openOutside(context, url) }) { Text("Open on X") }
+            BoldButton(onClick = { LinkRouter.openOutside(context, url) }, filled = true) { Text("Open on X") }
             // Share and copy follow the reader's choice, x.com or Nitter.
-            OutlinedButton(onClick = { share(context, shareLink) }) { Text("Share") }
-            OutlinedButton(onClick = { copy(context, shareLink) }) { Text("Copy link") }
+            BoldButton(onClick = { share(context, shareLink) }) { Text("Share") }
+            BoldButton(onClick = { copy(context, shareLink) }) { Text("Copy link") }
         }
     }
     }
@@ -510,9 +512,9 @@ private fun AuthorUnknownPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
-        FilledTonalButton(onClick = onOpenOnX) { Text("Open on X") }
+        BoldButton(onClick = onOpenOnX, filled = true) { Text("Open on X") }
         if (error.retryable) {
-            TextButton(onClick = onRetry) { Text("Try again") }
+            BoldButton(onClick = onRetry) { Text("Try again") }
         }
     }
 }

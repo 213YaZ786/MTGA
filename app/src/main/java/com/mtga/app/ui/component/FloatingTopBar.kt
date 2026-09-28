@@ -1,5 +1,6 @@
 package com.mtga.app.ui.component
 
+import com.mtga.app.ui.theme.zone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -65,7 +66,7 @@ fun FloatingTopBar(
     ) {
         Surface(
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = MaterialTheme.colorScheme.zone,
             modifier = Modifier.fillMaxWidth()
         ) {
             CenterAlignedTopAppBar(

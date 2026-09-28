@@ -1,5 +1,6 @@
 package com.mtga.app.feature.diagnostics
 
+import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -121,10 +122,10 @@ fun DiagnosticsScreen(
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
+                    BoldButton(onClick = {
                         clipboard.setText(AnnotatedString(viewModel.report()))
                     }) { Text("Copy report") }
-                    TextButton(
+                    BoldButton(
                         onClick = viewModel::resetFromList,
                         enabled = !listStatus.updating
                     ) { Text("Reset from list") }
@@ -414,7 +415,7 @@ private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 4.dp)
             ) {
-                TextButton(onClick = onUpdate, enabled = !status.updating) { Text("Update now") }
+                BoldButton(onClick = onUpdate, enabled = !status.updating) { Text("Update now") }
                 if (status.updating) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 }
