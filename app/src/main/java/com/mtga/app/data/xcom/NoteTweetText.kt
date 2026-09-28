@@ -62,23 +62,61 @@ internal object NoteTweetText {
      * record ends first. Both spellings are accepted because the page carries
      * two payloads: the initial one is JSON with quoted keys, the streamed
      * ones are JavaScript with bare keys.
+     *
+     * Nested records and arrays are stepped over whole. X now writes
+     * entity_set, which holds the links of the post, between __typename and
+     * text. Stopping at its opening brace, as 2.9.2 did, lost the text of
+     * every long post that contains a link.
      */
     private fun textField(page: String, start: Int): String? {
         val limit = minOf(page.length, start + FIELD_WINDOW)
         var i = start
         while (i < limit) {
             when {
-                // A brace closes or opens a nested record. Anything past it
-                // belongs to a different one, so this record has no text.
-                page[i] == '}' || page[i] == '{' -> return null
-                page.startsWith(BARE_KEY, i) && !isNameChar(page.getOrNull(i - 1)) ->
-                    return unescape(readString(page, i + BARE_KEY.length))
+                // This record closed without a text field.
+                page[i] == '}' -> return null
+                page[i] == '{' || page[i] == '[' -> i = skipNested(page, i) ?: return null
                 page.startsWith(QUOTED_KEY, i) ->
                     return unescape(readString(page, i + QUOTED_KEY.length))
+                page[i] == '"' -> i = skipString(page, i)
+                page.startsWith(BARE_KEY, i) && !isNameChar(page.getOrNull(i - 1)) ->
+                    return unescape(readString(page, i + BARE_KEY.length))
+                else -> i++
+            }
+        }
+        return null
+    }
+
+    /**
+     * Index just past the record or array opened at [open], or null when it
+     * never closes. Strings are skipped whole so a brace inside a link or a
+     * post text does not count.
+     */
+    private fun skipNested(page: String, open: Int): Int? {
+        var depth = 0
+        var i = open
+        while (i < page.length) {
+            when (page[i]) {
+                '"' -> { i = skipString(page, i); continue }
+                '{', '[' -> depth++
+                '}', ']' -> if (--depth == 0) return i + 1
             }
             i++
         }
         return null
+    }
+
+    /** Index just past the string literal whose opening quote is at [quote]. */
+    private fun skipString(page: String, quote: Int): Int {
+        var i = quote + 1
+        while (i < page.length) {
+            when (page[i]) {
+                '\\' -> i += 2
+                '"' -> return i + 1
+                else -> i++
+            }
+        }
+        return page.length
     }
 
     /** Guards against matching the tail of a longer key such as full_text. */
@@ -140,8 +178,11 @@ internal object NoteTweetText {
     private const val BARE_KEY = "text:\""
     private const val QUOTED_KEY = "\"text\":\""
 
-    /** Wide enough for the few fields X writes before text, short enough to fail fast. */
-    private const val FIELD_WINDOW = 512
+    /**
+     * Wide enough for the fields X writes before text, entity_set with a
+     * handful of links and mentions included, short enough to fail fast.
+     */
+    private const val FIELD_WINDOW = 8_192
 
     /** Long enough that no two posts of one page share it by accident. */
     private const val MIN_MATCH = 40

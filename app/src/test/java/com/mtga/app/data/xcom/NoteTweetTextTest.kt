@@ -71,6 +71,51 @@ class NoteTweetTextTest {
         assertEquals(listOf("entier et bien plus long"), NoteTweetText.texts(record))
     }
 
+    /**
+     * Shape of the logged out profile payload in late September 2026: the
+     * timeline arrives inline as a streamed UserOriginalsTimeline response,
+     * and entity_set, with the links of the post, sits before text. 2.9.2
+     * stopped at its brace and left every such post cut.
+     */
+    @Test
+    fun `reads a note text written after entity_set`() {
+        val record = """
+            note_tweet:${'$'}R[189]={is_expandable:!0,note_tweet_results:${'$'}R[190]={id:"Tm90ZQ==",
+            result:${'$'}R[191]={__typename:"NoteTweet",entity_set:${'$'}R[192]={hashtags:${'$'}R[193]=[],
+            smarttags:${'$'}R[194]=[],symbols:${'$'}R[195]=[],urls:${'$'}R[196]=[${'$'}R[197]={
+            display_url:"x.com/someone/stat…",expanded_url:"https://x.com/someone/status/1/video/1",
+            indices:${'$'}R[198]=[382,405],url:"https://t.co/abc"}],user_mentions:${'$'}R[199]=[]},
+            id:"Tm90ZVR3ZWV0",rest_id:"2104470073733763072",
+            text:"A long post that goes on past the cut, with a brace } and a quote \" inside.\nhttps://t.co/abc"}}}
+        """.trimIndent()
+
+        assertEquals(
+            listOf("A long post that goes on past the cut, with a brace } and a quote \" inside.\nhttps://t.co/abc"),
+            NoteTweetText.texts(record)
+        )
+    }
+
+    @Test
+    fun `completes a cut post whose note carries links`() {
+        val cut = post("A long post that goes on past the cut, with a brace")
+        val record = """
+            result:{__typename:"NoteTweet",entity_set:{urls:[{url:"https://t.co/abc",indices:[1,2]}]},
+            rest_id:"1",text:"A long post that goes on past the cut, with a brace and the rest of it."}
+        """.trimIndent()
+
+        assertEquals(
+            "A long post that goes on past the cut, with a brace and the rest of it.",
+            NoteTweetText.complete(listOf(cut), record).single().text
+        )
+    }
+
+    @Test
+    fun `gives up on a record that closes without text`() {
+        val record = """__typename:"NoteTweet",entity_set:{urls:[]},rest_id:"1"},text:"not this one""""
+
+        assertEquals(emptyList<String>(), NoteTweetText.texts(record))
+    }
+
     @Test
     fun `unescapes what javascript escaped`() {
         assertEquals("a\nb\tc\"d\\e", NoteTweetText.unescape("""a\nb\tc\"d\\e"""))
