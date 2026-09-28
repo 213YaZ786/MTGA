@@ -1,9 +1,8 @@
 # Builds on every push and pull request, and publishes a release for every
 # green build on main.
 #
-# Action versions read on the official repositories on 2026-09-19:
-# actions/checkout v6, actions/setup-java v5, actions/upload-artifact v7,
-# gradle/actions v6.
+# Action versions: actions/checkout v7, actions/setup-java v6,
+# actions/upload-artifact v7, gradle/actions v6. Dependabot moves them.
 name: Build
 
 on:
@@ -25,22 +24,30 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
 
       # This repository has gradle/wrapper/gradle-wrapper.properties but no
       # gradlew script and no gradle-wrapper.jar, so there is no wrapper to
-      # validate and nothing to run. Gradle is installed instead, pinned to
-      # the same 9.5.1 the properties file names.
+      # validate and nothing to run. Gradle is installed instead, at the
+      # version the properties file names. Read from there, never written
+      # here: Dependabot bumps the wrapper together with AGP, and a version
+      # pinned in this file stayed behind and failed its pull requests.
+      - name: Read the Gradle version
+        run: |
+          GRADLE_VERSION="$(grep -oP 'gradle-\K[0-9.]+(?=-bin\.zip)' gradle/wrapper/gradle-wrapper.properties)"
+          echo "Gradle $GRADLE_VERSION"
+          echo "GRADLE_VERSION=$GRADLE_VERSION" >> "$GITHUB_ENV"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: 9.5.1
+          gradle-version: ${{ env.GRADLE_VERSION }}
 
       - name: Read the version
         run: |
@@ -111,7 +118,12 @@ jobs:
       - name: Name the files and note their fingerprints
         run: |
           mkdir -p release
-          cp app/build/outputs/apk/release/app-release.apk "release/MTGA-$VERSION.apk"
+          # Without the signing secrets, as on a pull request from Dependabot,
+          # the release build is left unsigned under another name. It is
+          # still named, hashed and checked, only never published.
+          RELEASE=app/build/outputs/apk/release/app-release.apk
+          [ -f "$RELEASE" ] || RELEASE=app/build/outputs/apk/release/app-release-unsigned.apk
+          cp "$RELEASE" "release/MTGA-$VERSION.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "release/MTGA-$VERSION-debug.apk"
           ( cd release && sha256sum ./*.apk > SHA256SUMS.txt )
           cat release/SHA256SUMS.txt
