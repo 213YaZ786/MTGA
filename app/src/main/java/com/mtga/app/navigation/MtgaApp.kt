@@ -1,5 +1,11 @@
 package com.mtga.app.navigation
 
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.EnterTransition
+import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -157,14 +163,43 @@ private fun MtgaNavHost(navController: NavHostController) {
                 scaleOut(targetScale = 0.94f, animationSpec = tween(NAV_MS)) +
                     fadeOut(animationSpec = tween(NAV_MS))
             },
+            // The back gesture has transitions of its own, and without these
+            // the library's defaults played: a shrink to 70% on a slow spring
+            // with no fade, so the page hung small over the one behind and
+            // then vanished in a single frame (seen frame by frame in a
+            // screencast and again on the emulator). Now the page follows the
+            // thumb, shrinking to 85% and drifting the way the thumb goes, the
+            // screen behind is simply there, and the fade only starts half way
+            // through, which in practice is after the thumb lets go: no
+            // off screen layer while the page is being dragged.
+            predictivePopEnterTransition = { EnterTransition.None },
+            // Decelerating: the page moves most in the first millimetres of
+            // the drag, so it is seen to follow the thumb at once. The default
+            // ease in left it still for the first 150 ms, and linear barely
+            // moved it while the gesture's progress was still small.
+            predictivePopExitTransition = { edge ->
+                scaleOut(targetScale = 0.85f, animationSpec = tween(PREDICTIVE_MS, easing = LinearOutSlowInEasing)) +
+                    slideOutHorizontally(tween(PREDICTIVE_MS, easing = LinearOutSlowInEasing)) { full ->
+                        if (edge == BackEventCompat.EDGE_RIGHT) -full / 6 else full / 6
+                    } +
+                    fadeOut(tween(PREDICTIVE_MS / 2, delayMillis = PREDICTIVE_MS / 2, easing = LinearEasing))
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding)
         ) {
             composable(Routes.MAIN) {
+                // True only once this screen has fully arrived and nothing
+                // animates over it. It keeps the inline video of Home from
+                // playing under a page being dragged away by the back gesture:
+                // a video surface inside a layer that moves every frame is
+                // the most expensive thing these apps can draw.
+                val settled = transition.currentState == transition.targetState &&
+                    transition.targetState == EnterExitState.Visible
                 CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 MainTabs(
+                    settled = settled,
                     onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
                     onOpenDebugLog = { navController.navigate(Routes.DEBUG_LOG) },
                     onOpenSavedMedia = { navController.navigate(Routes.SAVED_MEDIA) },
@@ -270,6 +305,7 @@ private fun Post.cacheOwner(): String =
  */
 @Composable
 private fun MainTabs(
+    settled: Boolean,
     onOpenDiagnostics: () -> Unit,
     onOpenDebugLog: () -> Unit,
     onOpenSavedMedia: () -> Unit,
@@ -376,7 +412,7 @@ private fun MainTabs(
             ) { page ->
                 // Videos in a list play only while that list is the tab in
                 // sight. The pager keeps the others alive next to it.
-                val inSight = pager.settledPage == page && !showWelcome
+                val inSight = pager.settledPage == page && !showWelcome && settled
                 CompositionLocalProvider(LocalInlinePlaybackAllowed provides inSight) {
                 ReadableScroll {
                     when (tabs[page]) {
@@ -455,3 +491,6 @@ private fun MainTabs(
 
 /** Long enough to be read as motion, short enough not to be waited on. */
 private const val NAV_MS = 260
+
+/** The back gesture's transition, seeked under the thumb and finished after it. */
+private const val PREDICTIVE_MS = 300

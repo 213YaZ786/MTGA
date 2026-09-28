@@ -3,6 +3,7 @@ package com.mtga.app.feature.settings
 import com.mtga.app.core.system.BatteryExemption
 import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
+import com.mtga.app.ui.component.ScreenBanner
 import com.mtga.app.ui.component.LocalDockPadding
 import android.Manifest
 import android.content.Context
@@ -194,11 +195,7 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = LocalReadableInset.current)
     ) {
-        Text(
-            "Settings",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 4.dp)
-        )
+        ScreenBanner(title = "Settings")
 
         Section("Appearance") {
             SettingRow(

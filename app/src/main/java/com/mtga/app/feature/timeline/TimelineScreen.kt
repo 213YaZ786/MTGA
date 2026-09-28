@@ -2,6 +2,7 @@ package com.mtga.app.feature.timeline
 
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.foundation.border
+import com.mtga.app.ui.component.EmptyZone
 import com.mtga.app.ui.component.boldBorder
 import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.BoldButton
@@ -270,7 +271,7 @@ fun TimelineScreen(
                                 message = "File accounts here from Accounts, or show every account.",
                                 actionLabel = "Show every account",
                                 onAction = { viewModel.showFolder(null) },
-                                modifier = Modifier.fillMaxWidth().padding(top = 48.dp)
+                                modifier = Modifier.fillParentMaxHeight(0.7f)
                             )
                         }
                     }
@@ -513,19 +514,13 @@ private fun EmptyState(
     onAction: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-        )
-        BoldButton(onClick = onAction) { Text(actionLabel) }
-    }
+    // A zone centred in the space, like every empty screen, so an empty
+    // Home still carries the wallpaper's colour.
+    EmptyZone(
+        title = title,
+        message = message,
+        actionLabel = actionLabel,
+        onAction = onAction,
+        modifier = modifier.fillMaxSize()
+    )
 }

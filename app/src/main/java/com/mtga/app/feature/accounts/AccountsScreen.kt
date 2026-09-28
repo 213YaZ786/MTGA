@@ -1,6 +1,8 @@
 package com.mtga.app.feature.accounts
 
-import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.BannerAction
+import com.mtga.app.ui.component.ScreenBanner
+import com.mtga.app.ui.component.EmptyZone
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
@@ -11,6 +13,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.AssistChip
 import com.mtga.app.ui.component.LocalDockPadding
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -107,28 +110,20 @@ fun AccountsScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(
-                start = 24.dp + LocalReadableInset.current,
-                end = 24.dp + LocalReadableInset.current,
-                top = 24.dp,
-                bottom = 12.dp
-            ),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Accounts", style = MaterialTheme.typography.headlineMedium)
-                if (rows.isNotEmpty()) {
-                    Text(
-                        "${rows.size} followed",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+        // The screen's name centred in its zone, the folders one tap away in
+        // the same zone, as on every screen that opens with a banner.
+        Box(Modifier.padding(horizontal = LocalReadableInset.current)) {
+            ScreenBanner(
+                title = "Accounts",
+                subtitle = if (rows.isEmpty()) null else "${rows.size} followed",
+                trailing = {
+                    BannerAction(
+                        icon = MtgaIcons.Folder,
+                        label = "Folders",
+                        onClick = onOpenFolders
                     )
                 }
-            }
-            BoldIconButton(onClick = onOpenFolders) {
-                Icon(MtgaIcons.Folder, contentDescription = "Folders")
-            }
+            )
         }
 
         TextField(
@@ -198,7 +193,7 @@ fun AccountsScreen(
             }
 
             if (rows.isEmpty() && trimmed.isEmpty()) {
-                item(key = "empty") { EmptyState() }
+                item(key = "empty") { EmptyState(Modifier.fillParentMaxHeight(0.7f)) }
             }
         }
     }
@@ -301,26 +296,13 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun EmptyState() {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 64.dp, start = 24.dp, end = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(
-            MtgaIcons.Person,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(48.dp)
-        )
-        Text("No accounts yet", style = MaterialTheme.typography.titleLarge)
-        Text(
-            "Type a handle above to read a profile, then follow it to build your timeline. " +
-                "Handles stay on this device and are never sent anywhere except to the server " +
-                "that serves the feed.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-    }
+private fun EmptyState(modifier: Modifier = Modifier) {
+    EmptyZone(
+        title = "No accounts yet",
+        message = "Type a handle above to read a profile, then follow it to build your timeline. " +
+            "Handles stay on this device and are never sent anywhere except to the server " +
+            "that serves the feed.",
+        icon = MtgaIcons.Person,
+        modifier = modifier
+    )
 }
