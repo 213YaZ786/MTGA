@@ -23,10 +23,11 @@ import kotlinx.coroutines.withContext
  * further calls authenticated endpoints. So this source is the most accurate
  * available for the head of a feed and useless for depth.
  *
- * Deliberately, the page is only mined for status ids. Everything else comes
- * from [SyndicationSource], which returns structured JSON. A digit run after
- * "/status/" is about as stable as markup gets, so a redesign of x.com costs us
- * nothing as long as posts still link to themselves.
+ * Since September 2026 the page carries those posts whole, as a streamed
+ * GraphQL answer, and [XPagePayload] reads them from there. When it finds
+ * nothing, the page is mined for status ids and each post comes from
+ * [SyndicationSource] instead. A digit run after "/status/" is about as stable
+ * as markup gets, so that fallback survives a redesign.
  *
  * Cost to be honest about: these requests go to X directly, so X sees the
  * device's address and which profiles it opens. Nitter proxies that away. This
@@ -75,9 +76,23 @@ class XComSource(
             return@withContext Outcome.Failure(ErrorMapper.fromThrowable(HOST, t))
         }
 
-        val ids = extractStatusIds(body, handle)
         val elapsed = (System.nanoTime() - startedAt) / 1_000_000
 
+        // The page's own timeline first. When it is there, it is complete and
+        // costs no further request. The id and syndication path below stays
+        // for pages rendered without it.
+        val fromPage = runCatching { XPagePayload.posts(body) }.getOrDefault(emptyList())
+        if (fromPage.isNotEmpty()) {
+            log.record(
+                RequestLog.Kind.PROFILE, url, "ok",
+                bodyBytes = body.length, durationMillis = elapsed,
+                detail = "posts: ${fromPage.size} | read from the page, no syndication request" +
+                    " | long posts: ${fromPage.count { it.text.length > 280 }}"
+            )
+            return@withContext Outcome.Success(feedOf(handle, fromPage))
+        }
+
+        val ids = extractStatusIds(body, handle)
         if (ids.isEmpty()) {
             log.record(
                 RequestLog.Kind.PROFILE, url, "no status ids in page",
@@ -109,22 +124,23 @@ class XComSource(
                 " | long posts completed: ${posts.count { p -> fetched.none { it.id == p.id && it.text == p.text } }}"
         )
 
+        Outcome.Success(feedOf(handle, posts))
+    }
+
+    private fun feedOf(handle: String, posts: List<Post>): Feed {
         // The first post may be a repost, whose author is someone else. Take
         // the profile's name and avatar only from a post it wrote itself, and
         // otherwise leave them blank so the cache keeps what it already knows.
         val own = posts.firstOrNull { it.authorHandle.equals(handle, ignoreCase = true) }
-
-        Outcome.Success(
-            Feed(
-                handle = handle,
-                displayName = own?.authorName.orEmpty(),
-                posts = posts.sortedByDescending { it.publishedAtMillis },
-                fetchedFromHost = HOST,
-                fetchedAtMillis = System.currentTimeMillis(),
-                avatarUrl = own?.avatarUrl,
-                // No cursor exists here. Depth is Nitter's job.
-                nextCursor = null
-            )
+        return Feed(
+            handle = handle,
+            displayName = own?.authorName.orEmpty(),
+            posts = posts.sortedByDescending { it.publishedAtMillis },
+            fetchedFromHost = HOST,
+            fetchedAtMillis = System.currentTimeMillis(),
+            avatarUrl = own?.avatarUrl,
+            // No cursor exists here. Depth is Nitter's job.
+            nextCursor = null
         )
     }
 
