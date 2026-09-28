@@ -202,18 +202,6 @@ data class ProfileStats(
 )
 
 /**
- * The tabs of a profile, mapped to Nitter's own paths. Posts is the cached,
- * multi source feed. Replies and Media are read from Nitter only, fresh, and
- * never saved, like a conversation.
- */
-enum class ProfileTab(val label: String, val path: String, val query: String?) {
-    POSTS("Posts", "", null),
-    REPLIES("Replies", "/with_replies", null),
-    // Forced to the timeline view, the grid and gallery views have no post markup.
-    MEDIA("Media", "/media", "view=timeline")
-}
-
-/**
  * A post with its surroundings, as read from its own page. Not cached: replies
  * change constantly and are only worth reading fresh.
  *

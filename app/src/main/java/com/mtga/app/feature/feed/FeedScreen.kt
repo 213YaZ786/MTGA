@@ -32,8 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -62,7 +60,6 @@ import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
-import com.mtga.app.core.model.ProfileTab
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ChallengePill
@@ -121,20 +118,18 @@ fun FeedScreen(
 
     LaunchedEffect(handle) { viewModel.load(handle) }
 
-    val tab = state.tab
-    val tabFeed = state.tabFeed(tab)
-    val shown = if (tab == ProfileTab.POSTS) feed?.posts.orEmpty() else tabFeed.posts
-    val canMore = if (tab == ProfileTab.POSTS) state.canLoadMore else tabFeed.cursor != null
-    val pagingFailed = if (tab == ProfileTab.POSTS) state.pagingFailed else tabFeed.pagingFailed
-    val loadingMore = if (tab == ProfileTab.POSTS) state.loadingMore else tabFeed.loadingMore
+    val shown = feed?.posts.orEmpty()
+    val canMore = state.canLoadMore
+    val pagingFailed = state.pagingFailed
+    val loadingMore = state.loadingMore
 
-    val shouldLoadMore by remember(shown.size, tab) {
+    val shouldLoadMore by remember(shown.size) {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             shown.isNotEmpty() && last >= shown.size - 5
         }
     }
-    LaunchedEffect(shouldLoadMore, canMore, pagingFailed, tab) {
+    LaunchedEffect(shouldLoadMore, canMore, pagingFailed) {
         if (shouldLoadMore) viewModel.loadMore()
     }
 
@@ -175,9 +170,8 @@ fun FeedScreen(
         val inline = rememberInlineTarget(
             listState = listState,
             posts = shown,
-            keyOf = { "${tab.name}-${it.id}" },
-            paused = viewing != null,
-            keySpace = tab
+            keyOf = { it.id },
+            paused = viewing != null
         )
         CompositionLocalProvider(LocalInlinePlaying provides inline) {
         LazyColumn(
@@ -214,21 +208,11 @@ fun FeedScreen(
                 )
             }
 
-            item(key = "tabs") {
-                SecondaryTabRow(selectedTabIndex = tab.ordinal) {
-                    ProfileTab.entries.forEach { entry ->
-                        Tab(
-                            selected = entry == tab,
-                            onClick = { viewModel.selectTab(entry) },
-                            text = { Text(entry.label) }
-                        )
-                    }
-                }
-            }
-
-            val error = if (tab == ProfileTab.POSTS) state.error else tabFeed.error
-            error?.let {
-                item(key = "error-${tab.name}") {
+            // No Replies and Media tabs since 2.9.10. Both were read from
+            // Nitter alone, which barely answers any more, so they showed an
+            // error nearly every time. LinkedOut dropped its own earlier.
+            state.error?.let {
+                item(key = "error") {
                     ErrorPanel(
                         modifier = Modifier.padding(16.dp),
                         error = it,
@@ -238,30 +222,18 @@ fun FeedScreen(
                 }
             }
 
-            val firstLoad = if (tab == ProfileTab.POSTS) feed == null && state.loading else tabFeed.loading
             if (shown.isEmpty()) {
-                if (firstLoad) {
-                    item(key = "loading-${tab.name}") {
+                if (feed == null && state.loading) {
+                    item(key = "loading") {
                         Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
-                    }
-                } else if (tab != ProfileTab.POSTS && tabFeed.loaded && error == null) {
-                    item(key = "empty-${tab.name}") {
-                        Text(
-                            if (tab == ProfileTab.MEDIA) "No photos or videos." else "No replies.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(32.dp)
-                        )
                     }
                 }
                 return@LazyColumn
             }
 
-            // Keys carry the tab, the same post can sit in two tabs.
-            items(shown, key = { "${tab.name}-${it.id}" }) { post ->
+            items(shown, key = { it.id }) { post ->
                 PostCard(
                     post = post,
                     onClick = { onOpenPost(post) },
@@ -301,7 +273,7 @@ fun FeedScreen(
         // profile used to be announced by a card above the header, which the
         // reader had already scrolled past.
         ChallengePill(
-            challenge = listOfNotNull(state.error, tabFeed.error).solvableChallenge(),
+            challenge = listOfNotNull(state.error).solvableChallenge(),
             onVerify = viewModel::verify,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -428,7 +400,6 @@ private fun ProfileHeader(
             )
         }
 
-        // The tab row right under the header draws its own line.
         Spacer(Modifier.height(4.dp))
     }
 }
