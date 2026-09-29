@@ -3,6 +3,8 @@
 #
 # Action versions: actions/checkout v7, actions/setup-java v6,
 # actions/upload-artifact v7, gradle/actions v6. Dependabot moves them.
+#
+# Shared across the apps of this base: edit Modules/shared, then run sync.sh.
 name: Build
 
 on:
@@ -30,7 +32,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 21
+          java-version: '21'
 
       # This repository has gradle/wrapper/gradle-wrapper.properties but no
       # gradlew script and no gradle-wrapper.jar, so there is no wrapper to
@@ -52,8 +54,10 @@ jobs:
       - name: Read the version
         run: |
           VERSION="$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)"
-          echo "versionName $VERSION"
+          CODE="$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)"
+          echo "versionName $VERSION, versionCode $CODE"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "CODE=$CODE" >> "$GITHUB_ENV"
 
       # Says out loud which of the four secrets the run can see, by name and
       # never by value, and restores the key when all four are there. Both
@@ -112,9 +116,10 @@ jobs:
       - name: Build and test
         run: gradle --stacktrace assembleDebug assembleRelease testDebugUnitTest
 
-      # No ABI splits: MTGA ships no native code, so every split would be the
-      # same bytes under a different name. The two builds that do differ are
-      # the signed release and the debug one, and both are named and hashed.
+      # No ABI splits: MTGA ships no native code of its own, so every
+      # split would be the same bytes under a different name. The two builds
+      # that do differ are the signed release and the debug one, and both are
+      # named and hashed.
       - name: Name the files and note their fingerprints
         run: |
           mkdir -p release
@@ -128,10 +133,10 @@ jobs:
           ( cd release && sha256sum ./*.apk > SHA256SUMS.txt )
           cat release/SHA256SUMS.txt
 
-      # MTGA declares four permissions and depends on libraries that declare
-      # a few of their own. Anything outside this list fails the build, which
-      # is the point: a new dependency that wants the camera should stop the
-      # release rather than ship quietly.
+      # The app declares a handful of permissions and depends on libraries
+      # that declare a few of their own, WorkManager above all. Anything outside
+      # this list fails the build, which is the point: a new dependency that
+      # wants the camera should stop the release rather than ship quietly.
       - name: Check release permissions
         run: |
           AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2"
@@ -145,18 +150,57 @@ jobs:
             | grep -v "android.permission.WAKE_LOCK" \
             | grep -v "android.permission.RECEIVE_BOOT_COMPLETED" \
             | grep -v "android.permission.FOREGROUND_SERVICE" \
+            | grep -v "android.permission.FOREGROUND_SERVICE_DATA_SYNC" \
             | grep -v "com.mtga.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
           then
             echo "::error::Unexpected permission in the release APK"
             exit 1
           fi
 
-      - name: Upload the test report
+      # A release APK that ships debuggable is a release APK that anyone can
+      # attach a debugger to and read the whole process from. It has happened
+      # to better projects than this one.
+      - name: Check the release is not debuggable
+        run: |
+          AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2"
+          if "$AAPT2" dump badging "release/MTGA-$VERSION.apk" | grep -q "application-debuggable"
+          then
+            echo "::error::The release APK is debuggable"
+            exit 1
+          fi
+          echo "not debuggable"
+
+      # The run page says what was built without anyone opening a log: the
+      # version, the size of each file and its fingerprint.
+      - name: Write the summary
+        run: |
+          {
+            echo "## MTGA $VERSION (versionCode $CODE)"
+            echo
+            echo "| File | Size | SHA-256 |"
+            echo "| --- | --- | --- |"
+            for apk in release/*.apk
+            do
+              size="$(du -h "$apk" | cut -f1)"
+              sum="$(sha256sum "$apk" | cut -d' ' -f1)"
+              echo "| $(basename "$apk") | $size | \`$sum\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Never fails the build. Lint has opinions and some of them are wrong,
+      # but the report is worth reading before a release.
+      - name: Lint
+        continue-on-error: true
+        run: gradle --stacktrace :app:lintRelease
+
+      - name: Upload the reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: mtga-test-report
-          path: app/build/reports/tests/
+          name: mtga-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-release.html
           if-no-files-found: ignore
 
       - name: Upload the APKs
@@ -181,10 +225,18 @@ jobs:
             TAG="v$VERSION-b$GITHUB_RUN_NUMBER"
             TITLE="MTGA $VERSION (build $GITHUB_RUN_NUMBER)"
           fi
+          {
+            echo "versionCode $CODE"
+            echo
+            echo '```'
+            cat release/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
           gh release create "$TAG" release/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TITLE" \
             --target "$GITHUB_SHA" \
+            --notes-file notes.md \
             --generate-notes
           echo "published $TAG"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
