@@ -63,6 +63,8 @@ fun DiagnosticsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+        // The page's ground is painted under the whole app, see MainActivity.
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 // Over the reading column, like the content under it.

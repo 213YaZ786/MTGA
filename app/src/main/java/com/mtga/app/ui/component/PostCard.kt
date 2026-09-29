@@ -1,7 +1,6 @@
 package com.mtga.app.ui.component
 
 import com.mtga.app.ui.theme.innerZone
-import com.mtga.app.ui.theme.zone
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -74,12 +73,11 @@ fun PostCard(
     // two things without needing a line drawn between them.
     val shape = RoundedCornerShape(24.dp)
     val tap = rememberHaptics()
-    Surface(
+    ZoneSurface(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = if (compact) 3.dp else 5.dp),
         shape = shape,
-        color = MaterialTheme.colorScheme.zone,
         // The outline says "you have not been past this one yet" and nothing
         // else. It needs no label and no legend, which is why it is a border
         // and not a badge.

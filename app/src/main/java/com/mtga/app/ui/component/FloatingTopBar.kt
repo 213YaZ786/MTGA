@@ -1,6 +1,7 @@
 package com.mtga.app.ui.component
 
-import com.mtga.app.ui.theme.zone
+import com.mtga.app.ui.glass.groundHere
+import com.mtga.app.ui.glass.LocalGlass
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -56,17 +57,17 @@ fun FloatingTopBar(
             // and no sliver of it is left under the status bar.
             .onSizeChanged { size -> state?.heightOffsetLimit = -size.height.toFloat() }
             .offset { IntOffset(0, state?.heightOffset?.roundToInt() ?: 0) }
-            // Opaque, otherwise posts scroll through the gap above the zone.
-            .background(MaterialTheme.colorScheme.background)
+            // Opaque, otherwise posts scroll through the gap above the zone:
+            // the page's ground as it lies here, ambient light included.
+            .groundHere(LocalGlass.current, MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             // The inset keeps the zone over the readable column on a wide
             // window. The background above is drawn before it, so it still
             // covers the full width and nothing scrolls through the margins.
             .padding(horizontal = 16.dp + LocalReadableInset.current, vertical = 8.dp)
     ) {
-        Surface(
+        ZoneSurface(
             shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.zone,
             modifier = Modifier.fillMaxWidth()
         ) {
             CenterAlignedTopAppBar(

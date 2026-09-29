@@ -1,5 +1,6 @@
 package com.mtga.app.feature.feed
 
+import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.RejectOnFailure
 import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.LoadingMark
@@ -146,6 +147,8 @@ fun FeedScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     Scaffold(
+        // The page's ground is painted under the whole app, see MainActivity.
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             FloatingTopBar(

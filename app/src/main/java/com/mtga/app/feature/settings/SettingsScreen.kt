@@ -1,11 +1,11 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.ui.component.ZoneSurface
 import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import com.mtga.app.core.system.BatteryExemption
-import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.ScreenBanner
 import com.mtga.app.ui.component.LocalDockPadding
@@ -215,6 +215,12 @@ fun SettingsScreen(
                 checked = settings.pureBlack,
                 enabled = settings.themeMode != ThemeMode.LIGHT,
                 onChange = viewModel::setPureBlack
+            )
+            SwitchRow(
+                title = "Glass effects",
+                summary = "Zones and floating buttons in liquid glass, over a soft light in your wallpaper's colours.",
+                checked = settings.glass,
+                onChange = viewModel::setGlass
             )
             SwitchRow(
                 title = "Show counts",
@@ -506,9 +512,8 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
             .fillMaxWidth()
             .padding(start = 28.dp, end = 28.dp, top = 24.dp, bottom = 10.dp)
     )
-    Surface(
+    ZoneSurface(
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
     ) {
         Column(content = content)

@@ -1,9 +1,10 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.ZoneSurface
+import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
-import com.mtga.app.ui.theme.zone
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -128,6 +129,8 @@ fun FoldersScreen(
     }
 
     Scaffold(
+        // The page's ground is painted under the whole app, see MainActivity.
+        containerColor = Color.Transparent,
         topBar = {
             FloatingTopBar(
                 title = { Text("Folders") },
@@ -182,9 +185,8 @@ private fun FolderZone(
     onFile: (AccountRow) -> Unit
 ) {
     val count = rows.count { it.folder == name }
-    Surface(
+    ZoneSurface(
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {

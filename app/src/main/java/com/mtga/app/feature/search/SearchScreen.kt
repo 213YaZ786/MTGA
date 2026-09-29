@@ -76,6 +76,8 @@ fun SearchScreen(
     }
 
     Scaffold(
+        // The page's ground is painted under the whole app, see MainActivity.
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 navigationIcon = {

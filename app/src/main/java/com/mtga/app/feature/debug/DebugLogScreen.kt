@@ -1,5 +1,6 @@
 package com.mtga.app.feature.debug
 
+import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
@@ -62,6 +63,8 @@ fun DebugLogScreen(onBack: () -> Unit) {
     val stamp = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
     Scaffold(
+        // The page's ground is painted under the whole app, see MainActivity.
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(

@@ -1,5 +1,10 @@
 package com.mtga.app
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.MaterialTheme
+import com.mtga.app.ui.glass.rememberGlassLook
+import com.mtga.app.ui.glass.glassGround
+import com.mtga.app.ui.glass.LocalGlass
 import android.content.Intent
 import android.graphics.Color
 import android.widget.Toast
@@ -63,12 +68,18 @@ class MainActivity : ComponentActivity() {
                     squareAvatars = settings.squareAvatars
                 )
             ) {
-                Box(Modifier.fillMaxSize()) {
+                // Glass over Material You: the look for this theme, or none
+                // when the reader turned it off, and the page's ground with
+                // its ambient light under everything.
+                val look = rememberGlassLook(MaterialTheme.colorScheme, settings.glass)
+                CompositionLocalProvider(LocalGlass provides look) {
+                Box(Modifier.fillMaxSize().glassGround(look, MaterialTheme.colorScheme.background)) {
                     // Order matters. The check runs underneath the app, which
                     // hides it and takes every touch, and its status sits on top.
                     ChallengeBackstage()
                     MtgaApp()
                     ChallengeOverlay()
+                }
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.ZoneSurface
 import com.mtga.app.core.link.LinkCleaner
 import com.mtga.app.ui.component.CleanLinkEffect
 import com.mtga.app.ui.component.rememberHaptics
@@ -16,7 +17,6 @@ import com.mtga.app.ui.component.BannerAction
 import com.mtga.app.ui.component.ScreenBanner
 import com.mtga.app.ui.component.EmptyZone
 import com.mtga.app.ui.component.BoldButton
-import com.mtga.app.ui.theme.zone
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.FolderDialog
 import androidx.compose.runtime.remember
@@ -276,10 +276,9 @@ fun AccountsScreen(
 
 @Composable
 private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Unit)?) {
-    Surface(
+    ZoneSurface(
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.zone,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(

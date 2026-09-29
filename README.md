@@ -11,7 +11,7 @@ Read public X (Twitter) posts on Android, with no account, no tracking and no ad
 - **Open a post** to read it in full, copy its text, share it or open it on X.
 - **View photos and videos** full screen, zoom in, and save them to your phone.
 - **Read offline.** Posts you have seen are saved on the phone and stay readable without a connection.
-- **Choose your look**: light, dark, pure black, and colours that follow your wallpaper.
+- **Choose your look**: light, dark, pure black, colours that follow your wallpaper, and liquid glass zones you can turn off.
 
 ## Privacy
 
