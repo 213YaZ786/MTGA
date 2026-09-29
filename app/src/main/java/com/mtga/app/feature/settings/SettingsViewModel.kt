@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.core.update.UpdateMode
 import android.content.Context
 import android.net.Uri
 import java.io.ByteArrayOutputStream
@@ -180,6 +181,8 @@ class SettingsViewModel(
      * first pass saves the newest posts already on screen rather than waiting
      * for the next one to be published.
      */
+    fun setUpdates(mode: UpdateMode) = store.update { it.copy(updates = mode) }
+
     fun setAutoDownloadMedia(value: AutoDownload) = store.update {
         it.copy(autoDownloadMedia = value, autoDownloadedUntilMillis = 0)
     }

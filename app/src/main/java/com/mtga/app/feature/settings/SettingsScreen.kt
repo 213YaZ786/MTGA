@@ -1,5 +1,7 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.core.update.UpdateMode
+import com.mtga.app.core.update.Updates
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.component.ZoneAlertDialog
@@ -71,8 +73,14 @@ import com.mtga.app.ui.theme.TEXT_SCALES
 import com.mtga.app.ui.theme.textScaleLabel
 import org.koin.androidx.compose.koinViewModel
 
-private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB, AUTO_DOWNLOAD }
+private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB, AUTO_DOWNLOAD, UPDATES }
 
+
+private fun updatesLabel(mode: UpdateMode): String = when (mode) {
+    UpdateMode.OFF -> "Off"
+    UpdateMode.NOTIFY -> "Notify me"
+    UpdateMode.INSTALL -> "Install"
+}
 private fun autoDownloadLabel(value: AutoDownload): String = when (value) {
     AutoDownload.OFF -> "Never"
     AutoDownload.UNMETERED -> "On Wi-Fi only"
@@ -403,6 +411,11 @@ fun SettingsScreen(
 
         Section("About") {
             SettingRow(
+                title = "Updates",
+                summary = updatesLabel(settings.updates),
+                onClick = { dialog = OpenDialog.UPDATES }
+            )
+            SettingRow(
                 title = "MTGA ${BuildConfig.VERSION_NAME}",
                 summary = "Read public X posts with no account, no tracking and no ads.",
                 onClick = null
@@ -461,6 +474,17 @@ fun SettingsScreen(
             options = TEXT_SCALES.map { it to textScaleLabel(it) },
             selected = settings.textScale,
             onSelect = viewModel::setTextScale,
+            onDismiss = { dialog = OpenDialog.NONE }
+        )
+        OpenDialog.UPDATES -> ChoiceDialog(
+            title = "Updates",
+            options = UpdateMode.entries.map { it to updatesLabel(it) },
+            selected = settings.updates,
+            onSelect = { mode ->
+                viewModel.setUpdates(mode)
+                // Installing needs Android's leave, asked when chosen.
+                if (mode == UpdateMode.INSTALL && !Updates.canInstall(context)) Updates.allowInstalls(context)
+            },
             onDismiss = { dialog = OpenDialog.NONE }
         )
         OpenDialog.AUTO_DOWNLOAD -> ChoiceDialog(

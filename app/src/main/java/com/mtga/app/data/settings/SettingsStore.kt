@@ -1,5 +1,6 @@
 package com.mtga.app.data.settings
 
+import com.mtga.app.core.update.UpdateMode
 import android.content.Context
 import com.mtga.app.core.common.writeTextAtomically
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,8 @@ enum class AutoDownload { OFF, UNMETERED, ANY }
 
 @Serializable
 data class Settings(
+    /** What happens when a newer version is out, checked once when the app opens. */
+    val updates: UpdateMode = UpdateMode.NOTIFY,
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
     val useXcomDirect: Boolean = true,
     /** Poll followed accounts in the background so history accumulates. */

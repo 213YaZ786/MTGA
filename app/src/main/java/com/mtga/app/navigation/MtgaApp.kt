@@ -1,5 +1,7 @@
 package com.mtga.app.navigation
 
+import com.mtga.app.BuildConfig
+import com.mtga.app.ui.component.UpdatePrompt
 import com.mtga.app.ui.glass.glassGround
 import com.mtga.app.ui.glass.rememberGlassBackdrop
 import com.mtga.app.ui.glass.glassSource
@@ -323,6 +325,11 @@ private fun MainTabs(
     var showWelcome by rememberSaveable {
         mutableStateOf(!store.current.welcomeSeen && accounts.accounts.value.isEmpty())
     }
+
+    // Once when the app opens, never over the guide; debug builds are a
+    // different app and skip it.
+    val updates by store.settings.collectAsState()
+    if (!showWelcome && !BuildConfig.DEBUG) UpdatePrompt(updates.updates, BuildConfig.VERSION_NAME)
 
     // Remembered on every settled switch, so choosing "Last tab" later in
     // Settings already knows where the reader was.
