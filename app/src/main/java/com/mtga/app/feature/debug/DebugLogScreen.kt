@@ -1,5 +1,6 @@
 package com.mtga.app.feature.debug
 
+import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +57,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
     val entries by log.entries.collectAsState()
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val haptics = rememberHaptics()
     val snackbar = remember { SnackbarHostState() }
     val stamp = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
@@ -87,6 +89,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
             ) {
                 BoldButton(onClick = {
                     clipboard.setText(AnnotatedString(log.render()))
+                    haptics.done()
                     scope.launch { snackbar.showSnackbar("Log copied") }
                 }) { Text("Copy all") }
 

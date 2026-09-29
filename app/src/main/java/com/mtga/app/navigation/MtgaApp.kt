@@ -1,5 +1,6 @@
 package com.mtga.app.navigation
 
+import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
@@ -39,8 +40,6 @@ import org.koin.compose.koinInject
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -324,16 +323,15 @@ private fun MainTabs(
         if (store.current.lastTab != page) store.update { it.copy(lastTab = page) }
     }
 
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val side = WidthClass.of(maxWidth).usesSideDock
 
         fun go(index: Int) {
-            // A tick on every tab change, the way the system keyboard and the
-            // platform's own navigation confirm a switch. Silent gestures feel
-            // unacknowledged on a phone held in one hand.
-            if (index != pager.currentPage) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            // Firm: moving to another tab is taking the whole screen somewhere
+            // else, not pressing a button on the one you are reading.
+            if (index != pager.currentPage) haptics.firm()
             scope.launch {
                 // On the side, tabs switch in place, like a navigation rail.
                 // At the bottom they slide, because there pages are also swiped.

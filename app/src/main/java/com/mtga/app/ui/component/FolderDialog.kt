@@ -22,8 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 
 /**
@@ -95,9 +93,9 @@ fun FolderDialog(
 
 @Composable
 private fun Choice(label: String, chosen: Boolean, onChoose: () -> Unit) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     val choose = {
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        haptics.tick()
         onChoose()
     }
     Row(

@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.theme.zone
@@ -33,8 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +65,7 @@ fun FoldersScreen(
     var creating by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
 
     if (creating) {
         NameDialog(
@@ -118,7 +117,7 @@ fun FoldersScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptics.done()
                     viewModel.deleteFolder(name)
                     if (open == name) open = null
                     deleting = null
@@ -163,7 +162,7 @@ fun FoldersScreen(
                     onDelete = { deleting = name },
                     onFile = { row ->
                         // Filing is moving, so it answers like something taken.
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptics.firm()
                         viewModel.setFolder(row.handle, if (row.folder == name) FollowedAccount.MAIN else name)
                     }
                 )

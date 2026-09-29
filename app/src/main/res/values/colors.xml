@@ -3,16 +3,14 @@
       The launcher icon takes its paint from the wallpaper, like every other
       surface in the app. These are the platform's own dynamic palette, public
       since API 31, and minSdk is 31, so there is no fallback to maintain.
+      A themed icon ignores them and tints the silhouette instead.
 
-      Referenced from the adaptive icon rather than baked into the vector, so
-      the icon follows the wallpaper whether or not themed icons are switched
-      on in the launcher. A themed icon tints the monochrome layer itself and
-      ignores these, which is why both paths end up correct.
-
-      600 against 0: a mid tone of the accent under a near white glyph. That
-      pair keeps its contrast on every wallpaper, which a lighter background
-      would not.
+      The feather runs from a light base to a deep tip of the accent, on a
+      background barely tinted with it, so the relief reads as on paper.
     -->
-    <color name="ic_launcher_background">@android:color/system_accent1_600</color>
-    <color name="ic_launcher_glyph">@android:color/system_accent1_0</color>
+    <color name="ic_launcher_background">@android:color/system_accent1_50</color>
+    <color name="ic_feather_base">@android:color/system_accent1_100</color>
+    <color name="ic_feather_middle">@android:color/system_accent1_300</color>
+    <color name="ic_feather_tip">@android:color/system_accent1_600</color>
+    <color name="ic_feather_shaft">@android:color/system_accent1_300</color>
 </resources>

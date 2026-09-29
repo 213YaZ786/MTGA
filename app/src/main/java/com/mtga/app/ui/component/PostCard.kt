@@ -73,6 +73,7 @@ fun PostCard(
     // used to separate two posts is gone with it: two zones with a gap read as
     // two things without needing a line drawn between them.
     val shape = RoundedCornerShape(24.dp)
+    val tap = rememberHaptics()
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -85,7 +86,7 @@ fun PostCard(
         border = if (unread) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
         Column(
-            Modifier.clickable(onClick = onClick)
+            Modifier.clickable { tap.tick(); onClick() }
                 .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
@@ -317,8 +318,14 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                     )
                 }
 
+                val tap = rememberHaptics()
                 IconButton(
-                    onClick = { onDownload(item) },
+                    onClick = {
+                        // The file will land somewhere the reader cannot see,
+                        // so the phone says it has been asked for.
+                        tap.done()
+                        onDownload(item)
+                    },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
@@ -344,8 +351,9 @@ internal fun QuoteBlock(
     onClick: () -> Unit,
     note: CommunityNote? = null
 ) {
+    val tap = rememberHaptics()
     Surface(
-        onClick = onClick,
+        onClick = { tap.tick(); onClick() },
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.innerZone,
         modifier = Modifier.fillMaxWidth()
@@ -414,8 +422,9 @@ internal fun LinkCardBlock(card: LinkCard, onClick: () -> Unit) {
     val image = card.imageUrl
     val waiting = hold && !revealed
 
+    val tap = rememberHaptics()
     Surface(
-        onClick = onClick,
+        onClick = { tap.tick(); onClick() },
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.innerZone,
         modifier = Modifier.fillMaxWidth()

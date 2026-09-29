@@ -1,11 +1,10 @@
 package com.mtga.app.feature.welcome
 
+import com.mtga.app.ui.component.rememberHaptics
 import org.koin.compose.koinInject
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.settings.AutoDownload
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -248,10 +247,10 @@ private fun MediaChoice(chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit)
 @Composable
 private fun MediaOption(label: String, value: AutoDownload, chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
     val picked = chosen == value
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     Surface(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptics.tick()
             onChoose(value)
         },
         shape = RoundedCornerShape(16.dp),

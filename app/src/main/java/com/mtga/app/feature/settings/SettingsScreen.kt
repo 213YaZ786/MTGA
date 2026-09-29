@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsTopHeight
@@ -520,8 +521,10 @@ private fun SettingRow(
     summary: String?,
     onClick: (() -> Unit)?,
     enabled: Boolean = true,
+    quiet: Boolean = false,
     trailing: (@Composable () -> Unit)? = null
 ) {
+    val haptics = rememberHaptics()
     val alpha = if (enabled) 1f else 0.38f
     ListItem(
         headlineContent = { Text(title, color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)) },
@@ -530,7 +533,16 @@ private fun SettingRow(
         },
         trailingContent = trailing,
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier
+        // Every row answers with a tick; a switch row answers with the switch's
+        // own feel instead, so it is quiet here.
+        modifier = if (onClick != null) {
+            Modifier.clickable(enabled = enabled) {
+                if (!quiet) haptics.tick()
+                onClick()
+            }
+        } else {
+            Modifier
+        }
     )
 }
 
@@ -542,12 +554,18 @@ private fun SwitchRow(
     onChange: (Boolean) -> Unit,
     enabled: Boolean = true
 ) {
+    val haptics = rememberHaptics()
+    val change = { on: Boolean ->
+        haptics.toggle(on)
+        onChange(on)
+    }
     SettingRow(
         title = title,
         summary = summary,
         enabled = enabled,
-        onClick = { onChange(!checked) },
-        trailing = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) }
+        quiet = true,
+        onClick = { change(!checked) },
+        trailing = { Switch(checked = checked, onCheckedChange = change, enabled = enabled) }
     )
 }
 

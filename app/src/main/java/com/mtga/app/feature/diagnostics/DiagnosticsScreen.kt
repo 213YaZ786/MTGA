@@ -1,5 +1,6 @@
 package com.mtga.app.feature.diagnostics
 
+import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,10 +79,7 @@ fun DiagnosticsScreen(
                     }
                     IconButton(onClick = viewModel::refresh, enabled = !state.probing) {
                         if (state.probing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
+                            LoadingMark(size = 22.dp)
                         } else {
                             Icon(MtgaIcons.Refresh, contentDescription = "Re-check")
                         }
@@ -418,7 +415,7 @@ private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -
             ) {
                 BoldButton(onClick = onUpdate, enabled = !status.updating) { Text("Update now") }
                 if (status.updating) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    LoadingMark(size = 20.dp)
                 }
             }
         }

@@ -1,5 +1,8 @@
 package com.mtga.app.feature.feed
 
+import com.mtga.app.ui.component.RejectOnFailure
+import com.mtga.app.ui.component.rememberHaptics
+import com.mtga.app.ui.component.LoadingMark
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
@@ -26,7 +29,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -93,6 +95,8 @@ fun FeedScreen(
     viewModel: FeedViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val haptics = rememberHaptics()
+    RejectOnFailure(state.error)
     val followed by viewModel.followed.collectAsState()
     val isFollowing = followed.any { it.handle.equals(handle, ignoreCase = true) }
     val uriHandler = LocalUriHandler.current
@@ -159,7 +163,7 @@ fun FeedScreen(
                 actions = {
                     IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                         if (state.loading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            LoadingMark(size = 22.dp)
                         } else {
                             Icon(MtgaIcons.Refresh, contentDescription = "Refresh")
                         }
@@ -193,7 +197,12 @@ fun FeedScreen(
                     name = name,
                     feed = feed,
                     isFollowing = isFollowing,
-                    onToggleFollow = viewModel::toggleFollow,
+                    onToggleFollow = {
+                        // Following or dropping an account is a decision, and
+                        // it answers like one.
+                        haptics.done()
+                        viewModel.toggleFollow()
+                    },
                     onOpenAvatar = { small ->
                         viewing = Triple(
                             "",
@@ -228,7 +237,7 @@ fun FeedScreen(
                 if (feed == null && state.loading) {
                     item(key = "loading") {
                         Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                            LoadingMark(size = 40.dp)
                         }
                     }
                 }
@@ -253,10 +262,7 @@ fun FeedScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     when {
-                        loadingMore -> CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
+                        loadingMore -> LoadingMark(size = 28.dp)
                         canMore -> BoldButton(onClick = { viewModel.loadMore(manual = true) }) {
                             Text(if (pagingFailed) "Try again" else "Load older posts")
                         }

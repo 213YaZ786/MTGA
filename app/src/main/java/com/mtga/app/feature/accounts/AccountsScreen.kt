@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsets
@@ -95,6 +96,7 @@ fun AccountsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     val focus = LocalFocusManager.current
     val context = LocalContext.current
+    val haptics = rememberHaptics()
 
     // Coming back from a profile may have brought new posts or an avatar.
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -134,6 +136,7 @@ fun AccountsScreen(
             .orEmpty()
         val text = PastedText.query(clip) { Regex("""(^|[/.])(x|twitter)\.com/""").containsMatchIn(it) }
         if (text.isEmpty()) {
+            haptics.reject()
             Toast.makeText(context, "Nothing to paste. Copy a profile link or a handle first.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -217,7 +220,7 @@ fun AccountsScreen(
                     CandidateCard(
                         handle = candidate,
                         onOpen = { open(candidate) },
-                        onFollow = { viewModel.follow(candidate) }
+                        onFollow = { haptics.done(); viewModel.follow(candidate) }
                     )
                 }
             } else if (trimmed.isNotEmpty() && candidate == null && visible.isEmpty()) {

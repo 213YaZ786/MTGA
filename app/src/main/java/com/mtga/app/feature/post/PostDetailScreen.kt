@@ -1,5 +1,7 @@
 package com.mtga.app.feature.post
 
+import com.mtga.app.ui.component.RejectOnFailure
+import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.theme.zone
@@ -29,7 +31,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -97,6 +98,7 @@ fun PostDetailScreen(
     viewModel: PostDetailViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    RejectOnFailure((state.thread as? ThreadState.Failed)?.error)
     val context = LocalContext.current
 
     LaunchedEffect(id) { viewModel.load(id, from) }
@@ -160,7 +162,7 @@ fun PostDetailScreen(
                         )
                     }
                 }
-                else -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                else -> LoadingMark(Modifier.align(Alignment.Center), size = 40.dp)
             }
         }
     }
@@ -252,7 +254,7 @@ private fun ConversationView(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    LoadingMark(size = 22.dp)
                     Text("Loading replies", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
