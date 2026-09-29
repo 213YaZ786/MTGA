@@ -92,7 +92,7 @@ val appModule = module {
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get(), get(), get()) }
-    single { FeedRepository(get(), get(), get(), get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get(), get(), get(), get(), get()) }
     single { ArchiveSource(androidContext(), get(), get(), get()) }
     single {
         val settings: SettingsStore = get()

@@ -35,12 +35,12 @@ class MtgaApplication : Application() {
             cache.applyRetention()
             val kept = cache.storedPostIds()
             koin.get<OfflineMedia>().keepOnly(kept)
-            // Whatever was already on disk when the app opened is not new.
+            // What was published before the previous visit is not new.
             // Without this a reader coming back after a week would face a
-            // border on two hundred posts they had already seen.
+            // dot on two hundred posts they had already seen.
             val marks = koin.get<ReadMarks>()
             marks.load()
-            marks.markAllRead(kept)
+            marks.markReadBeforeLastVisit(cache.storedPostTimes())
         }
 
         val settings = koin.get<SettingsStore>()

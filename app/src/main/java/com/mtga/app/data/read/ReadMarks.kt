@@ -37,9 +37,11 @@ class ReadMarks(context: Context) {
      * one frame with every card bordered before the file comes back, which is
      * a flash of blue on every launch.
      */
-    @Volatile
-    var ready: Boolean = false
-        private set
+    private val _ready = MutableStateFlow(false)
+    val readyState: StateFlow<Boolean> = _ready.asStateFlow()
+    val ready: Boolean get() = _ready.value
+
+    private val visitFile = File(context.filesDir, "last-visit.txt")
 
     suspend fun load() {
         val stored = withContext(Dispatchers.IO) {
@@ -48,18 +50,22 @@ class ReadMarks(context: Context) {
                 .getOrDefault(emptyList())
         }
         _read.value = stored.toSet()
-        ready = true
+        _ready.value = true
     }
 
     /**
-     * Treats everything given as already read, without touching what is
-     * already marked.
-     *
-     * Run at launch over the posts the cache already held, so a reader coming
-     * back after a week sees a border on what arrived since and not on the
-     * two hundred posts that were there before.
+     * Run at launch over the posts the cache holds: what was published
+     * before the previous visit is not new, whoever stored it. Posts the
+     * background checks saved since, while the app was closed, stay new
+     * until scrolled past. Up to 2.13 everything stored at launch counted
+     * as read, so with background checks on no post was ever new. The very
+     * first launch has no previous visit, and nothing is new then.
      */
-    suspend fun markAllRead(ids: Set<String>) = add(ids)
+    suspend fun markReadBeforeLastVisit(posts: Map<String, Long>) {
+        val previous = withContext(Dispatchers.IO) { runCatching { visitFile.readText().trim().toLong() }.getOrNull() }
+        add(posts.filterValues { previous == null || it <= previous }.keys)
+        withContext(Dispatchers.IO) { runCatching { visitFile.writeTextAtomically(System.currentTimeMillis().toString()) } }
+    }
 
     /** One pass of the list, so scrolling costs one write and not one per card. */
     suspend fun markRead(ids: List<String>) {

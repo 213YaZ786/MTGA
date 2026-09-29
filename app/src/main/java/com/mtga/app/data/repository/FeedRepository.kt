@@ -4,6 +4,7 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.ArchiveCursor
 import com.mtga.app.core.model.LegacyCursor
 import com.mtga.app.core.model.Post
@@ -32,7 +33,8 @@ class FeedRepository(
     private val xcom: XComSource,
     private val settings: SettingsStore,
     private val archive: ArchiveSource,
-    private val cache: FeedCache
+    private val cache: FeedCache,
+    private val log: RequestLog
 ) {
 
     /**
@@ -79,6 +81,17 @@ class FeedRepository(
                     fetchedAtMillis = System.currentTimeMillis()
                 )
             )
+        }
+
+        // Which source the next page is asked of, so a log sent in shows why
+        // a scroll to the end brought nothing.
+        if (cursor != null) {
+            val via = when {
+                ArchiveCursor.parse(cursor) != null -> if (settings.current.olderFromArchives) "the archives" else "the archives, switched off"
+                SearchCursor.parse(cursor) != null -> "Nitter search"
+                else -> "a Nitter page"
+            }
+            log.record(RequestLog.Kind.PAGE, "page/$handle", "older posts asked of $via")
         }
 
         ArchiveCursor.parse(cursor)?.let { below ->
@@ -128,8 +141,15 @@ class FeedRepository(
      * below this first page: a page of posts all stored already reads to the
      * cache as the end, and paging would stop there.
      */
-    private suspend fun archiveBelow(handle: String, posts: List<Post>): String? =
-        ArchiveCursor.below(posts + cache.read(handle)?.posts.orEmpty())
+    private suspend fun archiveBelow(handle: String, posts: List<Post>): String? {
+        val cursor = ArchiveCursor.below(posts + cache.read(handle)?.posts.orEmpty())
+        log.record(
+            RequestLog.Kind.PAGE, "archive/$handle",
+            if (cursor == null) "no own post to page below" else "next page from the archives",
+            detail = ArchiveCursor.parse(cursor)?.let { "below ${java.time.Instant.ofEpochMilli((it shr 22) + 1_288_834_974_657L)}" }
+        )
+        return cursor
+    }
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
         // A check is deliberately absent. The feed host of a checked instance

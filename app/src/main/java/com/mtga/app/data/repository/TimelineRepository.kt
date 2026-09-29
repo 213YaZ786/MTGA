@@ -98,12 +98,14 @@ class TimelineRepository(
         val headOk = mutableSetOf<String>()
         if (settings.current.useXcomDirect) {
             for (handle in targets) {
-                when (val head = xcom.fetchLatest(handle)) {
+                // Through the repository, which gives the head a way further
+                // back through the archives when nothing else pages.
+                when (val head = feeds.loadHead(handle)) {
                     is Outcome.Success -> {
-                        cache.append(head.value)
+                        if (cache.append(head.value).nextCursor != null) more = true
                         headOk += handle
                     }
-                    is Outcome.Failure -> Unit // instances still had their turn
+                    else -> Unit // instances still had their turn
                 }
             }
         }

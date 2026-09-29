@@ -306,6 +306,15 @@ class FeedCache(
         }
     }
 
+    /** Every stored post's id with the time it was published. */
+    suspend fun storedPostTimes(): Map<String, Long> = withContext(Dispatchers.IO) {
+        val times = HashMap<String, Long>()
+        feedFiles().forEach { file ->
+            runCatching { json.decodeFromString<Feed>(file.readText()).posts.forEach { times[it.id] = it.publishedAtMillis } }
+        }
+        times
+    }
+
     private fun fileFor(handle: String) = File(directory, "${handle.lowercase()}.json")
 
     /**

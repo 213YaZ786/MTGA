@@ -74,7 +74,14 @@ class ArchiveSource(
         // the end: the next batch is tried, a few times at most.
         repeat(EMPTY_BATCHES_TRIED) {
             val batch = ids.filter { it < cursor }.take(PAGE)
-            if (batch.isEmpty()) return@withContext Outcome.Success(feed(handle, emptyList(), null))
+            if (batch.isEmpty()) {
+                log.record(
+                    RequestLog.Kind.PAGE, "archive/$handle",
+                    if (ids.isEmpty()) "archive: no post ids known for this account" else "archive: nothing older known, the end",
+                    detail = "below ${java.time.Instant.ofEpochMilli((cursor shr 22) + 1_288_834_974_657L)}"
+                )
+                return@withContext Outcome.Success(feed(handle, emptyList(), null))
+            }
             val started = System.currentTimeMillis()
             val posts = coroutineScope {
                 batch.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false) } } }.awaitAll()
@@ -84,7 +91,7 @@ class ArchiveSource(
             log.record(
                 RequestLog.Kind.PAGE, "archive/$handle", "archive: ${posts.size} of ${batch.size} posts read",
                 durationMillis = System.currentTimeMillis() - started,
-                detail = "below ${batch.max()} | ${ids.count { it < cursor }} more known"
+                detail = "from ${java.time.Instant.ofEpochMilli((batch.max() shr 22) + 1_288_834_974_657L)} | ${ids.count { it < cursor }} older known"
             )
             if (posts.isNotEmpty() || !more) {
                 return@withContext Outcome.Success(feed(handle, posts, if (more) ArchiveCursor.of(cursor) else null))

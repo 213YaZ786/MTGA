@@ -195,6 +195,7 @@ fun TimelineScreen(
     // list costs one write rather than one per card.
     val marks: ReadMarks = koinInject()
     val readIds by marks.read.collectAsState()
+    val marksReady by marks.readyState.collectAsState()
 
     // No top bar at all. A bar that folds away and comes back still owns a
     // band of the screen the whole time it is on it, which on a phone is
@@ -360,7 +361,7 @@ fun TimelineScreen(
                             // Unknown until the file is read, and unknown
                             // means read: a border flashed on every card for
                             // one frame at launch would be worse than none.
-                            unread = marks.ready && post.id !in readIds,
+                            unread = marksReady && post.id !in readIds,
                             onClick = { onOpenPost(post) },
                             onOpenLink = { uriHandler.openUri(it) },
                             onDownload = { downloader.download(it, post.authorHandle) },
