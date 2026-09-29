@@ -1,5 +1,6 @@
 package com.mtga.app.ui.component
 
+import androidx.compose.foundation.combinedClickable
 import com.mtga.app.ui.theme.innerZone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -72,7 +73,9 @@ fun PostCard(
     // two things without needing a line drawn between them.
     val shape = RoundedCornerShape(24.dp)
     val tap = rememberHaptics()
-    Box(modifier) {
+    // A tap opens the post, a long press the pill of actions, see PostActions.
+    val actions = rememberPostActions(post, onDownload)
+    Box(modifier.then(actions.tracker)) {
     ZoneSurface(
         modifier = Modifier
             .fillMaxWidth()
@@ -80,7 +83,7 @@ fun PostCard(
         shape = shape
     ) {
         Column(
-            Modifier.clickable { tap.tick(); onClick() }
+            Modifier.combinedClickable(onClick = { tap.tick(); onClick() }, onLongClick = actions::open)
                 .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
@@ -137,6 +140,7 @@ fun PostCard(
     }
     // Arrived since the last visit and not yet scrolled past, see NewDot.
     NewDot(unread, Modifier.align(Alignment.TopEnd).padding(top = if (compact) 11.dp else 13.dp, end = 26.dp))
+    PostActionsOverlay(actions)
     }
 }
 

@@ -1,5 +1,6 @@
 package com.mtga.app.feature.welcome
 
+import androidx.compose.foundation.layout.systemBarsPadding
 import com.mtga.app.core.update.UpdateMode
 import com.mtga.app.core.update.Updates
 import com.mtga.app.feature.settings.SettingsViewModel
@@ -215,7 +216,8 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
+    // Drawn over the whole window, so it keeps clear of the system bars itself.
+    Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             QuietButton(onClick = { onFinish(false) }) { Text(if (last) "Close" else "Skip") }
         }

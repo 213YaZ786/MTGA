@@ -1,5 +1,7 @@
 package com.mtga.app.feature.timeline
 
+import com.mtga.app.data.marks.PostMarks
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.Spacer
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.present
@@ -106,7 +108,20 @@ fun TimelineScreen(
     onOpenSearch: () -> Unit,
     viewModel: TimelineViewModel = koinViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val loaded by viewModel.state.collectAsState()
+    // Liked and Archived are views picked from Home's folder menu, not
+    // folders: their posts come from PostMarks, and archived posts leave the
+    // other views.
+    val postMarks: PostMarks = koinInject()
+    val marked by postMarks.marks.collectAsState()
+    var special by rememberSaveable { mutableStateOf<String?>(null) }
+    val state = remember(loaded, marked, special) {
+        when (special) {
+            LIKED -> loaded.copy(posts = marked.liked.sortedByDescending { it.publishedAtMillis }, folder = LIKED, canLoadMore = false)
+            ARCHIVED -> loaded.copy(posts = marked.archived.sortedByDescending { it.publishedAtMillis }, folder = ARCHIVED, canLoadMore = false)
+            else -> if (marked.archived.isEmpty()) loaded else loaded.copy(posts = loaded.posts.filterNot { marked.isArchived(it.id) })
+        }
+    }
     // The threshold is felt in the indicator itself; this answers the end of
     // a refresh the reader pulled: done, or a refusal when nothing came.
     val askedRefresh = rememberRefreshHaptics(
@@ -156,14 +171,20 @@ fun TimelineScreen(
                 choosingFolder = false
                 // A name typed under New folder creates it, empty, and Home
                 // shows it so the reader sees where the next filing lands.
-                viewModel.showFolder(name?.let(viewModel::createFolder))
+                if (name == LIKED || name == ARCHIVED) {
+                    special = name
+                } else {
+                    special = null
+                    viewModel.showFolder(name?.let(viewModel::createFolder))
+                }
             },
-            onDismiss = { choosingFolder = false }
+            onDismiss = { choosingFolder = false },
+            extras = listOf(LIKED, ARCHIVED)
         )
     }
     // Offered once the reader has made a folder. With Main alone there is
     // nothing to choose, and the title stays a title.
-    val chooseFolder: (() -> Unit)? = if (state.folders.size > 1) {
+    val chooseFolder: (() -> Unit)? = if (state.folders.size > 1 || special != null || marked.liked.isNotEmpty() || marked.archived.isNotEmpty()) {
         { choosingFolder = true }
     } else {
         null
@@ -616,3 +637,6 @@ private fun FailureDialog(
 }
 
 private const val FAILURES_SHOWN = 5
+
+private const val LIKED = "Liked"
+private const val ARCHIVED = "Archived"

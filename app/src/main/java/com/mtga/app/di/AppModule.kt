@@ -1,5 +1,6 @@
 package com.mtga.app.di
 
+import com.mtga.app.data.marks.PostMarks
 import com.mtga.app.core.link.RedirectResolver
 import com.mtga.app.core.debug.LogExporter
 import com.mtga.app.core.debug.RequestLog
@@ -70,6 +71,7 @@ val appModule = module {
     single { AutoMediaDownloader(get(), get(), get(), get(), get(), get()) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
+    single { PostMarks(androidContext()) }
     single { HtmlTimelineParser() }
     single { InstanceProbe(get(), get(), get(), get(), get(), get(), get()) }
 
