@@ -1,5 +1,11 @@
 package com.mtga.app.feature.welcome
 
+import com.mtga.app.core.update.UpdateMode
+import com.mtga.app.core.update.Updates
+import com.mtga.app.feature.settings.SettingsViewModel
+import org.koin.androidx.compose.koinViewModel
+import com.mtga.app.core.system.BatteryExemption
+import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.glass.glassZone
 import com.mtga.app.ui.glass.LocalGlass
@@ -65,11 +71,16 @@ private data class WelcomePage(
     /** Shows "x.com/nytimes" with the handle picked out. */
     val showLinkExample: Boolean = false,
     /** The last page asks for a decision instead of explaining anything. */
-    val showMediaChoice: Boolean = false
+    val showMediaChoice: Boolean = false,
+    /** The app's own animation, large, in place of the icon. */
+    val showMark: Boolean = false,
+    val showUpdateChoice: Boolean = false,
+    val showNotifyChoice: Boolean = false
 )
 
 private val PAGES = listOf(
     WelcomePage(
+        showMark = true,
         icon = MtgaIcons.Home,
         title = "Welcome to MTGA",
         intro = "Read public posts from X with no account, no tracking and no ads.",
@@ -115,6 +126,20 @@ private val PAGES = listOf(
         intro = "Posts saved on the phone open again offline.",
         points = listOf("Changeable in Settings."),
         showMediaChoice = true
+    ),
+    WelcomePage(
+        icon = MtgaIcons.Refresh,
+        title = "Updates",
+        intro = "When a new version is out.",
+        points = listOf("Changeable in Settings."),
+        showUpdateChoice = true
+    ),
+    WelcomePage(
+        icon = MtgaIcons.Bell,
+        title = "New posts",
+        intro = "A notification when followed accounts post.",
+        points = listOf("Changeable in Settings."),
+        showNotifyChoice = true
     )
 )
 
@@ -157,6 +182,39 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
         }
     }
 
+    // Updates and new post notifications start from the current settings;
+    // each asks for the permission it needs when turned on, not before.
+    var updates by remember { mutableStateOf(settings.current.updates) }
+    val chooseUpdates: (UpdateMode) -> Unit = { mode ->
+        updates = mode
+        settings.update { it.copy(updates = mode) }
+        if (mode == UpdateMode.INSTALL && !Updates.canInstall(context)) Updates.allowInstalls(context)
+    }
+    val sync: SettingsViewModel = koinViewModel()
+    var notify by remember { mutableStateOf(settings.current.backgroundSync && settings.current.notifyNewPosts) }
+    val turnOnNotify = {
+        notify = true
+        sync.setBackgroundSync(true)
+        sync.setNotifyNewPosts(true)
+        // Checks run with the app closed: see BatteryExemption.
+        BatteryExemption.request(context)
+    }
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) turnOnNotify() else notify = false
+    }
+    val chooseNotify: (Boolean) -> Unit = { on ->
+        when {
+            !on -> {
+                notify = false
+                sync.setNotifyNewPosts(false)
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED -> askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            else -> turnOnNotify()
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             QuietButton(onClick = { onFinish(false) }) { Text(if (last) "Close" else "Skip") }
@@ -165,7 +223,20 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
         HorizontalPager(
             state = pager,
             modifier = Modifier.weight(1f).fillMaxWidth()
-        ) { index -> PageContent(page = PAGES[index], chosen = chosen, onChoose = choose) }
+        ) { index ->
+            val page = PAGES[index]
+            PageContent(page) {
+                when {
+                    page.showMediaChoice -> MediaChoice(chosen = chosen, onChoose = choose)
+                    page.showUpdateChoice -> Choices(
+                        listOf(UpdateMode.OFF to "Off", UpdateMode.NOTIFY to "Notify me", UpdateMode.INSTALL to "Install"),
+                        updates,
+                        chooseUpdates
+                    )
+                    page.showNotifyChoice -> Choices(listOf(false to "Off", true to "Notify me"), notify, chooseNotify)
+                }
+            }
+        }
 
         Dots(count = PAGES.size, current = pager.currentPage)
 
@@ -181,9 +252,9 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
             Spacer(Modifier.weight(1f))
             BoldButton(
                 filled = true,
-                // The last page has no way forward until the choice is made.
+                // The media page has no way forward until the choice is made.
                 // Skip, top right, still leaves at any time.
-                enabled = !last || chosen != null,
+                enabled = !PAGES[pager.currentPage].showMediaChoice || chosen != null,
                 onClick = {
                     if (last) onFinish(true) else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) }
                 }
@@ -193,24 +264,28 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
 }
 
 @Composable
-private fun PageContent(page: WelcomePage, chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
+private fun PageContent(page: WelcomePage, choice: @Composable () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
     ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .accentDisc(),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                page.icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(40.dp)
-            )
+        if (page.showMark) {
+            LoadingMark(size = 160.dp)
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .accentDisc(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    page.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
         }
         Text(
             page.title,
@@ -224,7 +299,7 @@ private fun PageContent(page: WelcomePage, chosen: AutoDownload?, onChoose: (Aut
             textAlign = TextAlign.Center
         )
         if (page.showLinkExample) LinkExample()
-        if (page.showMediaChoice) MediaChoice(chosen = chosen, onChoose = onChoose)
+        choice()
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -238,15 +313,23 @@ private fun PageContent(page: WelcomePage, chosen: AutoDownload?, onChoose: (Aut
 @Composable
 private fun MediaChoice(chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        MediaOption("Never", AutoDownload.OFF, chosen, onChoose)
-        MediaOption("On Wi-Fi only", AutoDownload.UNMETERED, chosen, onChoose)
-        MediaOption("On Wi-Fi or mobile data", AutoDownload.ANY, chosen, onChoose)
+        Option("Never", AutoDownload.OFF, chosen, onChoose)
+        Option("On Wi-Fi only", AutoDownload.UNMETERED, chosen, onChoose)
+        Option("On Wi-Fi or mobile data", AutoDownload.ANY, chosen, onChoose)
+    }
+}
+
+/** Rows to pick one from. */
+@Composable
+private fun <T> Choices(options: List<Pair<T, String>>, chosen: T?, onChoose: (T) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (value, label) -> Option(label, value, chosen, onChoose) }
     }
 }
 
 /** A filled primary colour when picked, so the answer is unmistakable. */
 @Composable
-private fun MediaOption(label: String, value: AutoDownload, chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
+private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Unit) {
     val picked = chosen == value
     val haptics = rememberHaptics()
     ZoneSurface(
