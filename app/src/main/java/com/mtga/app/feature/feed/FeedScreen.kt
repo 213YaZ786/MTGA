@@ -149,6 +149,7 @@ fun FeedScreen(
     Scaffold(
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             FloatingTopBar(
@@ -240,7 +241,7 @@ fun FeedScreen(
                 if (feed == null && state.loading) {
                     item(key = "loading") {
                         Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                            LoadingMark(size = 40.dp)
+                            LoadingMark(size = 96.dp)
                         }
                     }
                 }

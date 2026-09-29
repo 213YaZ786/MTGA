@@ -73,11 +73,16 @@ class MainActivity : ComponentActivity() {
                 // its ambient light under everything.
                 val look = rememberGlassLook(MaterialTheme.colorScheme, settings.glass)
                 CompositionLocalProvider(LocalGlass provides look) {
-                Box(Modifier.fillMaxSize().glassGround(look, MaterialTheme.colorScheme.background)) {
+                Box(Modifier.fillMaxSize()) {
                     // Order matters. The check runs underneath the app, which
                     // hides it and takes every touch, and its status sits on top.
+                    // The page's ground is painted on the app, not under the
+                    // check: the screens are see through so the ambient light
+                    // shows, and the ground is what keeps the check hidden.
                     ChallengeBackstage()
-                    MtgaApp()
+                    Box(Modifier.fillMaxSize().glassGround(look, MaterialTheme.colorScheme.background)) {
+                        MtgaApp()
+                    }
                     ChallengeOverlay()
                 }
                 }

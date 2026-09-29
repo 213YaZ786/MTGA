@@ -145,7 +145,7 @@ private fun MtgaNavHost(navController: NavHostController) {
     // which left a band of empty background above and below Home.
     // Transparent: the page's ground, with its ambient light when glass is
     // on, is painted once under the whole app, see MainActivity.
-    Scaffold(containerColor = Color.Transparent) { innerPadding ->
+    Scaffold(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) { innerPadding ->
         // Owns the shared elements. A post's avatar flies from its card to the
         // opened post instead of one fading out while the other fades in. Only
         // destinations that show posts hand their animated scope down.

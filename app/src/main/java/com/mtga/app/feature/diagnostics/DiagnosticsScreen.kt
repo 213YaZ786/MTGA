@@ -65,6 +65,7 @@ fun DiagnosticsScreen(
     Scaffold(
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             TopAppBar(
                 // Over the reading column, like the content under it.

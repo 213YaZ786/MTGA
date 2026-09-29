@@ -109,6 +109,7 @@ fun PostDetailScreen(
     Scaffold(
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
                 title = { Text("Post") },
@@ -165,7 +166,7 @@ fun PostDetailScreen(
                         )
                     }
                 }
-                else -> LoadingMark(Modifier.align(Alignment.Center), size = 40.dp)
+                else -> LoadingMark(Modifier.align(Alignment.Center), size = 96.dp)
             }
         }
     }
@@ -363,11 +364,13 @@ private fun PostBody(
     ) {
         post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
 
-        ZoneSurface(
+        Surface(
             onClick = { onOpenProfile(post.authorHandle) },
             shape = RoundedCornerShape(16.dp),
-            // Same colour as the zone it sits in: this is a tap target, not a
-            // second card inside the first one.
+            // See through: this is a tap target on the zone, not a second
+            // card inside the first one.
+            color = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ) {
             Row(
                 modifier = Modifier.padding(vertical = 4.dp),

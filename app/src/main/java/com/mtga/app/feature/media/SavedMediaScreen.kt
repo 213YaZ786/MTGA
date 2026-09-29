@@ -59,6 +59,7 @@ fun SavedMediaScreen(
     Scaffold(
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
                 title = { Text("Saved media") },

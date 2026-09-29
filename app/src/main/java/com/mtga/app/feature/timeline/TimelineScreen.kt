@@ -171,7 +171,7 @@ fun TimelineScreen(
     val look = LocalGlass.current
     val listBackdrop = rememberGlassBackdrop()
     // The page's ground is painted under the whole app, see MainActivity.
-    Scaffold(containerColor = Color.Transparent) { padding ->
+    Scaffold(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) { padding ->
         CompositionLocalProvider(LocalGlassBackdrop provides listBackdrop.takeIf { look != null }) {
         // The check pill lives outside the when, so it is on screen whether
         // Home is empty, failed or full, and whatever the scroll position.
