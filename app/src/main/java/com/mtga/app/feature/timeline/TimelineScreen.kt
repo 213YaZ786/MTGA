@@ -1,5 +1,10 @@
 package com.mtga.app.feature.timeline
 
+import androidx.compose.foundation.layout.Spacer
+import com.mtga.app.core.common.AppError
+import com.mtga.app.core.common.present
+import com.mtga.app.ui.component.ZoneAlertDialog
+import com.mtga.app.ui.component.QuietButton
 import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.glass.rememberGlassBackdrop
 import com.mtga.app.ui.glass.glassSource
@@ -88,8 +93,8 @@ import org.koin.compose.koinInject
 /**
  * Home: everything you follow in one stream, newest first.
  *
- * Pull down to refresh. A post that arrived since the last visit wears an
- * outline until you have scrolled past it. The pulse icon turns red when a
+ * Pull down to refresh. A post that arrived since the last visit wears a
+ * dot until you have scrolled past it. The pulse icon turns red when a
  * source fails and opens Diagnostics.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,6 +132,18 @@ fun TimelineScreen(
         )
     }
 
+
+    var showFailures by remember { mutableStateOf(false) }
+    if (showFailures) {
+        FailureDialog(
+            failed = state.errors.toList(),
+            onRetry = {
+                showFailures = false
+                viewModel.refresh()
+            },
+            onDismiss = { showFailures = false }
+        )
+    }
 
     var choosingFolder by remember { mutableStateOf(false) }
     if (choosingFolder) {
@@ -215,7 +232,7 @@ fun TimelineScreen(
                         HomeHeader(
                             state = state,
                             onOpenSearch = onOpenSearch,
-                            onOpenDiagnostics = onOpenDiagnostics,
+                            onShowFailures = { showFailures = true },
                             onChooseFolder = chooseFolder
                         )
                     }
@@ -299,7 +316,7 @@ fun TimelineScreen(
                         HomeHeader(
                             state = state,
                             onOpenSearch = onOpenSearch,
-                            onOpenDiagnostics = onOpenDiagnostics,
+                            onShowFailures = { showFailures = true },
                             onChooseFolder = chooseFolder
                         )
                     }
@@ -397,7 +414,7 @@ fun TimelineScreen(
 private fun HomeHeader(
     state: TimelineUiState,
     onOpenSearch: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
+    onShowFailures: () -> Unit,
     /** Null until the reader has made a folder, see TimelineScreen. */
     onChooseFolder: (() -> Unit)?
 ) {
@@ -411,26 +428,23 @@ private fun HomeHeader(
         ) {
             val failing = state.errors.isNotEmpty()
             if (state.followedCount > 0) {
-                BoldIconButton(
-                    onClick = onOpenDiagnostics,
-                    modifier = Modifier.size(BUTTON_SIZE),
-                    // A failing source is the one thing here that needs
-                    // noticing, so it fills rather than tints.
-                    colors = if (failing) {
-                        IconButtonDefaults.filledTonalIconButtonColors(
+                // Shown only when an account failed to load, the one thing
+                // here that needs noticing; a blank of the same width keeps
+                // the title centred otherwise.
+                if (failing) {
+                    BoldIconButton(
+                        onClick = onShowFailures,
+                        modifier = Modifier.size(BUTTON_SIZE),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer,
                             contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    } else {
-                        IconButtonDefaults.filledTonalIconButtonColors()
-                    },
-                    edge = if (failing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(
-                        MtgaIcons.Pulse,
-                        contentDescription = if (failing) "Some sources failed" else "Sources working",
-                        modifier = Modifier.size(ICON_SIZE)
-                    )
+                        ),
+                        edge = MaterialTheme.colorScheme.error
+                    ) {
+                        Icon(MtgaIcons.Pulse, contentDescription = "What went wrong", modifier = Modifier.size(ICON_SIZE))
+                    }
+                } else {
+                    Spacer(Modifier.size(BUTTON_SIZE))
                 }
             }
 
@@ -561,3 +575,44 @@ private fun EmptyState(
         modifier = modifier.fillMaxSize()
     )
 }
+
+/**
+ * What went wrong, in words, and the one thing that helps: which accounts
+ * could not be updated and why. Their saved posts stay in the stream.
+ */
+@Composable
+private fun FailureDialog(
+    failed: List<Pair<String, AppError>>,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ZoneAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (failed.size == 1) "1 account could not be updated" else "${failed.size} accounts could not be updated") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                failed.take(FAILURES_SHOWN).forEach { (handle, error) ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("@$handle", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            error.present().explanation,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (failed.size > FAILURES_SHOWN) {
+                    Text(
+                        "and ${failed.size - FAILURES_SHOWN} more",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = { QuietButton(onClick = onRetry) { Text("Try again") } },
+        dismissButton = { QuietButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+private const val FAILURES_SHOWN = 5

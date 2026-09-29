@@ -1,5 +1,7 @@
 package com.mtga.app.feature.settings
 
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.component.ZoneAlertDialog
 import com.mtga.app.ui.component.ZoneSurface
 import com.mtga.app.ui.component.rememberHaptics
@@ -397,16 +399,6 @@ fun SettingsScreen(
                 summary = "Where to find a handle, and the ways to follow an account.",
                 onClick = onOpenWelcome
             )
-            SettingRow(
-                title = "Connection check",
-                summary = "See which servers answer right now, and why something does not load.",
-                onClick = onOpenDiagnostics
-            )
-            SettingRow(
-                title = "Activity log",
-                summary = "Technical details to share when you report a problem.",
-                onClick = onOpenDebugLog
-            )
         }
 
         Section("About") {
@@ -425,6 +417,25 @@ fun SettingsScreen(
                 summary = "Made possible by Nitter and the people who run its servers.",
                 onClick = null
             )
+        }
+
+        // For reporting a problem, not for everyday use: folded away at the
+        // very end, one tap opens it.
+        var troubleshooting by rememberSaveable { mutableStateOf(false) }
+        QuietButton(
+            onClick = { troubleshooting = !troubleshooting },
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+        ) { Text("Troubleshooting") }
+        if (troubleshooting) {
+            ZoneSurface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column {
+                SettingRow(title = "Connection check", summary = null, onClick = onOpenDiagnostics)
+                SettingRow(title = "Activity log", summary = null, onClick = onOpenDebugLog)
+                }
+            }
         }
 
         Spacer(Modifier.height(24.dp + LocalDockPadding.current))
