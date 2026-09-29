@@ -1,5 +1,14 @@
 package com.mtga.app.feature.accounts
 
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
+import com.mtga.app.core.link.PastedText
+import android.widget.Toast
+import android.content.ClipboardManager
 import com.mtga.app.ui.component.BannerAction
 import com.mtga.app.ui.component.ScreenBanner
 import com.mtga.app.ui.component.EmptyZone
@@ -85,6 +94,7 @@ fun AccountsScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     val focus = LocalFocusManager.current
+    val context = LocalContext.current
 
     // Coming back from a profile may have brought new posts or an avatar.
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -109,65 +119,99 @@ fun AccountsScreen(
         onOpenFeed(handle)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // The screen's name centred in its zone, the folders one tap away in
-        // the same zone, as on every screen that opens with a banner.
-        Box(Modifier.padding(horizontal = LocalReadableInset.current)) {
-            ScreenBanner(
-                title = "Accounts",
-                subtitle = if (rows.isEmpty()) null else "${rows.size} followed",
-                trailing = {
-                    BannerAction(
-                        icon = MtgaIcons.Folder,
-                        label = "Folders",
-                        onClick = onOpenFolders
-                    )
-                }
-            )
+    /**
+     * One tap: read the clipboard, put what it holds in the field, and open
+     * the profile it names. A shared sentence goes through PastedText first,
+     * so the link inside it is what lands in the field.
+     */
+    fun paste() {
+        val clip = context.getSystemService(ClipboardManager::class.java)
+            ?.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(context)
+            ?.toString()
+            .orEmpty()
+        val text = PastedText.query(clip) { Regex("""(^|[/.])(x|twitter)\.com/""").containsMatchIn(it) }
+        if (text.isEmpty()) {
+            Toast.makeText(context, "Nothing to paste. Copy a profile link or a handle first.", Toast.LENGTH_SHORT).show()
+            return
         }
+        query = text
+        AccountsViewModel.asHandle(text)?.let { open(it) } ?: focus.clearFocus()
+    }
 
-        TextField(
-            value = query,
-            onValueChange = { query = it },
-            singleLine = true,
-            shape = RoundedCornerShape(28.dp),
-            placeholder = { Text("Search or open a handle") },
-            leadingIcon = { Icon(MtgaIcons.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(MtgaIcons.Close, contentDescription = "Clear")
-                    }
-                }
-            },
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = {
-                when {
-                    candidate != null && !alreadyFollowed -> open(candidate)
-                    visible.size == 1 -> open(visible.first().handle)
-                    else -> focus.clearFocus()
-                }
-            }),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp + LocalReadableInset.current)
-        )
-
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            // The banner and the search field are rows of the list, so the
+            // whole screen scrolls, under the status bar too.
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
-                top = 16.dp,
+                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                 end = 16.dp + LocalReadableInset.current,
                 bottom = 16.dp + LocalDockPadding.current
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item(key = "banner") {
+                // The screen's name centred in its zone, the folders one tap away in
+                // the same zone, as on every screen that opens with a banner.
+                Box(Modifier.fullBleed(16.dp)) {
+                    ScreenBanner(
+                        title = "Accounts",
+                        subtitle = if (rows.isEmpty()) null else "${rows.size} followed",
+                        trailing = {
+                            BannerAction(
+                                icon = MtgaIcons.Folder,
+                                label = "Folders",
+                                onClick = onOpenFolders
+                            )
+                        }
+                    )
+                }
+            }
+            item(key = "search") {
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    placeholder = { Text("Search or open a handle") },
+                    leadingIcon = { Icon(MtgaIcons.Search, contentDescription = null) },
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(MtgaIcons.Close, contentDescription = "Clear")
+                                }
+                            }
+                            // Always there, and the clipboard is read only on a tap:
+                            // reading it to decide whether to show the button would be
+                            // a read too, and Android raises its notice on every one.
+                            IconButton(onClick = { paste() }) {
+                                Icon(MtgaIcons.Paste, contentDescription = "Paste a link or a handle")
+                            }
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        when {
+                            candidate != null && !alreadyFollowed -> open(candidate)
+                            visible.size == 1 -> open(visible.first().handle)
+                            else -> focus.clearFocus()
+                        }
+                    }),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+            }
             if (candidate != null && !alreadyFollowed) {
                 item(key = "candidate") {
                     CandidateCard(
@@ -305,4 +349,16 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         icon = MtgaIcons.Person,
         modifier = modifier
     )
+}
+
+/**
+ * Undoes the list's side padding for a row that brings its own, the banner,
+ * so it keeps the width it has on every other screen.
+ */
+private fun Modifier.fullBleed(side: Dp) = layout { measurable, constraints ->
+    val extra = side.roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(minWidth = constraints.minWidth + 2 * extra, maxWidth = constraints.maxWidth + 2 * extra)
+    )
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra, 0) }
 }

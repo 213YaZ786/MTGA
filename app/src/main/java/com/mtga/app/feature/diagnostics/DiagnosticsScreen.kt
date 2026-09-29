@@ -1,5 +1,6 @@
 package com.mtga.app.feature.diagnostics
 
+import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import androidx.compose.foundation.background
@@ -91,13 +92,13 @@ fun DiagnosticsScreen(
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
                 end = 16.dp + LocalReadableInset.current,
                 top = 16.dp,
                 bottom = 16.dp
-            ),
+            ).plus(padding),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { OverallBanner(state) }

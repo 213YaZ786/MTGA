@@ -1,5 +1,9 @@
 package com.mtga.app.navigation
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.EnterExitState
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.layout.Box
@@ -160,8 +164,6 @@ private fun MtgaNavHost(navController: NavHostController) {
             },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .consumeWindowInsets(innerPadding)
         ) {
             composable(Routes.MAIN) {
                 // True only once this screen has fully arrived and nothing
@@ -415,14 +417,17 @@ private fun MainTabs(
             }
         }
 
+        // The screens draw under the navigation bar, so what sits at the
+        // bottom of them clears it on top of the dock.
+        val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         if (side) {
             // Where the margins around the 720 dp column are wide enough, the
             // pill sits in the left one and the column stays centred on the
             // screen. In a narrower window the content moves right to clear it.
             val clearsPill = maxWidth - ReadableWidth >= SideDockClearance * 2
             Box(Modifier.fillMaxSize()) {
-                // No dock at the bottom, so nothing to clear there.
-                CompositionLocalProvider(LocalDockPadding provides 0.dp) {
+                // No dock at the bottom, only the navigation bar to clear.
+                CompositionLocalProvider(LocalDockPadding provides navigationBar) {
                     pages(
                         Modifier
                             .fillMaxSize()
@@ -440,7 +445,7 @@ private fun MainTabs(
             }
         } else {
             Box(Modifier.fillMaxSize()) {
-                CompositionLocalProvider(LocalDockPadding provides DockClearance) {
+                CompositionLocalProvider(LocalDockPadding provides DockClearance + navigationBar) {
                     pages(Modifier.fillMaxSize())
                 }
 
@@ -448,7 +453,7 @@ private fun MainTabs(
                     items = tabs.map { DockItem(it.icon, it.label) },
                     position = pager.currentPage + pager.currentPageOffsetFraction,
                     onSelect = ::go,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp)
                 )
             }
         }

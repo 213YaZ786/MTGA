@@ -1,5 +1,6 @@
 package com.mtga.app.feature.search
 
+import com.mtga.app.ui.component.plus
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -123,13 +124,13 @@ fun SearchScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize(),
             // Horizontal padding rather than a narrower list, so a drag in
             // the margins of a wide window scrolls too.
             contentPadding = PaddingValues(
                 start = LocalReadableInset.current,
                 end = LocalReadableInset.current
-            )
+            ).plus(padding)
         ) {
             if (hint != null) {
                 item(key = "hint") {

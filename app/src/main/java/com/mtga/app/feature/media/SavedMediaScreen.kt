@@ -1,5 +1,6 @@
 package com.mtga.app.feature.media
 
+import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.theme.zone
 import androidx.compose.foundation.layout.Arrangement
@@ -66,7 +67,7 @@ fun SavedMediaScreen(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize()) {
             if (state.groups.isEmpty()) {
                 Text(
                     if (state.loading) {
@@ -88,7 +89,7 @@ fun SavedMediaScreen(
                     start = LocalReadableInset.current,
                     end = LocalReadableInset.current,
                     bottom = 24.dp
-                )
+                ).plus(padding)
             ) {
                 item(key = "total") {
                     Text(

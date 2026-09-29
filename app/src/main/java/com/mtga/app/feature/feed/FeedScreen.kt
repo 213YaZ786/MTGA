@@ -1,5 +1,7 @@
 package com.mtga.app.feature.feed
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -182,8 +184,8 @@ fun FeedScreen(
                 start = LocalReadableInset.current,
                 end = LocalReadableInset.current,
                 bottom = LocalDockPadding.current
-            ),
-            modifier = Modifier.fillMaxSize().padding(padding)
+            ).plus(padding),
+            modifier = Modifier.fillMaxSize()
         ) {
             item(key = "header") {
                 ProfileHeader(
@@ -277,6 +279,8 @@ fun FeedScreen(
             onVerify = viewModel::verify,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                // The screen draws under the navigation bar, the pill stays above it.
+                .navigationBarsPadding()
                 .padding(bottom = LocalDockPadding.current + 16.dp)
         )
         }

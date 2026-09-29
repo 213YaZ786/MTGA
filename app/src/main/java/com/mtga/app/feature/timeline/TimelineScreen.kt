@@ -1,5 +1,9 @@
 package com.mtga.app.feature.timeline
 
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import com.mtga.app.ui.component.FloatingRoundButton
+import com.mtga.app.ui.component.ScrollUpButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.foundation.border
 import com.mtga.app.ui.component.EmptyZone
@@ -151,6 +155,7 @@ fun TimelineScreen(
     // zone of the list instead: they scroll away with everything else, one
     // flick or the back to top button brings them back, and the reading area
     // is the whole window.
+    val pull = rememberPullToRefreshState()
     Scaffold { padding ->
         // The check pill lives outside the when, so it is on screen whether
         // Home is empty, failed or full, and whatever the scroll position.
@@ -174,10 +179,22 @@ fun TimelineScreen(
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.refresh()
                 },
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier.fillMaxSize(),
+                state = pull,
+                // Under the status bar, where the list starts, not behind it.
+                indicator = {
+                    PullToRefreshDefaults.Indicator(
+                        state = pull,
+                        isRefreshing = state.loading,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
+                    )
+                }
             ) {
                 // A list, because the pull gesture needs something scrollable.
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = LocalDockPadding.current)
+                ) {
                     // The header stays, so a folder whose accounts all failed
                     // is not a dead end: the reader can still switch away.
                     item(key = "home-header") {
@@ -209,7 +226,16 @@ fun TimelineScreen(
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.refresh()
                 },
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier.fillMaxSize(),
+                state = pull,
+                // Under the status bar, where the list starts, not behind it.
+                indicator = {
+                    PullToRefreshDefaults.Indicator(
+                        state = pull,
+                        isRefreshing = state.loading,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
+                    )
+                }
             ) {
                 // Prefetch a page before the reader actually hits the bottom,
                 // so scrolling stays continuous instead of stalling.
@@ -248,9 +274,11 @@ fun TimelineScreen(
                     state = listState,
                     // Horizontal padding rather than a narrower list, so a
                     // drag in the margins of a wide window scrolls too.
+                    // The list starts under the status bar and scrolls beneath it.
                     contentPadding = PaddingValues(
                         start = LocalReadableInset.current,
                         end = LocalReadableInset.current,
+                        top = padding.calculateTopPadding(),
                         bottom = LocalDockPadding.current
                     ),
                     modifier = Modifier.fillMaxSize()
@@ -301,15 +329,18 @@ fun TimelineScreen(
                 }
                 }
 
-                // Only once the way back is a real chore. Below that the
-                // button would be in the way of the posts it sits on.
+                // Both at the bottom right, in one column, above the dock. The
+                // folder switch never leaves: it is how the reader moves from
+                // one stream to another, and a control that only appears once
+                // you have scrolled is a control nobody finds. The way back to
+                // the top stacks above it, and only once the way back is a
+                // real chore.
                 val showBackToTop by remember {
                     derivedStateOf { listState.firstVisibleItemIndex >= BACK_TO_TOP_AFTER }
                 }
-                AnimatedVisibility(
-                    visible = showBackToTop,
-                    enter = fadeIn() + scaleIn(initialScale = 0.8f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.8f),
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
@@ -317,19 +348,16 @@ fun TimelineScreen(
                             bottom = LocalDockPadding.current + 16.dp
                         )
                 ) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            scope.launch { listState.animateScrollToItem(0) }
-                        },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        // The floating action has no border parameter, so the
-                        // edge every action carries is drawn around its shape.
-                        modifier = Modifier.border(boldBorder(), FloatingActionButtonDefaults.smallShape)
-                    ) {
-                        Icon(MtgaIcons.ArrowUp, contentDescription = "Back to the newest post")
-                    }
+                    ScrollUpButton(
+                        visible = showBackToTop,
+                        icon = MtgaIcons.ArrowUp,
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } }
+                    )
+                    FloatingRoundButton(
+                        icon = MtgaIcons.Folder,
+                        label = "Choose which folder to read",
+                        onClick = { choosingFolder = true }
+                    )
                 }
             }
         }
