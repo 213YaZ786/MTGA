@@ -43,6 +43,17 @@ class ReadMarks(context: Context) {
 
     private val visitFile = File(context.filesDir, "last-visit.txt")
 
+    /** When the reader last opened the app before this launch. */
+    @Volatile
+    private var previousVisit: Long = Long.MAX_VALUE
+
+    /**
+     * Posts added after launch, from the archives: what was published before
+     * the previous visit is not new, it only filled a gap.
+     */
+    suspend fun markReadIfOld(posts: List<Pair<String, Long>>) =
+        add(posts.filter { it.second <= previousVisit }.map { it.first }.toSet())
+
     suspend fun load() {
         val stored = withContext(Dispatchers.IO) {
             if (!file.exists()) return@withContext emptyList()
@@ -63,6 +74,7 @@ class ReadMarks(context: Context) {
      */
     suspend fun markReadBeforeLastVisit(posts: Map<String, Long>) {
         val previous = withContext(Dispatchers.IO) { runCatching { visitFile.readText().trim().toLong() }.getOrNull() }
+        previousVisit = previous ?: System.currentTimeMillis()
         add(posts.filterValues { previous == null || it <= previous }.keys)
         withContext(Dispatchers.IO) { runCatching { visitFile.writeTextAtomically(System.currentTimeMillis().toString()) } }
     }

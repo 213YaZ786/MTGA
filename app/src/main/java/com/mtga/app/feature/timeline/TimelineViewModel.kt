@@ -46,6 +46,9 @@ class TimelineViewModel(
     private val autoDownloader: AutoMediaDownloader
 ) : ViewModel() {
 
+    @Volatile
+    private var filling = false
+
     private val _state = MutableStateFlow(TimelineUiState())
     val state: StateFlow<TimelineUiState> = _state.asStateFlow()
 
@@ -134,6 +137,26 @@ class TimelineViewModel(
                 filed = filedIn()
                 fetch(only = null, everything = everything)
             }
+            fillGaps(everything)
+        }
+    }
+
+    /**
+     * After a refresh, the archives fill the gaps the other sources left,
+     * and Home repaints when posts were added. In the background: the first
+     * lookup of an account can take a minute. See TimelineRepository.fillGaps.
+     */
+    private suspend fun fillGaps(everything: Boolean) {
+        if (filling) return
+        filling = true
+        try {
+            val added = repository.fillGaps(if (everything) null else folder)
+            if (added > 0) {
+                val cached = repository.cached(folder)
+                _state.value = _state.value.copy(posts = cached.posts, canLoadMore = cached.canLoadMore)
+            }
+        } finally {
+            filling = false
         }
     }
 

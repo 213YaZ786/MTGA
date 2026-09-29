@@ -104,6 +104,10 @@ class FeedViewModel(
                     error = outcome.error
                 )
             }
+            // Then the archives fill the gaps, see FeedRepository.fillGaps.
+            if (repository.fillGaps(handle) > 0) {
+                cache.read(handle)?.let { _state.value = _state.value.copy(feed = it) }
+            }
         }
     }
 

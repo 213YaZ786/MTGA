@@ -9,6 +9,7 @@ import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.XComSource
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -40,6 +41,17 @@ class TimelineRepository(
     /** Null means every account, which is Home with no folder chosen. */
     private fun handlesIn(folder: String?): List<String> =
         accounts.accounts.value.filter { folder == null || it.folder == folder }.map { it.handle }
+
+    /**
+     * Fills every account's gaps from the archives, two accounts at a time,
+     * see FeedRepository.fillGaps. Returns how many posts were added.
+     */
+    suspend fun fillGaps(folder: String? = null): Int = coroutineScope {
+        val gate = Semaphore(FILL_PARALLEL)
+        handlesIn(folder).map { handle ->
+            async { gate.withPermit { runCatching { feeds.fillGaps(handle) }.getOrDefault(0) } }
+        }.awaitAll().sum()
+    }
 
     /** Instant, offline, no network touched. [folder] as in [handlesIn]. */
     suspend fun cached(folder: String? = null): Merged {
@@ -231,6 +243,7 @@ class TimelineRepository(
          * so concurrency here would buy nothing.
          */
         const val MAX_PARALLEL_FETCHES = 1
+        const val FILL_PARALLEL = 2
         const val MAX_TIMELINE_POSTS = 20_000
     }
 }

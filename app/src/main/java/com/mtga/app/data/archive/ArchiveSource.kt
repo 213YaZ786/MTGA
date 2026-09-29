@@ -52,6 +52,7 @@ class ArchiveSource(
 
     private val known = ConcurrentHashMap<String, Known>()
     private val asking = ConcurrentHashMap<String, Deferred<List<Long>>>()
+    private val failedAt = ConcurrentHashMap<String, Long>()
     private val reading = Semaphore(PARALLEL)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val folder = File(context.filesDir, "archive").apply { mkdirs() }
@@ -100,6 +101,35 @@ class ArchiveSource(
         Outcome.Success(feed(handle, emptyList(), ArchiveCursor.of(cursor)))
     }
 
+    /**
+     * The account's posts the archives know and the phone does not hold yet,
+     * newest first, from [sinceMillis] on and [max] at most: what a refresh
+     * adds to fill the gaps the other sources leave. The next pass goes on
+     * where this one stopped, the posts it added being held by then.
+     */
+    suspend fun fill(handle: String, held: Set<String>, sinceMillis: Long, max: Int): List<com.mtga.app.core.model.Post> = withContext(Dispatchers.IO) {
+        val ids = ids(handle)
+        val missing = ids.asSequence()
+            .filter { ((it shr 22) + 1_288_834_974_657L) >= sinceMillis }
+            .filter { it.toString() !in held }
+            .take(max)
+            .toList()
+        if (missing.isEmpty()) {
+            log.record(RequestLog.Kind.PAGE, "archive/$handle", "archive: no gap to fill", detail = "${ids.size} ids known")
+            return@withContext emptyList()
+        }
+        val started = System.currentTimeMillis()
+        val posts = coroutineScope {
+            missing.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false) } } }.awaitAll()
+        }.filterNotNull().filter { it.authorHandle.equals(handle, ignoreCase = true) }
+        log.record(
+            RequestLog.Kind.PAGE, "archive/$handle", "archive: ${posts.size} of ${missing.size} missing posts read",
+            durationMillis = System.currentTimeMillis() - started,
+            detail = "newest ${java.time.Instant.ofEpochMilli((missing.max() shr 22) + 1_288_834_974_657L)}, oldest ${java.time.Instant.ofEpochMilli((missing.min() shr 22) + 1_288_834_974_657L)}"
+        )
+        posts
+    }
+
     private fun feed(handle: String, posts: List<com.mtga.app.core.model.Post>, next: String?) = Feed(
         handle = handle,
         // Blank: the stored profile keeps its name.
@@ -119,6 +149,7 @@ class ArchiveSource(
         val now = System.currentTimeMillis()
         known[key]?.takeIf { now - it.atMillis < KEEP_MS }?.let { return it.ids }
         stored(key)?.takeIf { now - it.atMillis < KEEP_MS }?.let { known[key] = it; return it.ids }
+        failedAt[key]?.takeIf { now - it < RETRY_AFTER_MS }?.let { return emptyList() }
         val pending = asking.computeIfAbsent(key) { scope.async { lookUp(handle) } }
         return try {
             pending.await()
@@ -139,7 +170,9 @@ class ArchiveSource(
         }
         val ids = ArchiveIds.plausible(found, System.currentTimeMillis())
         log.record(RequestLog.Kind.LIST, "archive/$handle", "archive: ${ids.size} post ids known")
+        if (ids.isEmpty()) failedAt[key] = System.currentTimeMillis()
         if (ids.isNotEmpty()) {
+            failedAt.remove(key)
             val entry = Known(System.currentTimeMillis(), ids)
             known[key] = entry
             runCatching { File(folder, "$key.txt").writeTextAtomically("${entry.atMillis}\n" + ids.joinToString("\n")) }
@@ -198,6 +231,7 @@ class ArchiveSource(
         private const val CDX_LIMIT = 20_000
         private const val KEEP_MS = 24 * 60 * 60_000L
         private const val LOOKUP_TIMEOUT_MS = 60_000L
+        private const val RETRY_AFTER_MS = 15 * 60_000L
         private const val BROWSER_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
     }

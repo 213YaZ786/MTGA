@@ -12,6 +12,7 @@ import com.mtga.app.core.model.SearchCursor
 import com.mtga.app.data.archive.ArchiveSource
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.html.HtmlSource
+import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
 import com.mtga.app.data.settings.SettingsStore
@@ -34,7 +35,8 @@ class FeedRepository(
     private val settings: SettingsStore,
     private val archive: ArchiveSource,
     private val cache: FeedCache,
-    private val log: RequestLog
+    private val log: RequestLog,
+    private val marks: ReadMarks
 ) {
 
     /**
@@ -52,6 +54,24 @@ class FeedRepository(
         } else {
             head
         }
+    }
+
+    /**
+     * Fills the account's gaps from the archives after a refresh: the posts
+     * of the last weeks the phone does not hold, read from X by their ids,
+     * see ArchiveSource.fill. No duplicate: only ids not stored are read,
+     * and the cache adds only ids it does not hold. What was published
+     * before the reader's previous visit is not new. Returns the count added.
+     */
+    suspend fun fillGaps(handle: String): Int {
+        if (!settings.current.olderFromArchives) return 0
+        val stored = cache.read(handle) ?: return 0
+        val days = settings.current.keepPostsDays.takeIf { it in 1..FILL_DAYS } ?: FILL_DAYS
+        val since = System.currentTimeMillis() - days * DAY_MS
+        val found = archive.fill(handle, stored.posts.mapTo(HashSet()) { it.id }, since, FILL_MAX)
+        val added = cache.addPosts(handle, found)
+        marks.markReadIfOld(added.map { it.id to it.publishedAtMillis })
+        return added.size
     }
 
     /** Starts the archives' lookup for an account opened by the reader, see ArchiveSource.warm. */
@@ -160,5 +180,12 @@ class FeedRepository(
         is AppError.InstanceError,
         is AppError.Timeout -> true
         else -> false
+    }
+
+    private companion object {
+        /** How far back a refresh fills, and how many posts a pass adds per account. */
+        const val FILL_DAYS = 30
+        const val FILL_MAX = 100
+        const val DAY_MS = 86_400_000L
     }
 }

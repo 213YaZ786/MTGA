@@ -306,6 +306,21 @@ class FeedCache(
         }
     }
 
+    /**
+     * Adds posts found elsewhere (the archives) to an account's store, the
+     * ones it does not hold yet, by id. The cursor and everything else stay
+     * as they are. Returns the posts actually added.
+     */
+    suspend fun addPosts(handle: String, posts: List<Post>): List<Post> = withContext(Dispatchers.IO) {
+        val existing = read(handle) ?: return@withContext emptyList()
+        val known = existing.posts.mapTo(HashSet()) { it.id }
+        val fresh = posts.map { it.copy(id = PostId.normalize(it.id)) }.filter { known.add(it.id) }
+        if (fresh.isEmpty()) return@withContext emptyList()
+        write(existing.copy(posts = (existing.posts + fresh).sortedWith(PROFILE_ORDER)))
+        log.record(RequestLog.Kind.CACHE, "cache/$handle", "archive posts added", detail = "added: ${fresh.size} | stored now: ${existing.posts.size + fresh.size}")
+        fresh
+    }
+
     /** Every stored post's id with the time it was published. */
     suspend fun storedPostTimes(): Map<String, Long> = withContext(Dispatchers.IO) {
         val times = HashMap<String, Long>()
