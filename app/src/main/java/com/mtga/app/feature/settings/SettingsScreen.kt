@@ -72,9 +72,9 @@ import org.koin.androidx.compose.koinViewModel
 private enum class OpenDialog { NONE, THEME, TEXT_SIZE, KEEP, FREQUENCY, CLEAR, START_TAB, AUTO_DOWNLOAD }
 
 private fun autoDownloadLabel(value: AutoDownload): String = when (value) {
-    AutoDownload.OFF -> "Off"
-    AutoDownload.UNMETERED -> "Wi-Fi only"
-    AutoDownload.ANY -> "Wi-Fi and mobile data"
+    AutoDownload.OFF -> "Never"
+    AutoDownload.UNMETERED -> "On Wi-Fi only"
+    AutoDownload.ANY -> "On Wi-Fi or mobile data"
 }
 
 private val KEEP_DAYS = listOf(7, 30, 90, 365, 0)
@@ -256,9 +256,7 @@ fun SettingsScreen(
             )
             SettingRow(
                 title = "Save media automatically",
-                summary = "Pictures and videos of posts that arrive from then on go to " +
-                    "Downloads without being asked. Only while MTGA is open, never in the " +
-                    "background. Currently: ${autoDownloadLabel(settings.autoDownloadMedia)}.",
+                summary = autoDownloadLabel(settings.autoDownloadMedia),
                 onClick = { dialog = OpenDialog.AUTO_DOWNLOAD }
             )
             SwitchRow(

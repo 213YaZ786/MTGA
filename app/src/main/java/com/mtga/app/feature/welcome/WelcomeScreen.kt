@@ -111,12 +111,9 @@ private val PAGES = listOf(
     ),
     WelcomePage(
         icon = MtgaIcons.Download,
-        title = "Saving media",
-        intro = "Pictures and videos can be kept on the phone, so a post read once opens again with no connection.",
-        points = listOf(
-            "It costs space and, on mobile data, data.",
-            "Changeable at any time in Settings, under Media."
-        ),
+        title = "Save media automatically",
+        intro = "Posts saved on the phone open again offline.",
+        points = listOf("Changeable in Settings."),
         showMediaChoice = true
     )
 )
@@ -241,9 +238,9 @@ private fun PageContent(page: WelcomePage, chosen: AutoDownload?, onChoose: (Aut
 @Composable
 private fun MediaChoice(chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        MediaOption("Only when I open them", AutoDownload.OFF, chosen, onChoose)
-        MediaOption("Save them on Wi-Fi", AutoDownload.UNMETERED, chosen, onChoose)
-        MediaOption("Save them on any network", AutoDownload.ANY, chosen, onChoose)
+        MediaOption("Never", AutoDownload.OFF, chosen, onChoose)
+        MediaOption("On Wi-Fi only", AutoDownload.UNMETERED, chosen, onChoose)
+        MediaOption("On Wi-Fi or mobile data", AutoDownload.ANY, chosen, onChoose)
     }
 }
 

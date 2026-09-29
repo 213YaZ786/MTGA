@@ -22,8 +22,8 @@ android {
         applicationId = "com.mtga.app"
         minSdk = 31
         targetSdk = 37
-        versionCode = 114
-        versionName = "2.10.0"
+        versionCode = 115
+        versionName = "2.10.1"
     }
 
     signingConfigs {
