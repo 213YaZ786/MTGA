@@ -435,18 +435,16 @@ fun SettingsScreen(
         // For reporting a problem, not for everyday use: folded away at the
         // very end, one tap opens it.
         var troubleshooting by rememberSaveable { mutableStateOf(false) }
-        QuietButton(
-            onClick = { troubleshooting = !troubleshooting },
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
-        ) { Text("Troubleshooting") }
-        if (troubleshooting) {
-            ZoneSurface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Column {
-                SettingRow(title = "Connection check", summary = null, onClick = onOpenDiagnostics)
-                SettingRow(title = "Activity log", summary = null, onClick = onOpenDebugLog)
+        // One zone like the sections above, its rows unfolding on a tap.
+        ZoneSurface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 24.dp),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Column {
+                SettingRow(title = "Troubleshooting", summary = null, onClick = { troubleshooting = !troubleshooting })
+                if (troubleshooting) {
+                    SettingRow(title = "Connection check", summary = null, onClick = onOpenDiagnostics)
+                    SettingRow(title = "Activity log", summary = null, onClick = onOpenDebugLog)
                 }
             }
         }
