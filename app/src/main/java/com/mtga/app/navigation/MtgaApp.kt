@@ -260,6 +260,9 @@ private fun MtgaNavHost(navController: NavHostController) {
                 }
             }
         }
+        // After the NavHost, so it takes the back gesture before the
+        // NavHost's predictive pop can.
+        PlainBack(navController)
         }
         }
     }
