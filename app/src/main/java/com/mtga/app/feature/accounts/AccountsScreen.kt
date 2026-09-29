@@ -1,5 +1,7 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.core.link.LinkCleaner
+import com.mtga.app.ui.component.CleanLinkEffect
 import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
@@ -121,6 +123,26 @@ fun AccountsScreen(
         onOpenFeed(handle)
     }
 
+    // A detour link in the field, from a search engine or another site,
+    // becomes the address it stands for; a pasted one then opens like any
+    // other paste.
+    var openWhenClean by remember { mutableStateOf(false) }
+    CleanLinkEffect(
+        text = query,
+        onClean = { clean ->
+            query = clean
+            if (openWhenClean) {
+                openWhenClean = false
+                AccountsViewModel.asHandle(clean)?.let { open(it) }
+            }
+        },
+        onUnreadable = {
+            openWhenClean = false
+            haptics.reject()
+            Toast.makeText(context, "Google did not say where this link leads. Open it and copy the page address.", Toast.LENGTH_SHORT).show()
+        }
+    )
+
     /**
      * One tap: read the clipboard, put what it holds in the field, and open
      * the profile it names. A shared sentence goes through PastedText first,
@@ -141,6 +163,12 @@ fun AccountsScreen(
             return
         }
         query = text
+        if (LinkCleaner.needsResolving(text)) {
+            // Opened once Google has said where it leads, see CleanLinkEffect.
+            openWhenClean = true
+            focus.clearFocus()
+            return
+        }
         AccountsViewModel.asHandle(text)?.let { open(it) } ?: focus.clearFocus()
     }
 

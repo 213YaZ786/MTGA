@@ -1,5 +1,6 @@
 package com.mtga.app.di
 
+import com.mtga.app.core.link.RedirectResolver
 import com.mtga.app.core.debug.LogExporter
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.media.AutoMediaDownloader
@@ -54,6 +55,7 @@ val appModule = module {
     single(named("appScope")) { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
     single { RequestLog() }
+    single { RedirectResolver() }
     single { LogExporter(androidContext()) }
     single { HostThrottle() }
     single { WebSession() }
