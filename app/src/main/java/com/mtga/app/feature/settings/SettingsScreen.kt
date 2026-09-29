@@ -297,6 +297,12 @@ fun SettingsScreen(
                 checked = settings.useXcomDirect,
                 onChange = viewModel::setXcomDirect
             )
+            SwitchRow(
+                title = "Older posts from archives",
+                summary = "Internet Archive and DuckDuckGo.",
+                checked = settings.olderFromArchives,
+                onChange = viewModel::setOlderFromArchives
+            )
             SettingRow(
                 title = "Open X links in MTGA",
                 summary = if (xLinksOn) {

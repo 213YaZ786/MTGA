@@ -162,6 +162,8 @@ class SettingsViewModel(
 
     fun setXcomDirect(enabled: Boolean) = store.update { it.copy(useXcomDirect = enabled) }
 
+    fun setOlderFromArchives(enabled: Boolean) = store.update { it.copy(olderFromArchives = enabled) }
+
     fun setStartTab(tab: StartTab) = store.update { it.copy(startTab = tab) }
 
     fun setShareAsNitter(enabled: Boolean) = store.update { it.copy(shareAsNitter = enabled) }

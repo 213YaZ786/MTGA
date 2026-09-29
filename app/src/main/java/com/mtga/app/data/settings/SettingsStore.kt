@@ -33,6 +33,8 @@ data class Settings(
     val updates: UpdateMode = UpdateMode.NOTIFY,
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
     val useXcomDirect: Boolean = true,
+    /** Older posts through web archives, see ArchiveSource. */
+    val olderFromArchives: Boolean = true,
     /** Poll followed accounts in the background so history accumulates. */
     val backgroundSync: Boolean = false,
     val syncIntervalMinutes: Int = 60,

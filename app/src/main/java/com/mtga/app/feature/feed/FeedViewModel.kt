@@ -60,6 +60,7 @@ class FeedViewModel(
     fun load(handle: String) {
         if (_state.value.handle == handle && _state.value.feed != null) return
         _state.value = FeedUiState(handle = handle, loading = true)
+        repository.warmArchive(handle)
 
         viewModelScope.launch {
             // Show what is on disk first. Opening an account you have read

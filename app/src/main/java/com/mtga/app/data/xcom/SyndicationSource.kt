@@ -35,8 +35,13 @@ class SyndicationSource(
     private val throttle: HostThrottle
 ) {
 
-    suspend fun fetchPost(id: String): Post? = withContext(Dispatchers.IO) {
-        if (!throttle.acquire(HOST)) return@withContext null
+    /**
+     * [throttled] false skips the host spacing, for the archive's batches:
+     * this is a CDN made for pages that embed many posts at once, and the
+     * caller bounds how many run together.
+     */
+    suspend fun fetchPost(id: String, throttled: Boolean = true): Post? = withContext(Dispatchers.IO) {
+        if (throttled && !throttle.acquire(HOST)) return@withContext null
 
         val url = "https://$HOST/tweet-result?id=$id&token=${tokenFor(id)}&lang=en"
         val body = runCatching {

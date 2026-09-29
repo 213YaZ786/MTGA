@@ -4,8 +4,12 @@ import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.ArchiveCursor
 import com.mtga.app.core.model.LegacyCursor
+import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.SearchCursor
+import com.mtga.app.data.archive.ArchiveSource
+import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
@@ -26,7 +30,9 @@ class FeedRepository(
     private val html: HtmlSource,
     private val rss: RssSource,
     private val xcom: XComSource,
-    private val settings: SettingsStore
+    private val settings: SettingsStore,
+    private val archive: ArchiveSource,
+    private val cache: FeedCache
 ) {
 
     /**
@@ -34,8 +40,22 @@ class FeedRepository(
      * cursor, so it is fetched alongside [loadFeed] rather than instead of it.
      * Returns null when the setting is off.
      */
-    suspend fun loadHead(handle: String): Outcome<Feed>? =
-        if (settings.current.useXcomDirect) xcom.fetchLatest(handle) else null
+    suspend fun loadHead(handle: String): Outcome<Feed>? {
+        if (!settings.current.useXcomDirect) return null
+        val head = xcom.fetchLatest(handle)
+        // When every Nitter server fails, these few posts are all there is:
+        // the archives still reach further back from them.
+        return if (head is Outcome.Success && settings.current.olderFromArchives && head.value.nextCursor == null) {
+            Outcome.Success(head.value.copy(nextCursor = archiveBelow(handle, head.value.posts)))
+        } else {
+            head
+        }
+    }
+
+    /** Starts the archives' lookup for an account opened by the reader, see ArchiveSource.warm. */
+    fun warmArchive(handle: String) {
+        if (settings.current.olderFromArchives) archive.warm(handle)
+    }
 
     /** A post's conversation, from whichever Nitter server is healthy. Never cached. */
     suspend fun loadConversation(handle: String, id: String): Outcome<Conversation> =
@@ -61,12 +81,17 @@ class FeedRepository(
             )
         }
 
+        ArchiveCursor.parse(cursor)?.let { below ->
+            if (settings.current.olderFromArchives) return archive.page(handle, below)
+            return Outcome.Success(Feed(handle = handle, displayName = "", posts = emptyList(), fetchedFromHost = "", fetchedAtMillis = System.currentTimeMillis()))
+        }
+
         SearchCursor.parse(cursor)?.let { position ->
             return pool.withInstance { instance -> html.fetchSearch(instance, handle, position) }
         }
 
         val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle, cursor) }
-        if (viaHtml is Outcome.Success) return Outcome.Success(withSearchBeyond(viaHtml.value))
+        if (viaHtml is Outcome.Success) return Outcome.Success(withSearchBeyond(viaHtml.value, cursor == null))
 
         val htmlError = (viaHtml as Outcome.Failure).error
 
@@ -78,19 +103,33 @@ class FeedRepository(
         }
 
         val viaRss = rss.fetchFeed(handle)
-        if (viaRss is Outcome.Success) return Outcome.Success(withSearchBeyond(viaRss.value))
+        if (viaRss is Outcome.Success) return Outcome.Success(withSearchBeyond(viaRss.value, firstPage = true))
 
         return viaHtml
     }
 
     /**
      * A page with no further page, the end of what a profile page or the RSS
-     * feed shows, goes on through Nitter search below its oldest post. When
+     * feed shows, goes on below its oldest post: through the web archives
+     * when the reader allows them, else through Nitter search. When
      * search has nothing older either, its empty page ends paging as any
      * source's does.
      */
-    private fun withSearchBeyond(feed: Feed): Feed =
-        if (feed.nextCursor != null || feed.posts.isEmpty()) feed else feed.copy(nextCursor = SearchCursor.below(feed.posts))
+    private suspend fun withSearchBeyond(feed: Feed, firstPage: Boolean): Feed = when {
+        feed.nextCursor != null || feed.posts.isEmpty() -> feed
+        // The archives reach further and do not depend on a Nitter server.
+        settings.current.olderFromArchives ->
+            feed.copy(nextCursor = if (firstPage) archiveBelow(feed.handle, feed.posts) else ArchiveCursor.below(feed.posts))
+        else -> feed.copy(nextCursor = SearchCursor.below(feed.posts))
+    }
+
+    /**
+     * Below the oldest post the phone already has for the account, not only
+     * below this first page: a page of posts all stored already reads to the
+     * cache as the end, and paging would stop there.
+     */
+    private suspend fun archiveBelow(handle: String, posts: List<Post>): String? =
+        ArchiveCursor.below(posts + cache.read(handle)?.posts.orEmpty())
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
         // A check is deliberately absent. The feed host of a checked instance
