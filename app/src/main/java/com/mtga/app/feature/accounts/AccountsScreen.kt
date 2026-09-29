@@ -327,10 +327,11 @@ private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Uni
 
 @Composable
 private fun CandidateCard(handle: String, onOpen: () -> Unit, onFollow: () -> Unit) {
-    Surface(
+    ZoneSurface(
         onClick = onOpen,
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
+        accent = true,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(

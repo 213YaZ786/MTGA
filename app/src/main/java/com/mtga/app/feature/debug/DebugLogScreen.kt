@@ -1,5 +1,10 @@
 package com.mtga.app.feature.debug
 
+import com.mtga.app.ui.glass.LocalGlass
+import com.mtga.app.ui.glass.groundHere
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.mtga.app.ui.component.ZoneSurface
 import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.BoldButton
@@ -13,8 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,8 +72,10 @@ fun DebugLogScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
+                // The page's ground where the bar sits, ambient light included.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
                 // Over the reading column, like the content under it.
-                modifier = Modifier.padding(horizontal = LocalReadableInset.current),
+                modifier = Modifier.groundHere(LocalGlass.current, MaterialTheme.colorScheme.background).padding(horizontal = LocalReadableInset.current),
                 title = { Text("Activity log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -126,11 +131,10 @@ fun DebugLogScreen(onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(entries.reversed()) { entry ->
-                        Card(
+                        ZoneSurface(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer
-                            )
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(

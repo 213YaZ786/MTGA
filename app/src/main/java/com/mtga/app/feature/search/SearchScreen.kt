@@ -1,5 +1,8 @@
 package com.mtga.app.feature.search
 
+import com.mtga.app.ui.glass.LocalGlass
+import com.mtga.app.ui.glass.groundHere
+import androidx.compose.material3.TopAppBarDefaults
 import com.mtga.app.ui.component.plus
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,6 +84,9 @@ fun SearchScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             TopAppBar(
+                // The page's ground where the bar sits, ambient light included.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+                modifier = Modifier.groundHere(LocalGlass.current, MaterialTheme.colorScheme.background),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")

@@ -1,5 +1,6 @@
 package com.mtga.app.feature.settings
 
+import com.mtga.app.ui.component.ZoneAlertDialog
 import com.mtga.app.ui.component.ZoneSurface
 import com.mtga.app.ui.component.rememberHaptics
 import androidx.compose.foundation.layout.statusBars
@@ -37,7 +38,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -478,7 +478,7 @@ fun SettingsScreen(
             onSelect = viewModel::setInterval,
             onDismiss = { dialog = OpenDialog.NONE }
         )
-        OpenDialog.CLEAR -> AlertDialog(
+        OpenDialog.CLEAR -> ZoneAlertDialog(
             onDismissRequest = { dialog = OpenDialog.NONE },
             title = { Text("Clear saved posts?") },
             text = {
@@ -582,7 +582,7 @@ private fun <T> ChoiceDialog(
     onSelect: (T) -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    ZoneAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {

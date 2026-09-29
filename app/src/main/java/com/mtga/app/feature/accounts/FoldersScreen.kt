@@ -1,5 +1,6 @@
 package com.mtga.app.feature.accounts
 
+import com.mtga.app.ui.component.ZoneAlertDialog
 import com.mtga.app.ui.component.ZoneSurface
 import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,7 +103,7 @@ fun FoldersScreen(
 
     deleting?.let { name ->
         val count = rows.count { it.folder == name }
-        AlertDialog(
+        ZoneAlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete $name?") },
             text = {
@@ -268,7 +268,7 @@ private fun NameDialog(
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
+    ZoneAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {

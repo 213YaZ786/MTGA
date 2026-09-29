@@ -1,5 +1,6 @@
 package com.mtga.app.navigation
 
+import com.mtga.app.ui.glass.glassGround
 import com.mtga.app.ui.glass.rememberGlassBackdrop
 import com.mtga.app.ui.glass.glassSource
 import com.mtga.app.ui.glass.LocalGlassBackdrop
@@ -481,7 +482,12 @@ private fun MainTabs(
         // Above the tabs and the dock. A Surface also stops touches from
         // reaching the screen underneath.
         if (showWelcome) {
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            // Opaque over the app, with the page's ground and its ambient light.
+            Surface(
+                Modifier.fillMaxSize().glassGround(LocalGlass.current, MaterialTheme.colorScheme.background),
+                color = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground
+            ) {
                 Readable { WelcomeScreen(onFinish = ::closeWelcome) }
             }
         }
