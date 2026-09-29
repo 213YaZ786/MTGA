@@ -5,6 +5,7 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.LegacyCursor
+import com.mtga.app.core.model.SearchCursor
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
@@ -60,8 +61,12 @@ class FeedRepository(
             )
         }
 
+        SearchCursor.parse(cursor)?.let { position ->
+            return pool.withInstance { instance -> html.fetchSearch(instance, handle, position) }
+        }
+
         val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle, cursor) }
-        if (viaHtml is Outcome.Success) return viaHtml
+        if (viaHtml is Outcome.Success) return Outcome.Success(withSearchBeyond(viaHtml.value))
 
         val htmlError = (viaHtml as Outcome.Failure).error
 
@@ -73,10 +78,19 @@ class FeedRepository(
         }
 
         val viaRss = rss.fetchFeed(handle)
-        if (viaRss is Outcome.Success) return viaRss
+        if (viaRss is Outcome.Success) return Outcome.Success(withSearchBeyond(viaRss.value))
 
         return viaHtml
     }
+
+    /**
+     * A page with no further page, the end of what a profile page or the RSS
+     * feed shows, goes on through Nitter search below its oldest post. When
+     * search has nothing older either, its empty page ends paging as any
+     * source's does.
+     */
+    private fun withSearchBeyond(feed: Feed): Feed =
+        if (feed.nextCursor != null || feed.posts.isEmpty()) feed else feed.copy(nextCursor = SearchCursor.below(feed.posts))
 
     private fun worthTryingRss(error: AppError): Boolean = when (error) {
         // A check is deliberately absent. The feed host of a checked instance

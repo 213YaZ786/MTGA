@@ -5,6 +5,8 @@ import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Conversation
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.PostKind
+import com.mtga.app.core.model.SearchCursor
 import com.mtga.app.core.network.ErrorMapper
 import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.web.ChallengeGateway
@@ -38,7 +40,7 @@ class HtmlSource(
         instance: NitterInstance,
         handle: String,
         cursor: String? = null
-    ): Outcome<Feed> = withContext(Dispatchers.IO) {
+    ): Outcome<Feed> {
         // Cursors are opaque Nitter tokens containing +, / and =. Concatenating
         // one raw into a URL means the server sees a space where a plus was and
         // silently answers with page one, which reads as "loading did nothing".
@@ -48,9 +50,36 @@ class HtmlSource(
                 append("?cursor=").append(URLEncoder.encode(it, StandardCharsets.UTF_8.name()))
             }
         }
+        return fetchTimeline(instance, handle, url, if (cursor == null) RequestLog.Kind.PROFILE else RequestLog.Kind.PAGE, search = null)
+    }
 
+    /**
+     * The account's posts at or below [position]'s id, from Nitter search:
+     * how MTGA goes on reading once a profile page has no further page. See
+     * SearchCursor. A search that finds nothing is the end of the account,
+     * an empty page, not a failure.
+     */
+    suspend fun fetchSearch(
+        instance: NitterInstance,
+        handle: String,
+        position: SearchCursor.Position
+    ): Outcome<Feed> {
+        val url = buildString {
+            append(instance.baseUrl.trimEnd('/')).append("/search?f=tweets&q=")
+            append(URLEncoder.encode(SearchCursor.query(handle, position.maxId), StandardCharsets.UTF_8.name()))
+            position.cursor?.let { append("&cursor=").append(URLEncoder.encode(it, StandardCharsets.UTF_8.name())) }
+        }
+        return fetchTimeline(instance, handle, url, RequestLog.Kind.PAGE, search = position)
+    }
+
+    private suspend fun fetchTimeline(
+        instance: NitterInstance,
+        handle: String,
+        url: String,
+        kind: RequestLog.Kind,
+        search: SearchCursor.Position?
+    ): Outcome<Feed> = withContext(Dispatchers.IO) {
         val startedAt = System.nanoTime()
-        val kind = if (cursor == null) RequestLog.Kind.PROFILE else RequestLog.Kind.PAGE
 
         // Wait our turn, or hand the job to another instance if this one is
         // still cooling off from a 429.
@@ -117,7 +146,26 @@ class HtmlSource(
                 return@withContext Outcome.Failure(AppError.AccountUnavailable(handle, it))
             }
 
-            val feed = parser.parse(body, handle, instance.host)?.copy(pinAware = true)
+            val parsed = parser.parse(body, handle, instance.host)
+            if (parsed == null && search != null && page.status == 200) {
+                log.record(
+                    kind = kind,
+                    url = url,
+                    outcome = "search found no older posts",
+                    httpStatus = page.status,
+                    bodyBytes = body.length,
+                    durationMillis = elapsed,
+                    detail = "page text: " + plainSummary(body)
+                )
+                return@withContext Outcome.Success(
+                    Feed(handle = handle, displayName = "", posts = emptyList(), fetchedFromHost = instance.host, fetchedAtMillis = System.currentTimeMillis())
+                )
+            }
+            val feed = if (search == null) {
+                parsed?.copy(pinAware = true)
+            } else {
+                parsed?.let { searchPage(it, handle, search) }
+            }
             if (feed == null) {
                 log.record(
                     kind = kind,
@@ -166,6 +214,29 @@ class HtmlSource(
             )
             Outcome.Failure(ErrorMapper.fromThrowable(instance.host, t))
         }
+    }
+
+    /**
+     * A search page as a page of the account: only the account's own posts,
+     * no profile details (a search page has none, and a blank name keeps the
+     * stored one), and where to go next: the search's own next page, else a
+     * new search below the oldest post it gave.
+     */
+    private fun searchPage(page: Feed, handle: String, at: SearchCursor.Position): Feed {
+        val own = page.posts.filter { it.authorHandle.equals(handle, ignoreCase = true) || it.kind == PostKind.REPOST }
+            .map { if (it.isPinned) it.copy(isPinned = false) else it }
+        return Feed(
+            handle = page.handle,
+            displayName = "",
+            posts = own,
+            fetchedFromHost = page.fetchedFromHost,
+            fetchedAtMillis = page.fetchedAtMillis,
+            nextCursor = when {
+                own.isEmpty() -> null
+                page.nextCursor != null -> SearchCursor.within(at.maxId, page.nextCursor)
+                else -> SearchCursor.below(own)
+            }
+        )
     }
 
     /**
