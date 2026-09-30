@@ -85,7 +85,7 @@ class ArchiveSource(
             }
             val started = System.currentTimeMillis()
             val posts = coroutineScope {
-                batch.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false) } } }.awaitAll()
+                batch.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false, completeLongText = true) } } }.awaitAll()
             }.filterNotNull().filter { it.authorHandle.equals(handle, ignoreCase = true) }
             cursor = batch.min()
             val more = ids.any { it < cursor }
@@ -120,7 +120,7 @@ class ArchiveSource(
         }
         val started = System.currentTimeMillis()
         val posts = coroutineScope {
-            missing.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false) } } }.awaitAll()
+            missing.map { id -> async { reading.withPermit { syndication.fetchPost(id.toString(), throttled = false, completeLongText = true) } } }.awaitAll()
         }.filterNotNull().filter { it.authorHandle.equals(handle, ignoreCase = true) }
         log.record(
             RequestLog.Kind.PAGE, "archive/$handle", "archive: ${posts.size} of ${missing.size} missing posts read",
@@ -161,13 +161,20 @@ class ArchiveSource(
     private suspend fun lookUp(handle: String): List<Long> {
         val key = handle.lowercase()
         // The three lookups at once: the archive's index can take many seconds.
-        val found = coroutineScope {
+        val (onX, onTwitter, onSearch) = coroutineScope {
             listOf(
                 async { read(cdx("x.com", handle))?.let { ArchiveIds.fromCdx(it, handle) }.orEmpty() },
                 async { read(cdx("twitter.com", handle))?.let { ArchiveIds.fromCdx(it, handle) }.orEmpty() },
                 async { read("https://html.duckduckgo.com/html/?q=site%3Ax.com%2F$handle%2Fstatus", tries = 1)?.let { ArchiveIds.fromLinks(it, handle) }.orEmpty() }
-            ).awaitAll().flatten().toSet()
+            ).awaitAll()
         }
+        val found = onX + onTwitter + onSearch
+        // What each source brought, and what only DuckDuckGo knew: the latest
+        // weeks the archive has not caught yet.
+        log.record(
+            RequestLog.Kind.LIST, "archive/$handle", "archive: ids by source",
+            detail = "archive x.com ${onX.size}, archive twitter.com ${onTwitter.size}, DuckDuckGo ${onSearch.size} (${(onSearch - onX - onTwitter).size} only there)"
+        )
         val ids = ArchiveIds.plausible(found, System.currentTimeMillis())
         log.record(RequestLog.Kind.LIST, "archive/$handle", "archive: ${ids.size} post ids known")
         if (ids.isEmpty()) failedAt[key] = System.currentTimeMillis()

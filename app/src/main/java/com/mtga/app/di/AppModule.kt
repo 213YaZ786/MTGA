@@ -31,6 +31,7 @@ import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.SyndicationSource
 import com.mtga.app.data.archive.ArchiveSource
+import com.mtga.app.core.system.LoadingNotice
 import com.mtga.app.data.xcom.XComSource
 import com.mtga.app.feature.accounts.AccountsViewModel
 import com.mtga.app.feature.post.PostDetailViewModel
@@ -92,7 +93,8 @@ val appModule = module {
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get(), get(), get()) }
-    single { FeedRepository(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { LoadingNotice(androidContext()) }
     single { ArchiveSource(androidContext(), get(), get(), get()) }
     single {
         val settings: SettingsStore = get()
@@ -101,7 +103,7 @@ val appModule = module {
     single { SettingsStore(androidContext()) }
     single { SyndicationSource(get(), get()) }
     single { XComSource(get(), get(), get(), get()) }
-    single { TimelineRepository(get(), get(), get(), get(), get()) }
+    single { TimelineRepository(get(), get(), get(), get(), get(), get()) }
 
     viewModel { DiagnosticsViewModel(get()) }
     viewModel { AccountsViewModel(get(), get(), get()) }

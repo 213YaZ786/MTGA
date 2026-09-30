@@ -13,6 +13,9 @@ import com.mtga.app.data.archive.ArchiveSource
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.html.HtmlSource
 import com.mtga.app.data.read.ReadMarks
+import com.mtga.app.core.system.LoadingNotice
+import com.mtga.app.data.xcom.SyndicationSource
+import com.mtga.app.core.model.PostKind
 import com.mtga.app.data.instances.InstancePool
 import com.mtga.app.data.rss.RssSource
 import com.mtga.app.data.settings.SettingsStore
@@ -36,8 +39,13 @@ class FeedRepository(
     private val archive: ArchiveSource,
     private val cache: FeedCache,
     private val log: RequestLog,
-    private val marks: ReadMarks
+    private val marks: ReadMarks,
+    private val syndication: SyndicationSource,
+    private val notice: LoadingNotice
 ) {
+
+    /** Posts already checked for a cut text this session. */
+    private val checkedForCut = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     /**
      * The newest posts straight from x.com, when enabled. Head only, no
@@ -71,8 +79,30 @@ class FeedRepository(
         val found = archive.fill(handle, stored.posts.mapTo(HashSet()) { it.id }, since, FILL_MAX)
         val added = cache.addPosts(handle, found)
         marks.markReadIfOld(added.map { it.id to it.publishedAtMillis })
+        completeCutPosts(handle)
         return added.size
     }
+
+    /**
+     * Long posts saved cut at 280 characters (read from X's embed before
+     * 2.14.1): a few per pass get their whole text, see SyndicationSource.longText.
+     * A post of that length that was not cut simply comes back the same.
+     */
+    private suspend fun completeCutPosts(handle: String) {
+        val stored = cache.read(handle) ?: return
+        val suspects = stored.posts
+            .filter { it.kind != PostKind.REPOST && it.text.length in CUT_LENGTHS && it.id.all(Char::isDigit) && it.id !in checkedForCut }
+            .take(CUT_PER_PASS)
+        if (suspects.isEmpty()) return
+        val whole = suspects.mapNotNull { post ->
+            checkedForCut += post.id
+            syndication.longText(post.authorHandle, post.id)?.takeIf { it.length > post.text.length }?.let { post.id to it }
+        }.toMap()
+        cache.replaceTexts(handle, whole)
+    }
+
+    /** [fillGaps] with the loading notification, for a profile the reader opened. */
+    suspend fun fillGapsShown(handle: String): Int = notice.during("Looking up older posts") { fillGaps(handle) }
 
     /** Starts the archives' lookup for an account opened by the reader, see ArchiveSource.warm. */
     fun warmArchive(handle: String) {
@@ -186,6 +216,8 @@ class FeedRepository(
         /** How far back a refresh fills, and how many posts a pass adds per account. */
         const val FILL_DAYS = 30
         const val FILL_MAX = 100
+        val CUT_LENGTHS = 240..290
+        const val CUT_PER_PASS = 15
         const val DAY_MS = 86_400_000L
     }
 }

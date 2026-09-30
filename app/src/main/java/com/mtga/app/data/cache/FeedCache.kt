@@ -321,6 +321,14 @@ class FeedCache(
         fresh
     }
 
+    /** Replaces the text of stored posts, by id, for posts found cut. */
+    suspend fun replaceTexts(handle: String, texts: Map<String, String>) = withContext(Dispatchers.IO) {
+        if (texts.isEmpty()) return@withContext
+        val existing = read(handle) ?: return@withContext
+        write(existing.copy(posts = existing.posts.map { post -> texts[post.id]?.let { post.copy(text = it) } ?: post }))
+        log.record(RequestLog.Kind.CACHE, "cache/$handle", "long posts completed", detail = "${texts.size}")
+    }
+
     /** Every stored post's id with the time it was published. */
     suspend fun storedPostTimes(): Map<String, Long> = withContext(Dispatchers.IO) {
         val times = HashMap<String, Long>()

@@ -9,6 +9,7 @@ import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.XComSource
 import kotlinx.coroutines.async
+import com.mtga.app.core.system.LoadingNotice
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
@@ -27,7 +28,8 @@ class TimelineRepository(
     private val feeds: FeedRepository,
     private val cache: FeedCache,
     private val xcom: XComSource,
-    private val settings: SettingsStore
+    private val settings: SettingsStore,
+    private val notice: LoadingNotice
 ) {
 
     data class Merged(
@@ -46,11 +48,13 @@ class TimelineRepository(
      * Fills every account's gaps from the archives, two accounts at a time,
      * see FeedRepository.fillGaps. Returns how many posts were added.
      */
-    suspend fun fillGaps(folder: String? = null): Int = coroutineScope {
-        val gate = Semaphore(FILL_PARALLEL)
-        handlesIn(folder).map { handle ->
-            async { gate.withPermit { runCatching { feeds.fillGaps(handle) }.getOrDefault(0) } }
-        }.awaitAll().sum()
+    suspend fun fillGaps(folder: String? = null): Int = notice.during("Looking up older posts") {
+        coroutineScope {
+            val gate = Semaphore(FILL_PARALLEL)
+            handlesIn(folder).map { handle ->
+                async { gate.withPermit { runCatching { feeds.fillGaps(handle) }.getOrDefault(0) } }
+            }.awaitAll().sum()
+        }
     }
 
     /** Instant, offline, no network touched. [folder] as in [handlesIn]. */

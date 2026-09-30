@@ -40,7 +40,7 @@ class SyndicationSource(
      * this is a CDN made for pages that embed many posts at once, and the
      * caller bounds how many run together.
      */
-    suspend fun fetchPost(id: String, throttled: Boolean = true): Post? = withContext(Dispatchers.IO) {
+    suspend fun fetchPost(id: String, throttled: Boolean = true, completeLongText: Boolean = false): Post? = withContext(Dispatchers.IO) {
         if (throttled && !throttle.acquire(HOST)) return@withContext null
 
         val url = "https://$HOST/tweet-result?id=$id&token=${tokenFor(id)}&lang=en"
@@ -56,7 +56,35 @@ class SyndicationSource(
         val root = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
             ?: return@withContext null
 
-        toPost(root)
+        val post = toPost(root) ?: return@withContext null
+        // A long post comes cut at 280 characters: this endpoint names its
+        // whole text (note_tweet) without giving it.
+        if (completeLongText && isCut(root)) {
+            longText(post.authorHandle, id)?.takeIf { it.length > post.text.length }?.let { return@withContext post.copy(text = it) }
+        }
+        post
+    }
+
+    private fun isCut(obj: JsonObject): Boolean {
+        val note = obj["note_tweet"] as? JsonObject ?: return false
+        return note["text"] == null && note["note_tweet_results"] == null
+    }
+
+    /**
+     * The whole text of a long post, from FxTwitter's public API (the service
+     * behind post previews in chat apps), which reads it from X. Used only
+     * for posts X's embed gives cut, and only with the archives allowed.
+     */
+    suspend fun longText(handle: String, id: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = client.get("https://$FX_HOST/$handle/status/$id") {
+                header("User-Agent", "MTGA")
+                header("Accept", "application/json")
+            }
+            if (response.status.value != 200) return@runCatching null
+            val tweet = (json.parseToJsonElement(response.bodyAsText()) as? JsonObject)?.get("tweet") as? JsonObject
+            tweet?.get("text")?.string()?.takeIf { it.isNotBlank() }
+        }.getOrNull()
     }
 
     private fun toPost(obj: JsonObject): Post? {
@@ -166,6 +194,7 @@ class SyndicationSource(
 
     companion object {
         const val HOST = "cdn.syndication.twimg.com"
+        private const val FX_HOST = "api.fxtwitter.com"
 
         fun snowflakeToMillis(id: String): Long {
             val numeric = id.toLongOrNull() ?: return 0L
