@@ -4,6 +4,7 @@ import com.mtga.app.core.common.writeTextAtomically
 import android.content.Context
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.Feed
+import com.mtga.app.core.model.FxCursor
 import com.mtga.app.core.model.LegacyCursor
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostId
@@ -150,8 +151,20 @@ class FeedCache(
                 LegacyCursor.fromDroppedSource(incoming.nextCursor) ==
                 LegacyCursor.fromDroppedSource(existing.nextCursor))
 
+        // A first page whose oldest post was not stored, above posts that
+        // were: what lies between is not stored. Its own cursor is where to
+        // read it from, kept apart from the paging cursor (often kept deeper).
+        val oldestOwnIn = incoming.posts.filterNot { it.isPinned }.minByOrNull { it.publishedAtMillis }
+        val gapAt = incoming.nextCursor?.takeIf {
+            !isPagedFetch && FxCursor.parse(it) != null && oldestOwnIn != null && oldestOwnIn.id !in known &&
+                existing.posts.any { post -> !post.isPinned && post.publishedAtMillis < oldestOwnIn.publishedAtMillis }
+        }
+
         val combined = incoming.copy(
+            gapCursor = gapAt ?: existing.gapCursor,
             posts = (refreshed + newPosts).sortedWith(PROFILE_ORDER),
+            // An empty page (no page source on) names no server.
+            fetchedFromHost = incoming.fetchedFromHost.ifBlank { existing.fetchedFromHost },
             displayName = incoming.displayName.ifBlank { existing.displayName },
             avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
             bio = incoming.bio ?: existing.bio,
@@ -199,6 +212,7 @@ class FeedCache(
                     }
                 )
                 if (hole) append(" | GAP, posts between the two are not stored and nothing will fetch them")
+                if (gapAt != null) append(" | gap below this page, filled from FxTwitter")
             }
         )
         write(combined)
@@ -317,8 +331,24 @@ class FeedCache(
         val fresh = posts.map { it.copy(id = PostId.normalize(it.id)) }.filter { known.add(it.id) }
         if (fresh.isEmpty()) return@withContext emptyList()
         write(existing.copy(posts = (existing.posts + fresh).sortedWith(PROFILE_ORDER)))
-        log.record(RequestLog.Kind.CACHE, "cache/$handle", "archive posts added", detail = "added: ${fresh.size} | stored now: ${existing.posts.size + fresh.size}")
+        log.record(RequestLog.Kind.CACHE, "cache/$handle", "posts added", detail = "added: ${fresh.size} | stored now: ${existing.posts.size + fresh.size}")
         fresh
+    }
+
+    /**
+     * Gives an account stored without a way further down one, [cursor].
+     * A cursor already there is kept: it knows where paging stood.
+     */
+    suspend fun continueAt(handle: String, cursor: String) = withContext(Dispatchers.IO) {
+        val existing = read(handle) ?: return@withContext
+        if (existing.nextCursor != null) return@withContext
+        write(existing.copy(nextCursor = cursor))
+    }
+
+    /** Sets or clears where a hole starts, see Feed.gapCursor. */
+    suspend fun setGap(handle: String, cursor: String?) = withContext(Dispatchers.IO) {
+        val existing = read(handle) ?: return@withContext
+        if (existing.gapCursor != cursor) write(existing.copy(gapCursor = cursor))
     }
 
     /** Replaces the text of stored posts, by id, for posts found cut. */

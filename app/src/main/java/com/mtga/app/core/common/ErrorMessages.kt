@@ -104,7 +104,7 @@ fun AppError.present(): ErrorPresentation = when (this) {
                 "X was asked for it but did not answer. Try again later, or open the post on X."
         } else {
             "It only carries the post number, and the servers MTGA reads need the author's name. " +
-                "Turn on \"Newest posts from X\" in Settings, Reading, so X can name the author, " +
+                "Turn on \"Newest posts from X\" or \"FxTwitter\" in Settings, Sources, so X can name the author, " +
                 "or open the post on X."
         },
         action = if (askedX) ErrorAction.RETRY else ErrorAction.NONE
@@ -121,6 +121,12 @@ fun AppError.present(): ErrorPresentation = when (this) {
         headline = "$host limits access",
         explanation = "Its fast feed is reserved for approved apps. MTGA reads its normal pages instead, " +
             "so there is nothing to do.",
+        action = ErrorAction.NONE
+    )
+
+    AppError.SourcesOff -> ErrorPresentation(
+        headline = "Every source is off",
+        explanation = "Turn on at least one in Settings, Sources. Saved posts stay readable.",
         action = ErrorAction.NONE
     )
 

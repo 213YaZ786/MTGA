@@ -177,6 +177,12 @@ data class Feed(
     val bio: String? = null,
     val nextCursor: String? = null,
     /**
+     * Where a refresh left a hole: the FxTwitter cursor below a first page
+     * that did not reach the posts stored before it. The gap filling reads
+     * from there down to them, see FeedRepository.fillGaps.
+     */
+    val gapCursor: String? = null,
+    /**
      * True when this feed's source marks pinned posts, which only a Nitter
      * profile page does. x.com's embed endpoint and RSS never
      * mention pins, so their word on [Post.isPinned] carries no weight and

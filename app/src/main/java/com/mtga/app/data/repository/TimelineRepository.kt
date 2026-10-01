@@ -114,8 +114,7 @@ class TimelineRepository(
         val headOk = mutableSetOf<String>()
         if (settings.current.useXcomDirect) {
             for (handle in targets) {
-                // Through the repository, which gives the head a way further
-                // back through the archives when nothing else pages.
+                // Through the repository, which knows whether x.com is on.
                 when (val head = feeds.loadHead(handle)) {
                     is Outcome.Success -> {
                         if (cache.append(head.value).nextCursor != null) more = true
@@ -140,6 +139,12 @@ class TimelineRepository(
                     if (handle !in headOk) errors[handle] = outcome.error
                     cache.read(handle)?.let { if (it.nextCursor != null) more = true }
                 }
+            }
+            // No first page (every page source failed or is off): what x.com
+            // gave still goes further down through post ids.
+            if (outcome !is Outcome.Success || outcome.value.posts.isEmpty()) {
+                feeds.keepPaging(handle)
+                cache.read(handle)?.let { if (it.nextCursor != null) more = true }
             }
         }
 

@@ -30,6 +30,7 @@ import com.mtga.app.data.rss.RssSource
 import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.xcom.SyndicationSource
+import com.mtga.app.data.fxtwitter.FxTwitterSource
 import com.mtga.app.data.archive.ArchiveSource
 import com.mtga.app.core.system.LoadingNotice
 import com.mtga.app.data.xcom.XComSource
@@ -93,9 +94,10 @@ val appModule = module {
     single { RssFeedParser() }
     single { RssSource(get(), get(), get()) }
     single { HtmlSource(get(), get(), get(), get()) }
-    single { FeedRepository(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { FeedRepository(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { FxTwitterSource(get(), get(), get()) }
     single { LoadingNotice(androidContext()) }
-    single { ArchiveSource(androidContext(), get(), get(), get()) }
+    single { ArchiveSource(androidContext(), get(), get(), get(), get()) }
     single {
         val settings: SettingsStore = get()
         FeedCache(androidContext(), get()) { settings.current.keepPostsDays }

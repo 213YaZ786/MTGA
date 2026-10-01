@@ -108,8 +108,9 @@ class PostDetailViewModel(
     private suspend fun fetchThread() {
         val id = loadedId ?: return
         val handle = _state.value.post?.authorHandle ?: hint?.takeIf { it.isNotBlank() }
-        if (handle == null) {
+        if (handle == null && !settings.current.useFxTwitter) {
             // Nitter needs the author in the address, and nothing named one.
+            // FxTwitter needs only the number.
             _state.value = _state.value.copy(
                 thread = ThreadState.Failed(AppError.AuthorUnknown(id, askedX = settings.current.useXcomDirect))
             )

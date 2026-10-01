@@ -1,0 +1,98 @@
+{
+ "code": 200,
+ "status": {
+  "id": "2105144998522171565",
+  "url": "https://x.com/bro04956715/status/2105144998522171565",
+  "text": "Text of bro04956715",
+  "created_timestamp": 1790740654,
+  "author": {
+   "screen_name": "bro04956715",
+   "name": "gregory mcgregorson"
+  },
+  "replying_to": {
+   "screen_name": "elonmusk",
+   "status": "2105139959720014101",
+   "url": "https://x.com/elonmusk/status/2105139959720014101",
+   "profile_url": "https://x.com/elonmusk"
+  }
+ },
+ "thread": [
+  {
+   "id": "2105139959720014101",
+   "url": "https://x.com/elonmusk/status/2105139959720014101",
+   "text": "Text of elonmusk",
+   "created_timestamp": 1790739452,
+   "author": {
+    "screen_name": "elonmusk",
+    "name": "Elon Musk"
+   },
+   "replying_to": null
+  },
+  {
+   "id": "2105144998522171565",
+   "url": "https://x.com/bro04956715/status/2105144998522171565",
+   "text": "Text of bro04956715",
+   "created_timestamp": 1790740654,
+   "author": {
+    "screen_name": "bro04956715",
+    "name": "gregory mcgregorson"
+   },
+   "replying_to": {
+    "screen_name": "elonmusk",
+    "status": "2105139959720014101",
+    "url": "https://x.com/elonmusk/status/2105139959720014101",
+    "profile_url": "https://x.com/elonmusk"
+   }
+  }
+ ],
+ "replies": [
+  {
+   "id": "2105180611753423188",
+   "url": "https://x.com/AsiaDailyHQ/status/2105180611753423188",
+   "text": "Text of AsiaDailyHQ",
+   "created_timestamp": 1790749144,
+   "author": {
+    "screen_name": "AsiaDailyHQ",
+    "name": "Asia Daily"
+   },
+   "replying_to": {
+    "screen_name": "bro04956715",
+    "status": "2105144998522171565",
+    "url": "https://x.com/bro04956715/status/2105144998522171565",
+    "profile_url": "https://x.com/bro04956715"
+   }
+  },
+  {
+   "id": "2105177851779809697",
+   "url": "https://x.com/chineseyakub/status/2105177851779809697",
+   "text": "Text of chineseyakub",
+   "created_timestamp": 1790748486,
+   "author": {
+    "screen_name": "chineseyakub",
+    "name": "stitchings"
+   },
+   "replying_to": {
+    "screen_name": "bro04956715",
+    "status": "2105144998522171565",
+    "url": "https://x.com/bro04956715/status/2105144998522171565",
+    "profile_url": "https://x.com/bro04956715"
+   }
+  },
+  {
+   "id": "2105215336849297821",
+   "url": "https://x.com/davidakaclean/status/2105215336849297821",
+   "text": "Text of davidakaclean",
+   "created_timestamp": 1790757423,
+   "author": {
+    "screen_name": "davidakaclean",
+    "name": "David Scott Aubrey"
+   },
+   "replying_to": {
+    "screen_name": "bro04956715",
+    "status": "2105144998522171565",
+    "url": "https://x.com/bro04956715/status/2105144998522171565",
+    "profile_url": "https://x.com/bro04956715"
+   }
+  }
+ ]
+}

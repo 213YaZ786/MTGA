@@ -122,6 +122,12 @@ sealed interface AppError {
         override val retryable get() = askedX
     }
 
+    /** The reader switched every source off in Settings. */
+    data object SourcesOff : AppError {
+        override val blame = Blame.DEVICE
+        override val retryable = false
+    }
+
     // ---- our side ----------------------------------------------------------
 
     /**

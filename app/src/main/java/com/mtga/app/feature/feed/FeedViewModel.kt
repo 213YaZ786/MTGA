@@ -87,7 +87,8 @@ class FeedViewModel(
                 _state.value = _state.value.copy(feed = merged)
             }
 
-            when (val outcome = repository.loadFeed(handle)) {
+            val outcome = repository.loadFeed(handle)
+            when (outcome) {
                 is Outcome.Success -> {
                     val merged = cache.append(outcome.value)
                     accounts.updateDisplayName(handle, outcome.value.displayName)
@@ -103,6 +104,11 @@ class FeedViewModel(
                     loading = false,
                     error = outcome.error
                 )
+            }
+            // No first page: x.com's posts still go further through post ids.
+            if (outcome !is Outcome.Success || outcome.value.posts.isEmpty()) {
+                repository.keepPaging(handle)
+                cache.read(handle)?.let { _state.value = _state.value.copy(feed = it) }
             }
             // Then the archives fill the gaps, see FeedRepository.fillGaps.
             if (repository.fillGapsShown(handle) > 0) {

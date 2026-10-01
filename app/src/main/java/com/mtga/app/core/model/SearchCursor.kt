@@ -31,6 +31,9 @@ object SearchCursor {
             ?.takeIf { it > 1 }
             ?.let { "$PREFIX${it - 1}|" }
 
+    /** Below the post [id]: what it and anything newer leave out. */
+    fun belowId(id: Long): String? = id.takeIf { it > 1 }?.let { "$PREFIX${it - 1}|" }
+
     /** The next page of the search at [maxId], from Nitter's own cursor. */
     fun within(maxId: Long, cursor: String): String = "$PREFIX$maxId|${plain(cursor)}"
 

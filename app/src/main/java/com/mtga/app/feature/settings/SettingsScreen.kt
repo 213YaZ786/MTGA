@@ -284,24 +284,22 @@ fun SettingsScreen(
             )
         }
 
+        Section("Sources") {
+            SOURCE_OPTIONS.forEach { option ->
+                SwitchRow(
+                    title = option.title,
+                    summary = option.summary,
+                    checked = option.isOn(settings),
+                    onChange = { viewModel.setSource(option, it) }
+                )
+            }
+        }
+
         Section("Reading") {
             SettingRow(
                 title = "Start on",
                 summary = startTabLabel(settings.startTab),
                 onClick = { dialog = OpenDialog.START_TAB }
-            )
-            SwitchRow(
-                title = "Newest posts from X",
-                summary = "Shows an account's latest posts faster and more reliably. " +
-                    "X can see your IP address while this is on.",
-                checked = settings.useXcomDirect,
-                onChange = viewModel::setXcomDirect
-            )
-            SwitchRow(
-                title = "Older posts from archives",
-                summary = "Internet Archive and DuckDuckGo.",
-                checked = settings.olderFromArchives,
-                onChange = viewModel::setOlderFromArchives
             )
             SettingRow(
                 title = "Open X links in MTGA",

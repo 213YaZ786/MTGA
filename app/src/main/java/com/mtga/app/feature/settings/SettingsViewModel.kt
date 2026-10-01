@@ -160,9 +160,7 @@ class SettingsViewModel(
 
     fun setStartMuted(enabled: Boolean) = store.update { it.copy(startMuted = enabled) }
 
-    fun setXcomDirect(enabled: Boolean) = store.update { it.copy(useXcomDirect = enabled) }
-
-    fun setOlderFromArchives(enabled: Boolean) = store.update { it.copy(olderFromArchives = enabled) }
+    fun setSource(option: SourceOption, enabled: Boolean) = store.update { option.set(it, enabled) }
 
     fun setStartTab(tab: StartTab) = store.update { it.copy(startTab = tab) }
 

@@ -31,10 +31,21 @@ enum class AutoDownload { OFF, UNMETERED, ANY }
 data class Settings(
     /** What happens when a newer version is out, checked once when the app opens. */
     val updates: UpdateMode = UpdateMode.NOTIFY,
+    /*
+     * The sources, each the reader's to switch off, all on by default: the
+     * app's whole point is every public post without an account, whatever
+     * the way. See data/repository/Sources for how they follow each other.
+     */
     /** Read the newest posts straight from x.com. Accurate, but X sees you. */
     val useXcomDirect: Boolean = true,
-    /** Older posts through web archives, see ArchiveSource. */
+    /** Whole timelines and conversations through FxTwitter, see FxTwitterSource. */
+    val useFxTwitter: Boolean = true,
+    /** The volunteer Nitter servers: pages, feeds, search, conversations. */
+    val useNitter: Boolean = true,
+    /** Post ids from the Internet Archive, see ArchiveSource. The name predates DuckDuckGo's own switch. */
     val olderFromArchives: Boolean = true,
+    /** Post ids from DuckDuckGo's results, see ArchiveSource. */
+    val useDuckDuckGo: Boolean = true,
     /** Poll followed accounts in the background so history accumulates. */
     val backgroundSync: Boolean = false,
     val syncIntervalMinutes: Int = 60,

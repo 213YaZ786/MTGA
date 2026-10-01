@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import com.mtga.app.core.update.UpdateMode
 import com.mtga.app.core.update.Updates
 import com.mtga.app.feature.settings.SettingsViewModel
+import com.mtga.app.feature.settings.SOURCE_OPTIONS
+import androidx.compose.runtime.collectAsState
 import org.koin.androidx.compose.koinViewModel
 import com.mtga.app.core.system.BatteryExemption
 import com.mtga.app.ui.component.LoadingMark
@@ -76,7 +78,8 @@ private data class WelcomePage(
     /** The app's own animation, large, in place of the icon. */
     val showMark: Boolean = false,
     val showUpdateChoice: Boolean = false,
-    val showNotifyChoice: Boolean = false
+    val showNotifyChoice: Boolean = false,
+    val showSourceChoice: Boolean = false
 )
 
 private val PAGES = listOf(
@@ -120,6 +123,13 @@ private val PAGES = listOf(
             "Home switches between them from its title, and shows every account by default.",
             "Everything loads when the app opens, so switching folders is instant."
         )
+    ),
+    WelcomePage(
+        icon = MtgaIcons.Search,
+        title = "Sources",
+        intro = "Where posts are read. All of them together find the most.",
+        points = listOf("Tap one to leave it out. Changeable in Settings."),
+        showSourceChoice = true
     ),
     WelcomePage(
         icon = MtgaIcons.Download,
@@ -236,6 +246,7 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
                         chooseUpdates
                     )
                     page.showNotifyChoice -> Choices(listOf(false to "Off", true to "Notify me"), notify, chooseNotify)
+                    page.showSourceChoice -> SourceChoices(settings)
                 }
             }
         }
@@ -329,9 +340,30 @@ private fun <T> Choices(options: List<Pair<T, String>>, chosen: T?, onChoose: (T
     }
 }
 
+/**
+ * Each source on or off, any number of them: a picked row is on. The
+ * summary says what each one sees.
+ */
+@Composable
+private fun SourceChoices(settings: SettingsStore) {
+    val current by settings.settings.collectAsState()
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SOURCE_OPTIONS.forEach { option ->
+            val on = option.isOn(current)
+            Option(
+                label = option.title,
+                value = true,
+                chosen = on,
+                onChoose = { settings.update { option.set(it, !on) } },
+                detail = option.summary
+            )
+        }
+    }
+}
+
 /** A filled primary colour when picked, so the answer is unmistakable. */
 @Composable
-private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Unit) {
+private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Unit, detail: String? = null) {
     val picked = chosen == value
     val haptics = rememberHaptics()
     ZoneSurface(
@@ -345,12 +377,20 @@ private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Uni
         modifier = Modifier.fillMaxWidth()
     ) {
         // The text takes the zone's own colour, which knows whether it is picked.
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Rows that switch on and off carry a check: in glass, a
+                // picked zone and a plain one differ only by a light tint.
+                if (detail != null && picked) Icon(MtgaIcons.Check, contentDescription = "On", modifier = Modifier.size(20.dp))
+                Text(label, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            }
+            if (detail != null) {
+                Text(detail, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+            }
+        }
     }
 }
 

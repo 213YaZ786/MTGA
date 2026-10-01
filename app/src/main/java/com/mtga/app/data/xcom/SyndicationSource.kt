@@ -40,8 +40,20 @@ class SyndicationSource(
      * this is a CDN made for pages that embed many posts at once, and the
      * caller bounds how many run together.
      */
-    suspend fun fetchPost(id: String, throttled: Boolean = true, completeLongText: Boolean = false): Post? = withContext(Dispatchers.IO) {
-        if (throttled && !throttle.acquire(HOST)) return@withContext null
+    suspend fun fetchPost(id: String, throttled: Boolean = true, completeLongText: Boolean = false): Post? =
+        (read(id, throttled, completeLongText) as? Read.Found)?.post
+
+    /** What reading a post by its id gave: the post, a post X no longer serves, or a failure worth retrying. */
+    sealed interface Read {
+        class Found(val post: Post) : Read
+        /** Deleted, withheld, age restricted: this endpoint will not give it, now or later. */
+        data object Gone : Read
+        data object Failed : Read
+    }
+
+    /** As [fetchPost], telling a post that is gone from a read that failed. */
+    suspend fun read(id: String, throttled: Boolean = true, completeLongText: Boolean = false): Read = withContext(Dispatchers.IO) {
+        if (throttled && !throttle.acquire(HOST)) return@withContext Read.Failed
 
         val url = "https://$HOST/tweet-result?id=$id&token=${tokenFor(id)}&lang=en"
         val body = runCatching {
@@ -49,20 +61,23 @@ class SyndicationSource(
                 header("User-Agent", BROWSER_USER_AGENT)
                 header("Accept", "application/json")
             }
-            if (response.status.value !in 200..299) return@withContext null
+            if (response.status.value == 404) return@withContext Read.Gone
+            if (response.status.value !in 200..299) return@withContext Read.Failed
             response.bodyAsText()
-        }.getOrNull() ?: return@withContext null
+        }.getOrNull() ?: return@withContext Read.Failed
 
         val root = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
-            ?: return@withContext null
+            ?: return@withContext Read.Failed
+        // A deleted or withheld post answers 200 with a tombstone in its place.
+        if ((root["__typename"] as? JsonPrimitive)?.content == "TweetTombstone") return@withContext Read.Gone
 
-        val post = toPost(root) ?: return@withContext null
+        val post = toPost(root) ?: return@withContext Read.Failed
         // A long post comes cut at 280 characters: this endpoint names its
         // whole text (note_tweet) without giving it.
         if (completeLongText && isCut(root)) {
-            longText(post.authorHandle, id)?.takeIf { it.length > post.text.length }?.let { return@withContext post.copy(text = it) }
+            longText(post.authorHandle, id)?.takeIf { it.length > post.text.length }?.let { return@withContext Read.Found(post.copy(text = it)) }
         }
-        post
+        Read.Found(post)
     }
 
     private fun isCut(obj: JsonObject): Boolean {

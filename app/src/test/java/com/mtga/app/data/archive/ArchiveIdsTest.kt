@@ -23,6 +23,13 @@ class ArchiveIdsTest {
     }
 
     @Test
+    fun `links written for an address bar count, other accounts and short numbers do not`() {
+        val ddg = """<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fx.com%2Fclashreport%2Fstatus%2F2105626693670961348&amp;rut=1">""" +
+            """x.com/notclashreport/status/2105000000000000001 x.com/clashreport/statuses/2104000000000000000 x.com/clashreport/status/12345"""
+        assertEquals(setOf(2105626693670961348, 2104000000000000000), ArchiveIds.fromLinks(ddg, "ClashReport"))
+    }
+
+    @Test
     fun `impossible ids are dropped and the rest is newest first`() {
         val now = 1_790_700_000_000L // late September 2026
         val ids = setOf(2104586602668331420, 9_000_000_000_000_000_000L, 2103999002752504141, 20L)
