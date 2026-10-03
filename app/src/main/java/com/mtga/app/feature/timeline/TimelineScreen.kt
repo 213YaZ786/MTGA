@@ -17,8 +17,6 @@ import com.mtga.app.ui.component.rememberRefreshHaptics
 import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.PullIndicator
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import com.mtga.app.ui.component.FloatingRoundButton
-import com.mtga.app.ui.component.ScrollUpButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.foundation.border
 import com.mtga.app.ui.component.EmptyZone
@@ -380,36 +378,19 @@ fun TimelineScreen(
                 }
                 }
 
-                // Both at the bottom right, in one column, above the dock. The
-                // folder switch never leaves: it is how the reader moves from
-                // one stream to another, and a control that only appears once
-                // you have scrolled is a control nobody finds. The way back to
-                // the top stacks above it, and only once the way back is a
-                // real chore.
+                // The folder switch never leaves: it is how the reader moves
+                // from one stream to another, and a control that only appears
+                // once you have scrolled is a control nobody finds. The way
+                // back to the top stacks with it, and only once the way back
+                // is a real chore.
                 val showBackToTop by remember {
                     derivedStateOf { listState.firstVisibleItemIndex >= BACK_TO_TOP_AFTER }
                 }
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(
-                            end = 16.dp + LocalReadableInset.current,
-                            bottom = LocalDockPadding.current + 16.dp
-                        )
-                ) {
-                    ScrollUpButton(
-                        visible = showBackToTop,
-                        icon = MtgaIcons.ArrowUp,
-                        onClick = { scope.launch { listState.animateScrollToItem(0) } }
-                    )
-                    FloatingRoundButton(
-                        icon = MtgaIcons.Folder,
-                        label = "Choose which folder to read",
-                        onClick = { choosingFolder = true }
-                    )
-                }
+                FolderButton(
+                    onClick = { choosingFolder = true },
+                    showBackToTop = showBackToTop,
+                    onBackToTop = { scope.launch { listState.animateScrollToItem(0) } }
+                )
             }
         }
 

@@ -106,7 +106,13 @@ data class Settings(
      */
     val welcomeSeen: Boolean = false,
     /** The folder Home shows, or null for every account. */
-    val homeFolder: String? = null
+    val homeFolder: String? = null,
+    /**
+     * Where Home's folder button was put, as fractions of the room it can
+     * move in, or -1 until it is moved (then it sits above the dock).
+     */
+    val folderButtonX: Float = -1f,
+    val folderButtonY: Float = -1f
 )
 
 /**
