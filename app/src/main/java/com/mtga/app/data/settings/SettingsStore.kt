@@ -30,7 +30,7 @@ enum class AutoDownload { OFF, UNMETERED, ANY }
 @Serializable
 data class Settings(
     /** What happens when a newer version is out, checked once when the app opens. */
-    val updates: UpdateMode = UpdateMode.NOTIFY,
+    val updates: UpdateMode = UpdateMode.INSTALL,
     /*
      * The sources, each the reader's to switch off, all on by default: the
      * app's whole point is every public post without an account, whatever
