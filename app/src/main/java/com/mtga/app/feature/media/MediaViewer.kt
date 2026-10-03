@@ -1,5 +1,13 @@
 package com.mtga.app.feature.media
 
+import com.mtga.app.ui.component.DarkGround
+import androidx.compose.runtime.CompositionLocalProvider
+import com.mtga.app.ui.glass.rememberGlassBackdrop
+import com.mtga.app.ui.glass.glassSource
+import com.mtga.app.ui.glass.LocalGlassBackdrop
+import com.mtga.app.ui.glass.LocalGlass
+import com.mtga.app.ui.component.FloatingRoundButton
+import com.mtga.app.ui.component.GlassVideo
 import androidx.compose.foundation.layout.size
 import com.mtga.app.ui.component.rememberMediaPolicy
 import androidx.compose.foundation.shape.CircleShape
@@ -22,7 +30,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -53,14 +60,12 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import com.mtga.app.core.media.rememberMediaSource
 import com.mtga.app.core.model.MediaItem
@@ -98,7 +103,7 @@ fun MediaViewer(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
-    ) {
+    ) { DarkGround {
         val pager = rememberPagerState(
             initialPage = startIndex.coerceIn(0, media.lastIndex),
             pageCount = { media.size }
@@ -107,6 +112,11 @@ fun MediaViewer(
         val dragY = remember { Animatable(0f) }
         val scope = rememberCoroutineScope()
         val fade = (1f - abs(dragY.value) / 1200f).coerceIn(0.3f, 1f)
+
+        // In glass, the pages are recorded for the round buttons above them
+        // to bend what is shown.
+        val look = LocalGlass.current
+        val pagerBackdrop = rememberGlassBackdrop()
 
         Box(
             Modifier
@@ -118,6 +128,7 @@ fun MediaViewer(
                 userScrollEnabled = !zoomed,
                 modifier = Modifier
                     .fillMaxSize()
+                    .then(if (look != null) Modifier.glassSource(pagerBackdrop, look) else Modifier)
                     .offset { IntOffset(0, dragY.value.roundToInt()) }
                     .draggable(
                         orientation = Orientation.Vertical,
@@ -152,28 +163,26 @@ fun MediaViewer(
                 }
             }
 
+            CompositionLocalProvider(LocalGlassBackdrop provides pagerBackdrop.takeIf { look != null }) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .systemBarsPadding()
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(MtgaIcons.Close, contentDescription = "Close", tint = Color.White)
-                }
+                FloatingRoundButton(icon = MtgaIcons.Close, label = "Close", onClick = onDismiss)
                 Text(
                     if (media.size > 1) "${pager.currentPage + 1} / ${media.size}" else "",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { onDownload(media[pager.currentPage]) }) {
-                    Icon(MtgaIcons.Download, contentDescription = "Save to Downloads", tint = Color.White)
-                }
+                FloatingRoundButton(icon = MtgaIcons.Download, label = "Save to Downloads", onClick = { onDownload(media[pager.currentPage]) })
+            }
             }
         }
-    }
+    } }
 }
 
 /**
@@ -319,17 +328,11 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    player = exo
-                    useController = item.type == MediaType.VIDEO
-                }
-            },
-            // Clear of the navigation bar: the player anchors its speed and
-            // audio menu to its own bottom edge, and under the bar Android
-            // has no room there and throws the menu to the top of the screen.
-            modifier = Modifier.fillMaxSize().navigationBarsPadding()
+        GlassVideo(
+            player = exo,
+            muted = muted,
+            onMutedChange = { muted = it },
+            controls = item.type == MediaType.VIDEO && started
         )
 
         if (!started) {
@@ -362,23 +365,6 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
             }
         }
 
-        if (!isGif) {
-            // Below the viewer's own top bar, clear of the player controls.
-            IconButton(
-                onClick = { muted = !muted },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .systemBarsPadding()
-                    .padding(top = 52.dp, end = 8.dp)
-                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-            ) {
-                Icon(
-                    if (muted) MtgaIcons.VolumeOff else MtgaIcons.VolumeOn,
-                    contentDescription = if (muted) "Turn sound on" else "Mute",
-                    tint = Color.White
-                )
-            }
-        }
     }
 }
 
