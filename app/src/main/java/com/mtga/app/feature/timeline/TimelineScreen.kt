@@ -387,6 +387,8 @@ fun TimelineScreen(
                     derivedStateOf { listState.firstVisibleItemIndex >= BACK_TO_TOP_AFTER }
                 }
                 FolderButton(
+                    folderIcon = MtgaIcons.Folder,
+                    upIcon = MtgaIcons.ArrowUp,
                     onClick = { choosingFolder = true },
                     showBackToTop = showBackToTop,
                     onBackToTop = { scope.launch { listState.animateScrollToItem(0) } }

@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
@@ -50,7 +51,6 @@ import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.glass.LocalGlass
 import com.mtga.app.ui.glass.LocalGlassBackdrop
 import com.mtga.app.ui.glass.glassFloating
-import com.mtga.app.ui.icon.MtgaIcons
 import kotlin.math.roundToInt
 import org.koin.compose.koinInject
 
@@ -64,9 +64,17 @@ import org.koin.compose.koinInject
  *
  * The way back to the top travels with it, stacked above it (below it when
  * it was put near the top), so the two still read as one stack.
+ *
+ * Shared across the apps of this base: edit Modules/shared, then run sync.sh.
  */
 @Composable
-fun FolderButton(onClick: () -> Unit, showBackToTop: Boolean, onBackToTop: () -> Unit) {
+fun FolderButton(
+    folderIcon: ImageVector,
+    upIcon: ImageVector,
+    onClick: () -> Unit,
+    showBackToTop: Boolean,
+    onBackToTop: () -> Unit
+) {
     val haptics = rememberHaptics()
     val store: SettingsStore = koinInject()
     val settings by store.settings.collectAsState()
@@ -113,7 +121,7 @@ fun FolderButton(onClick: () -> Unit, showBackToTop: Boolean, onBackToTop: () ->
         val upY = if (at.y >= upSize + gap) at.y - upSize - gap else at.y + side + gap
         ScrollUpButton(
             visible = showBackToTop,
-            icon = MtgaIcons.ArrowUp,
+            icon = upIcon,
             onClick = onBackToTop,
             modifier = Modifier.offset { IntOffset(upX.roundToInt(), upY.roundToInt()) }
         )
@@ -175,7 +183,7 @@ fun FolderButton(onClick: () -> Unit, showBackToTop: Boolean, onBackToTop: () ->
                     }
                 }
         ) {
-            Icon(MtgaIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
+            Icon(folderIcon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
         }
     }
 }
