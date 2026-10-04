@@ -94,7 +94,7 @@ internal fun InlineVideo(url: String, onClick: () -> Unit, modifier: Modifier = 
     val context = LocalContext.current
     var failed by remember(url) { mutableStateOf(false) }
     val exo = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
+        SafePlayer.build(context).apply {
             setMediaItem(PlayableItem.fromUri(url))
             repeatMode = Player.REPEAT_MODE_ALL
             volume = 0f
