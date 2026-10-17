@@ -39,6 +39,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import com.mtga.app.core.link.LinkSheet
+import com.mtga.app.core.link.RedirectResolver
 import com.mtga.app.core.link.SafeUriHandler
 import androidx.navigation.NavHostController
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -125,12 +127,19 @@ fun MtgaApp() {
     // posts, and Nitter links to them, open in MTGA. Web links go to the
     // browser, anything else stays text (SafeLinks).
     val context = LocalContext.current
+    // A web link asks first: the link sheet shows where it goes, and its Open comes back out through openOut.
+    var asked by remember { mutableStateOf<String?>(null) }
     val uris = remember(platformUris) {
         SafeUriHandler(
             platform = platformUris,
             inApp = { uri -> links.parse(uri)?.also { show(it) } != null },
-            onRefused = { Toast.makeText(context, "Link not opened", Toast.LENGTH_SHORT).show() }
+            onRefused = { Toast.makeText(context, "Link not opened", Toast.LENGTH_SHORT).show() },
+            intermediary = { asked = it }
         )
+    }
+    val resolver: RedirectResolver = koinInject()
+    asked?.let { url ->
+        LinkSheet(url = url, onDismiss = { asked = null }, onOpen = uris::openOut, expand = resolver::expand)
     }
 
     CompositionLocalProvider(

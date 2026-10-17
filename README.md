@@ -51,4 +51,6 @@ Built with AGP 9.3 (built-in Kotlin) and Gradle 9.5.1, which needs Android Studi
 
 To the Nitter maintainers and the people who run its servers. Parts of the approach were inspired by [Nitterium](https://github.com/kaleedtc/Nitterium) (MIT).
 
+Links are checked before they open, after [URLCheck](https://github.com/TrianguloY/URLCheck) (CC BY 4.0). The tracking rules are [ClearURLs](https://github.com/ClearURLs/Rules) (LGPL-3.0), the site names come from the [Public Suffix List](https://publicsuffix.org) (MPL-2.0).
+
 MIT licensed.
