@@ -29,9 +29,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.GlassSwitch
+import com.mtga.app.ui.component.QuietButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -236,7 +237,7 @@ private fun InstanceCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(checked = row.instance.enabled, onCheckedChange = onToggle)
+                GlassSwitch(checked = row.instance.enabled, onCheckedChange = onToggle)
             }
 
             if (presentation != null && row.instance.enabled) {
@@ -272,14 +273,14 @@ private fun InstanceCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.End
             ) {
-                IconButton(onClick = onMoveUp) {
+                BoldIconButton(onClick = onMoveUp) {
                     Icon(MtgaIcons.ArrowUp, contentDescription = "Try earlier")
                 }
-                IconButton(onClick = onMoveDown) {
+                BoldIconButton(onClick = onMoveDown) {
                     Icon(MtgaIcons.ArrowDown, contentDescription = "Try later")
                 }
                 if (!row.instance.builtIn) {
-                    IconButton(onClick = onRemove) {
+                    BoldIconButton(onClick = onRemove) {
                         Icon(MtgaIcons.Delete, contentDescription = "Remove")
                     }
                 }
@@ -357,8 +358,8 @@ private fun AddInstanceDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(url, rssUrl) }) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { BoldButton(onClick = { onConfirm(url, rssUrl) }, filled = true) { Text("Add") } },
+        dismissButton = { QuietButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 

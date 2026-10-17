@@ -22,7 +22,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.QuietButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -156,13 +157,13 @@ private fun AccountGroup(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    TextButton(onClick = { onOpenPost(post.postId) }) {
+                    QuietButton(onClick = { onOpenPost(post.postId) }) {
                         Text(
                             "${post.files} file${if (post.files == 1) "" else "s"}, " +
                                 Formatter.formatShortFileSize(context, post.bytes)
                         )
                     }
-                    IconButton(onClick = { onDeletePost(post.postId) }) {
+                    BoldIconButton(onClick = { onDeletePost(post.postId) }) {
                         Icon(MtgaIcons.Delete, contentDescription = "Delete this post's media")
                     }
                 }

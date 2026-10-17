@@ -11,7 +11,6 @@ import com.mtga.app.ui.component.FloatingRoundButton
 import com.mtga.app.ui.component.GlassVideo
 import androidx.compose.foundation.layout.size
 import com.mtga.app.ui.component.rememberMediaPolicy
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
@@ -35,10 +34,10 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.mtga.app.ui.component.BoldIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.mtga.app.ui.component.BoldButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -324,7 +323,7 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("This video could not be played here.", color = Color.White)
-            TextButton(onClick = { uriHandler.openUri(item.downloadUrl) }) {
+            BoldButton(onClick = { uriHandler.openUri(item.downloadUrl) }, filled = true) {
                 Text("Open in browser")
             }
         }
@@ -345,14 +344,12 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(
+                BoldIconButton(
                     onClick = {
                         started = true
                         tappedPlay = true
                     },
-                    modifier = Modifier
-                        .size(72.dp)
-                        .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                    modifier = Modifier.size(72.dp)
                 ) {
                     Icon(
                         MtgaIcons.Play,

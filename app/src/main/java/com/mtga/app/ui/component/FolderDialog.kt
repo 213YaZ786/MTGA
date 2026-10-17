@@ -10,9 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -76,19 +74,19 @@ fun FolderDialog(
                     everything?.let { Choice(it, selected == null) { onSelect(null) } }
                     folders.forEach { folder -> Choice(folder, selected == folder) { onSelect(folder) } }
                     extras.forEach { extra -> Choice(extra, selected == extra) { onSelect(extra) } }
-                    TextButton(onClick = { creating = true }) { Text("New folder") }
+                    QuietButton(onClick = { creating = true }) { Text("New folder") }
                 }
             }
         },
         confirmButton = {
             if (creating) {
-                TextButton(onClick = { onSelect(name.trim()) }, enabled = name.isNotBlank()) { Text("Create") }
+                BoldButton(onClick = { onSelect(name.trim()) }, enabled = name.isNotBlank(), filled = true) { Text("Create") }
             } else {
-                TextButton(onClick = onDismiss) { Text("Close") }
+                QuietButton(onClick = onDismiss) { Text("Close") }
             }
         },
         dismissButton = {
-            if (creating) TextButton(onClick = { creating = false }) { Text("Back") }
+            if (creating) QuietButton(onClick = { creating = false }) { Text("Back") }
         }
     )
 }
@@ -107,7 +105,7 @@ private fun Choice(label: String, chosen: Boolean, onChoose: () -> Unit) {
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RadioButton(selected = chosen, onClick = choose)
+        GlassRadio(selected = chosen, onClick = choose)
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
     }
 }
