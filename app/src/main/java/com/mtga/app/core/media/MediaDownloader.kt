@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
+import com.mtga.app.core.link.SafeLinks
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import java.io.File
@@ -26,8 +27,16 @@ class MediaDownloader(private val context: Context) {
 
     /** A file the reader asked for. Lands in Downloads/MTGA, with a toast. */
     fun download(item: MediaItem, authorHandle: String) {
-        val fileName = buildFileName(item, authorHandle, item.downloadUrl)
-        val request = baseRequest(item, fileName)
+        // DownloadManager.Request throws on anything but http and https
+        // (AOSP, frameworks/base/core/java/android/app/DownloadManager.java),
+        // and the address comes from a post: checked as every link is.
+        val url = SafeLinks.openable(item.downloadUrl)
+        if (url == null) {
+            toast("Could not start the download")
+            return
+        }
+        val fileName = buildFileName(item, authorHandle, url)
+        val request = baseRequest(url, fileName)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             // A sub folder of a public collection, still no permission needed.
             .setDestinationInExternalPublicDir(
@@ -61,7 +70,9 @@ class MediaDownloader(private val context: Context) {
     fun cache(target: File, item: MediaItem): Long? {
         if (target.exists()) return null
         val manager = manager() ?: return null
-        val request = baseRequest(item, target.name)
+        // Same check as download.
+        val url = SafeLinks.openable(item.downloadUrl) ?: return null
+        val request = baseRequest(url, target.name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
             .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, target.name)
         return runCatching { manager.enqueue(request) }.getOrNull()
@@ -69,8 +80,8 @@ class MediaDownloader(private val context: Context) {
 
     private fun manager() = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
 
-    private fun baseRequest(item: MediaItem, title: String) =
-        DownloadManager.Request(Uri.parse(item.downloadUrl))
+    private fun baseRequest(url: String, title: String) =
+        DownloadManager.Request(Uri.parse(url))
             .setTitle(title)
             .setDescription("Saving from MTGA")
             .setAllowedOverMetered(true)

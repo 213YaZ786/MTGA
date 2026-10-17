@@ -53,7 +53,9 @@ class LinkRouter(private val pool: InstancePool) {
          * come straight back here.
          */
         fun openOutside(context: Context, url: String) {
-            val view = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            // Only http and https leave the app, see SafeLinks.
+            val safe = SafeLinks.openable(url) ?: return
+            val view = Intent(Intent.ACTION_VIEW, Uri.parse(safe))
             val chooser = Intent.createChooser(view, null).apply {
                 putExtra(
                     Intent.EXTRA_EXCLUDE_COMPONENTS,

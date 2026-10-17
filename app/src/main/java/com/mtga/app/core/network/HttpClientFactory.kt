@@ -32,12 +32,23 @@ object HttpClientFactory {
     const val REQUEST_TIMEOUT_MS = 15_000L
     const val PROBE_TIMEOUT_MS = 6_000L
 
+    /**
+     * The biggest answer taken, for the network and for a page the web
+     * engine hands back. The largest real answer on record is a page of the
+     * archive lookup read by ArchiveSource.fromLinks, 2.6 MB (Nitter pages
+     * and X's JSON are smaller); 12 MB is more than four times that and
+     * stops a hostile or broken answer from being read whole into memory.
+     */
+    const val MAX_BODY_BYTES = 12L * 1024 * 1024
+
     fun create(session: WebSession): HttpClient = HttpClient(OkHttp) {
         expectSuccess = false
 
         engine {
             config { cookieJar(WebViewCookieJar(session)) }
             addInterceptor(WebSessionInterceptor(session))
+            // Ported from Signal-Android's OkHttpUtil size limit, see ResponseLimit.
+            addInterceptor(ResponseLimit(MAX_BODY_BYTES))
         }
         followRedirects = true
 

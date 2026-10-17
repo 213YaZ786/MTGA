@@ -15,7 +15,10 @@ import javax.net.ssl.SSLException
  */
 object ErrorMapper {
 
-    fun fromThrowable(host: String, t: Throwable): AppError = when (t) {
+    fun fromThrowable(host: String, t: Throwable): AppError = if (t.isTooLarge()) {
+        // Over the size cap (ResponseLimit): the server sent too much, as a failing one does.
+        AppError.InstanceError(host, 0)
+    } else when (t) {
         is UnknownHostException -> AppError.DnsFailure(host)
         is SSLException -> AppError.TlsFailure(host, t.message)
         is HttpRequestTimeoutException -> AppError.Timeout(host, HttpClientFactory.REQUEST_TIMEOUT_MS)
