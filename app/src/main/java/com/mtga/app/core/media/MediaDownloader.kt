@@ -8,6 +8,7 @@ import android.widget.Toast
 import com.mtga.app.core.link.SafeLinks
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
+import com.mtga.app.core.model.Post
 import java.io.File
 
 /**
@@ -25,8 +26,12 @@ import java.io.File
  */
 class MediaDownloader(private val context: Context) {
 
-    /** A file the reader asked for. Lands in Downloads/MTGA, with a toast. */
-    fun download(item: MediaItem, authorHandle: String) {
+    /**
+     * A file the reader asked for. Lands in Downloads/MTGA, with a toast.
+     * [post] is the post it comes from (null for an avatar), its address kept
+     * by the media store as the file's REFERER_URI, see [SaveOrigin].
+     */
+    fun download(item: MediaItem, authorHandle: String, post: Post?) {
         // DownloadManager.Request throws on anything but http and https
         // (AOSP, frameworks/base/core/java/android/app/DownloadManager.java),
         // and the address comes from a post: checked as every link is.
@@ -43,6 +48,7 @@ class MediaDownloader(private val context: Context) {
                 Environment.DIRECTORY_DOWNLOADS,
                 "$PUBLIC_FOLDER/$fileName"
             )
+        val origin = PostReferer.forPost(post?.permalink, post?.authorHandle, post?.id)
 
         val manager = manager()
         if (manager == null) {
@@ -50,7 +56,12 @@ class MediaDownloader(private val context: Context) {
             return
         }
         runCatching { manager.enqueue(request) }
-            .onSuccess { toast("Saving to Downloads/$PUBLIC_FOLDER") }
+            // The post's address goes into the file's media store row when the
+            // download is done, see [SaveOrigin].
+            .onSuccess { id ->
+                SaveOrigin.remember(context, id, origin)
+                toast("Saving to Downloads/$PUBLIC_FOLDER")
+            }
             .onFailure { toast("Could not start the download") }
     }
 

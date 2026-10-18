@@ -70,7 +70,7 @@ fun SearchScreen(
             postId = post.id,
             media = post.media,
             startIndex = index,
-            onDownload = { downloader.download(it, post.authorHandle) },
+            onDownload = { downloader.download(it, post.authorHandle, post) },
             onDismiss = { viewing = null }
         )
     }
@@ -159,7 +159,7 @@ fun SearchScreen(
                         onOpenPost(post)
                     },
                     onOpenLink = { uriHandler.openUri(it) },
-                    onDownload = { downloader.download(it, post.authorHandle) },
+                    onDownload = { downloader.download(it, post.authorHandle, post) },
                     showStats = settings.showCounts,
                     onOpenMedia = { index -> viewing = post to index },
                     modifier = Modifier.animateItem()
