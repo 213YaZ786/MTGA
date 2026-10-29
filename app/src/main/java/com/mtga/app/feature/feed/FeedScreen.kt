@@ -385,7 +385,8 @@ private fun ProfileHeader(
             )
         }
 
-        val meta = listOfNotNull(feed?.location, feed?.joined).joinToString(" · ")
+        // Joined with a comma, as AOSP Dialer's CallLogEntryText.java joinSecondaryTextComponents (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
+        val meta = listOfNotNull(feed?.location, feed?.joined).joinToString(", ")
         if (meta.isNotEmpty()) {
             Text(
                 meta,
@@ -412,7 +413,7 @@ private fun ProfileHeader(
             )
             if (parts.isNotEmpty()) {
                 Text(
-                    parts.joinToString(" · "),
+                    parts.joinToString(", "), // as AOSP Dialer's CallLogEntryText.java joinSecondaryTextComponents (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java)
                     style = MaterialTheme.typography.labelLarge,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 2.dp)

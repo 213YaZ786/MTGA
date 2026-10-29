@@ -299,10 +299,11 @@ private fun StatusDot(status: HealthStatus) {
 }
 
 private fun statusLine(status: HealthStatus, row: InstanceRow): String {
-    val latency = row.health?.latencyMillis?.let { " · ${it}ms" }.orEmpty()
+    // Parts joined with a comma, as AOSP Dialer's CallLogEntryText.java (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
+    val latency = row.health?.latencyMillis?.let { ", ${it}ms" }.orEmpty()
     val origin = when {
-        !row.instance.builtIn -> " · added by you"
-        row.instance.listedWorking == false -> " · marked down on the wiki"
+        !row.instance.builtIn -> ", added by you"
+        row.instance.listedWorking == false -> ", marked down on the wiki"
         else -> ""
     }
     return statusText(status, row, latency) + origin
@@ -311,8 +312,8 @@ private fun statusLine(status: HealthStatus, row: InstanceRow): String {
 private fun statusText(status: HealthStatus, row: InstanceRow, latency: String): String {
     // Said plainly, because it explains both the extra second and why a
     // plain browser check elsewhere would call this server blocked.
-    val path = if (row.health?.viaBrowser == true) " · through its browser check" else ""
-    val delivered = if (row.health?.deliveredAt != null) " · gave posts" else ""
+    val path = if (row.health?.viaBrowser == true) ", through its browser check" else ""
+    val delivered = if (row.health?.deliveredAt != null) ", gave posts" else ""
     return when (status) {
         HealthStatus.HEALTHY -> "Working$latency$path$delivered"
         HealthStatus.SLOW -> "Slow but working$latency$path$delivered"
