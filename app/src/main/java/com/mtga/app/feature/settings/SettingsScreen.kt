@@ -405,15 +405,15 @@ fun SettingsScreen(
             )
         }
 
-        Section("Help") {
+        Section("About") {
+            // Dialer's About "Guide" tile (YAZ/Dialer feature/settings/SettingsScreen.kt, id "guide"):
+            // the same first row in every app. The guide opens over Settings and shows the current choices,
+            // so welcomeSeen is kept instead of reset as Dialer does.
             SettingRow(
-                title = "Review the tutorial",
-                summary = "Where to find a handle, and the ways to follow an account.",
+                title = "Guide",
+                summary = "See the welcome pages again",
                 onClick = onOpenWelcome
             )
-        }
-
-        Section("About") {
             SettingRow(
                 title = "Updates",
                 summary = updatesLabel(settings.updates),

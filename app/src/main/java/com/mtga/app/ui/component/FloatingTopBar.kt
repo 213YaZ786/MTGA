@@ -82,7 +82,9 @@ fun FloatingTopBar(
                 // remembered.
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
+                    scrolledContainerColor = Color.Transparent,
+                    // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
+                    titleContentColor = MaterialTheme.colorScheme.primary
                 )
             )
         }
