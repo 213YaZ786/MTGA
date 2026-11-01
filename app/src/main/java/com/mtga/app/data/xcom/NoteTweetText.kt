@@ -31,7 +31,7 @@ internal object NoteTweetText {
             if (head.length < MIN_MATCH) return@map post
             val whole = notes.firstOrNull { it.startsWith(head) }
                 ?: notes.firstOrNull { it.startsWith(head.take(MIN_MATCH)) }
-            if (whole != null && whole.length > head.length) post.copy(text = whole) else post
+            if (whole != null && whole.length > head.length) post.copy(text = whole, textCut = false) else post
         }
     }
 

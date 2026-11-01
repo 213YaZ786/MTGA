@@ -75,12 +75,17 @@ class SyndicationSource(
         // A long post comes cut at 280 characters: this endpoint names its
         // whole text (note_tweet) without giving it.
         if (completeLongText && isCut(root)) {
-            longText(post.authorHandle, id)?.takeIf { it.length > post.text.length }?.let { return@withContext Read.Found(post.copy(text = it)) }
+            longText(post.authorHandle, id)?.takeIf { it.length > post.text.length }?.let { return@withContext Read.Found(post.copy(text = it, textCut = false)) }
         }
         Read.Found(post)
     }
 
-    private fun isCut(obj: JsonObject): Boolean {
+    /**
+     * True when the post has a note_tweet (a long post) but no text of it.
+     * Marker from FxEmbed (MIT), where a long post is the one whose note_tweet
+     * result exists: https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts
+     */
+    internal fun isCut(obj: JsonObject): Boolean {
         val note = obj["note_tweet"] as? JsonObject ?: return false
         return note["text"] == null && note["note_tweet_results"] == null
     }
@@ -102,7 +107,7 @@ class SyndicationSource(
         }.getOrNull()
     }
 
-    private fun toPost(obj: JsonObject): Post? {
+    internal fun toPost(obj: JsonObject): Post? {
         val id = obj["id_str"]?.string() ?: return null
         val user = obj["user"] as? JsonObject
         val handle = user?.get("screen_name")?.string() ?: return null
@@ -113,6 +118,7 @@ class SyndicationSource(
             authorName = user["name"]?.string() ?: handle,
             avatarUrl = user["profile_image_url_https"]?.string(),
             text = fullText(obj),
+            textCut = isCut(obj),
             publishedAtMillis = snowflakeToMillis(id),
             permalink = "https://x.com/$handle/status/$id",
             kind = if (obj["quoted_tweet"] is JsonObject) PostKind.QUOTE else PostKind.ORIGINAL,
@@ -125,7 +131,8 @@ class SyndicationSource(
                     name = quoteUser?.get("name")?.string().orEmpty(),
                     text = fullText(quote),
                     permalink = "https://x.com/$quoteHandle/status/" +
-                        quote["id_str"]?.string().orEmpty()
+                        quote["id_str"]?.string().orEmpty(),
+                    textCut = isCut(quote)
                 )
             },
             stats = PostStats(

@@ -10,6 +10,8 @@ import com.mtga.app.core.model.FxCursor
 import com.mtga.app.core.model.LegacyCursor
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.SearchCursor
+import com.mtga.app.core.model.fullerThan
+import com.mtga.app.core.model.looksCut
 import com.mtga.app.data.archive.ArchiveSource
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.html.HtmlSource
@@ -52,8 +54,11 @@ class FeedRepository(
     /** Read at each call: a switch flipped in Settings takes effect at once. */
     private val sources: Sources get() = Sources.of(settings.current)
 
-    /** Posts already checked for a cut text this session. */
-    private val checkedForCut = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    /**
+     * Posts FxTwitter gave a final answer for this session, a whole text or
+     * gone. A post it could not answer stays out, so the next pass asks again.
+     */
+    private val settledCut = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     /**
      * The newest posts straight from x.com, when enabled. Head only, no
@@ -148,22 +153,20 @@ class FeedRepository(
     }
 
     /**
-     * Long posts saved cut at 280 characters (read from X's embed before
-     * 2.14.1): a few per pass get their whole text, see SyndicationSource.longText.
-     * A post of that length that was not cut simply comes back the same.
-     * FxTwitter gives the text, so only while it is on.
+     * Long posts saved cut at 280 characters: a few per pass get their whole
+     * text from FxTwitter, see [CutCompletion]. The ones x.com or the embed
+     * marked cut come first, then those of the old length window. FxTwitter
+     * gives the text, so only while it is on.
      */
     private suspend fun completeCutPosts(handle: String) {
         val stored = cache.read(handle) ?: return
-        val suspects = stored.posts
-            .filter { it.kind != PostKind.REPOST && it.text.length in CUT_LENGTHS && it.id.all(Char::isDigit) && it.id !in checkedForCut }
-            .take(CUT_PER_PASS)
-        if (suspects.isEmpty()) return
-        val whole = suspects.mapNotNull { post ->
-            checkedForCut += post.id
-            syndication.longText(post.authorHandle, post.id)?.takeIf { it.length > post.text.length }?.let { post.id to it }
-        }.toMap()
-        cache.replaceTexts(handle, whole)
+        val done = CutCompletion.run(stored.posts, settledCut, CUT_PER_PASS, fx::wholeText)
+        if (done.asked == 0) return
+        log.record(
+            RequestLog.Kind.CACHE, "cache/$handle", "long posts asked",
+            detail = "asked: ${done.asked} | whole: ${done.texts.size + done.quotedTexts.size} | not answered, again next pass: ${done.unanswered}"
+        )
+        cache.replaceTexts(handle, done.texts, done.quotedTexts)
     }
 
     /** [fillGaps] with the loading notification, for a profile the reader opened. */
@@ -354,12 +357,93 @@ class FeedRepository(
         /** How far back a refresh fills, and how many posts a pass adds per account. */
         const val FILL_DAYS = 30
         const val FILL_MAX = 100
-        val CUT_LENGTHS = 240..290
         const val CUT_PER_PASS = 15
         const val DAY_MS = 86_400_000L
         /** FxTwitter pages of known posts passed over before going on through ids. */
         const val FX_KNOWN_PAGES = 6
         /** FxTwitter pages read into a hole per pass. */
         const val FX_GAP_PAGES = 10
+    }
+}
+
+/**
+ * Completes the long posts stored cut, pass after pass. Which posts are cut
+ * comes from the marker the sources set (Post.textCut, FxEmbed's note tweet
+ * test: https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts),
+ * and the whole text from FxTwitter's `/2/status/<id>`, which carries the
+ * note tweet's text. The selection and the per pass cap are MTGA's own
+ * earlier rule (FeedRepository.completeCutPosts), changed in three ways: a
+ * post is settled only by a final answer, so a timeout or a 5xx is asked
+ * again at the next pass; marked posts go first; quoted posts count too.
+ */
+internal object CutCompletion {
+
+    class Done(
+        /** Whole texts by the id of the stored post. */
+        val texts: Map<String, String>,
+        /** Whole texts of quoted posts, by the id of the post that quotes them. */
+        val quotedTexts: Map<String, String>,
+        val asked: Int,
+        val unanswered: Int
+    )
+
+    /** A pass stops early when this many answers in a row failed: FxTwitter is down. */
+    private const val GIVE_UP_AFTER = 3
+
+    /**
+     * Asks [ask] for the status ids of up to [limit] suspects of [posts] not
+     * in [settled], and adds to [settled] the ids that got a final answer.
+     */
+    suspend fun run(
+        posts: List<Post>,
+        settled: MutableSet<String>,
+        limit: Int,
+        ask: suspend (String) -> FxTwitterSource.Whole
+    ): Done {
+        val suspects = LinkedHashMap<String, Boolean>()
+        for (post in posts) {
+            if (post.kind != PostKind.REPOST && post.id.all(Char::isDigit) && post.id !in settled &&
+                looksCut(post.text, post.textCut)
+            ) {
+                suspects[post.id] = (suspects[post.id] ?: false) || post.textCut
+            }
+            val quote = post.quoted ?: continue
+            val quotedId = quote.quotedId ?: continue
+            if (quotedId !in settled && looksCut(quote.text, quote.textCut)) {
+                suspects[quotedId] = (suspects[quotedId] ?: false) || quote.textCut
+            }
+        }
+        val asking = suspects.entries.sortedByDescending { it.value }.take(limit).map { it.key }
+
+        val answers = HashMap<String, String>()
+        var inARow = 0
+        var asked = 0
+        for (id in asking) {
+            asked++
+            when (val answer = ask(id)) {
+                is FxTwitterSource.Whole.Text -> { answers[id] = answer.text; settled += id; inARow = 0 }
+                FxTwitterSource.Whole.Gone -> { settled += id; inARow = 0 }
+                FxTwitterSource.Whole.Unavailable -> inARow++
+            }
+            if (inARow >= GIVE_UP_AFTER) break
+        }
+
+        // The stored text stays when FxTwitter's is not fuller (it drops the
+        // links of the post's own media); a marked post is rewritten anyway,
+        // since a final answer clears its marker.
+        val texts = HashMap<String, String>()
+        val quotedTexts = HashMap<String, String>()
+        for (post in posts) {
+            answers[post.id]?.let { whole ->
+                if (whole.fullerThan(post.text)) texts[post.id] = whole
+                else if (post.textCut) texts[post.id] = post.text
+            }
+            val quote = post.quoted ?: continue
+            quote.quotedId?.let(answers::get)?.let { whole ->
+                if (whole.fullerThan(quote.text)) quotedTexts[post.id] = whole
+                else if (quote.textCut) quotedTexts[post.id] = quote.text
+            }
+        }
+        return Done(texts, quotedTexts, asked = asked, unanswered = asking.take(asked).count { it !in settled })
     }
 }

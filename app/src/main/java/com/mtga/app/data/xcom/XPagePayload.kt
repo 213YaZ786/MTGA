@@ -37,9 +37,10 @@ internal object XPagePayload {
     /** Every post of the page's timeline, in page order, pinned one included. */
     fun posts(page: String): List<Post> {
         val found = LinkedHashMap<String, Post>()
-        for (record in completedRecords(page)) {
-            val root = runCatching { json.parseToJsonElement(JsLiteral.toJson(record)) }.getOrNull()
-                ?: continue
+        val roots = completedRecords(page)
+            .mapNotNull { record -> runCatching { json.parseToJsonElement(JsLiteral.toJson(record)) }.getOrNull() } +
+            jsonTextResults(page)
+        for (root in roots) {
             walk(root) { item ->
                 val post = timelineItem(item) ?: return@walk
                 found.putIfAbsent(post.id, post)
@@ -68,6 +69,33 @@ internal object XPagePayload {
         return records
     }
 
+    /**
+     * The answers the page streams as `kind:"Result.Ok",value:"<json text>"`.
+     * Since the end of October 2026 x.com writes each GraphQL answer this way,
+     * the whole answer as one escaped JSON string and no longer as a Seroval
+     * object under a Completed record, so [completedRecords] found nothing and
+     * the head fell back to one syndication request per post, which carries
+     * no pin. The string is a JavaScript literal as Seroval escapes it
+     * (https://github.com/lxsmnsyc/seroval, MIT, packages/seroval/src/core/string.ts):
+     * [JsLiteral] turns it into a JSON string, whose text is the answer.
+     */
+    private fun jsonTextResults(page: String): List<JsonElement> {
+        val answers = mutableListOf<JsonElement>()
+        var from = 0
+        while (true) {
+            val at = page.indexOf(RESULT_TEXT_MARKER, from)
+            if (at < 0) break
+            val quote = at + RESULT_TEXT_MARKER.length - 1
+            val end = JsLiteral.endOfString(page, quote) ?: break
+            from = end
+            val literal = runCatching { json.parseToJsonElement(JsLiteral.toJson(page.substring(quote, end))) }
+                .getOrNull() as? JsonPrimitive
+            val text = literal?.takeIf { it.isString }?.content ?: continue
+            runCatching { json.parseToJsonElement(text) }.getOrNull()?.let(answers::add)
+        }
+        return answers
+    }
+
     private fun walk(element: JsonElement, visit: (JsonObject) -> Unit) {
         when (element) {
             is JsonObject -> {
@@ -84,6 +112,17 @@ internal object XPagePayload {
         val pinned = item.obj("social_context")?.string("context_type") == "Pin"
         val tweet = unwrap(item.obj("tweet_results")?.obj("result")) ?: return null
         return toPost(tweet, pinned)
+    }
+
+    /**
+     * True when the post carries a note_tweet (a long post) without the note's
+     * text. Taken from FxEmbed (MIT), where a long post is the one whose
+     * note_tweet.note_tweet_results.result exists and its text is that result's
+     * text: https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts
+     */
+    private fun isCutNote(tweet: JsonObject): Boolean {
+        val note = tweet["note_tweet"] as? JsonObject ?: return false
+        return note.obj("note_tweet_results")?.obj("result")?.string("text") == null
     }
 
     /** Posts under a visibility notice arrive wrapped one level deeper. */
@@ -104,6 +143,10 @@ internal object XPagePayload {
         val note = tweet.obj("note_tweet")?.obj("note_tweet_results")?.obj("result")
         val noteText = note?.string("text")
         val raw = noteText ?: details?.string("full_text").orEmpty()
+        // A note tweet whose text is missing is a long post given cut (FxEmbed's
+        // processor.ts takes the text of note_tweet_results.result, else only
+        // the cut legacy text): marked so the completion does not guess by length.
+        val cut = isCutNote(tweet)
         val noteUrls = note?.obj("entity_set")?.array("urls").orEmpty()
         val allUrls = urls + noteUrls
         val quoted = quoted(tweet)
@@ -120,6 +163,7 @@ internal object XPagePayload {
             permalink = "https://x.com/$handle/status/$id",
             kind = if (quoted != null) PostKind.QUOTE else PostKind.ORIGINAL,
             isPinned = pinned,
+            textCut = cut,
             media = media,
             quoted = quoted,
             card = card(tweet.obj("card"), urls),
@@ -205,7 +249,8 @@ internal object XPagePayload {
             name = result.obj("core")?.obj("user_results")?.obj("result")
                 ?.obj("core")?.string("name") ?: handle,
             text = text,
-            permalink = "https://x.com/$handle/status/$id"
+            permalink = "https://x.com/$handle/status/$id",
+            textCut = isCutNote(result)
         )
     }
 
@@ -246,6 +291,7 @@ internal object XPagePayload {
         long(key)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
 
     private const val COMPLETED_MARKER = "kind:\"GraphQLRequestStream.Completed\""
+    private const val RESULT_TEXT_MARKER = "kind:\"Result.Ok\",value:\""
 
     private val TRAILING_TCO = Regex("\\s*https://t\\.co/\\w+\\s*$")
     private val MEDIA_PATH = Regex("/(photo|video)/\\d+$")
@@ -337,6 +383,24 @@ internal object JsLiteral {
             }
         }
         return i
+    }
+
+    /**
+     * Index just past the string literal opened at [quote], or null when it
+     * never closes. Same escape rule as Seroval's string writer, a backslash
+     * takes the next character with it:
+     * https://github.com/lxsmnsyc/seroval/blob/main/packages/seroval/src/core/string.ts
+     */
+    fun endOfString(source: String, quote: Int): Int? {
+        var i = quote + 1
+        while (i < source.length) {
+            when (source[i]) {
+                '\\' -> i += 2
+                '"' -> return i + 1
+                else -> i++
+            }
+        }
+        return null
     }
 
     /**

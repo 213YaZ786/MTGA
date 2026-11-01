@@ -46,6 +46,15 @@ object FxTwitterParser {
         return Page(posts, bottom)
     }
 
+    /**
+     * The text of the post `/2/status/<id>` answers with, or null when the
+     * answer holds none. Shape from FxEmbed's API specification, the status
+     * object under "status":
+     * https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json
+     */
+    fun statusText(body: String): String? =
+        parse(body)?.obj("status")?.string("text")?.takeIf { it.isNotBlank() }
+
     /** The profile card from the author block of [body]'s first own post. */
     fun profile(body: String, handle: String): Profile? {
         val root = parse(body) ?: return null

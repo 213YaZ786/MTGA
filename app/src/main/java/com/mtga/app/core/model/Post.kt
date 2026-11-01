@@ -28,7 +28,18 @@ data class Post(
     val card: LinkCard? = null,
     val poll: Poll? = null,
     val note: CommunityNote? = null,
-    val stats: PostStats? = null
+    val stats: PostStats? = null,
+    /**
+     * True when [text] is only the cut head of a long post: X's page or embed
+     * said the post is a note tweet (a long one) but did not give its text,
+     * so only the first 280 characters came. A source that carries the whole
+     * text never sets it, and a fuller text clears it, see [mergedWith].
+     * Taken from FxEmbed (MIT), where a long post is the one whose
+     * note_tweet.note_tweet_results.result exists and its full text is that
+     * result's text: https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts
+     * Defaults to false so files stored before the field existed still load.
+     */
+    val textCut: Boolean = false
 ) {
     /**
      * The same post seen again, possibly from a richer source. x.com gives the
@@ -45,9 +56,13 @@ data class Post(
      */
     fun mergedWith(fresh: Post): Post {
         if (fresh.id != id) return this
+        val fuller = fresh.text.fullerThan(text)
         val merged = copy(
             avatarUrl = avatarUrl ?: fresh.avatarUrl,
             text = fullerText(text, fresh.text),
+            // A fuller text brings its own verdict. At equal length the post
+            // stays cut only if both copies say so: one whole copy settles it.
+            textCut = if (fuller) fresh.textCut else textCut && fresh.textCut,
             links = if (fresh.text.fullerThan(text)) fresh.links.ifEmpty { links } else links,
             media = media.ifEmpty { fresh.media },
             quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
@@ -69,6 +84,26 @@ internal fun String.fullerThan(other: String): Boolean = trim().length > other.t
 /** The more complete of the two, [stored] winning a tie so identity is stable. */
 internal fun fullerText(stored: String, fresh: String): String =
     if (fresh.fullerThan(stored)) fresh else stored
+
+// Source: FxEmbed (MIT), the note tweet test of
+// https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts
+// (lines 517 to 534). Its is_note_tweet is the marker; the window below is
+// MTGA's own earlier guess, kept for posts stored without a marker.
+/**
+ * Whether a text may be the cut head of a long post. [marked] is the source's
+ * own word (see [Post.textCut]). Posts stored before that marker existed have
+ * none, so the old guess stays as a fallback: X cuts at 280 characters, and
+ * a text of 240 to 290 counted in code points (an emoji is one, as X counts
+ * it), without a trailing t.co link that X adds to the cut text, may be one.
+ */
+internal fun looksCut(text: String, marked: Boolean): Boolean {
+    if (marked) return true
+    val body = text.trimEnd().replace(TRAILING_TCO, "")
+    return body.codePointCount(0, body.length) in CUT_WINDOW
+}
+
+private val TRAILING_TCO = Regex("\\s*https://t\\.co/\\w+$")
+private val CUT_WINDOW = 240..290
 
 @Serializable
 enum class PostKind { ORIGINAL, REPOST, REPLY, QUOTE }
@@ -95,13 +130,23 @@ data class QuotedPost(
     val name: String,
     val text: String,
     val permalink: String,
-    val note: CommunityNote? = null
+    val note: CommunityNote? = null,
+    /** As [Post.textCut], for the quoted post's own text. */
+    val textCut: Boolean = false
 ) {
     /** Same rule as the post itself: the fuller text wins, and a note is kept. */
     fun mergedWith(fresh: QuotedPost?): QuotedPost {
         if (fresh == null) return this
-        return copy(text = fullerText(text, fresh.text), note = fresh.note ?: note)
+        return copy(
+            text = fullerText(text, fresh.text),
+            note = fresh.note ?: note,
+            textCut = if (fresh.text.fullerThan(text)) fresh.textCut else textCut && fresh.textCut
+        )
     }
+
+    /** The post this one quotes, read from its permalink (status/<id>), or null. */
+    val quotedId: String?
+        get() = permalink.substringAfterLast("/status/", "").takeWhile(Char::isDigit).ifEmpty { null }
 }
 
 /**
@@ -189,6 +234,14 @@ data class Feed(
      * must not overwrite what a Nitter page said.
      */
     val pinAware: Boolean = false,
+    /**
+     * True when this feed's first page held x.com's TimelinePinEntry: the pinned
+     * post of [posts] is then THE pinned post, and a stored pin that is not it
+     * is stale. A page without that entry leaves this false and says nothing
+     * about pins. Distinct from [pinAware], whose absence of a pin also
+     * counts. See FeedCache.append.
+     */
+    val pinNamed: Boolean = false,
     /** Profile card details. Only Nitter pages carry them, other sources leave them null. */
     val bannerUrl: String? = null,
     val location: String? = null,

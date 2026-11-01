@@ -89,7 +89,7 @@ class XComSource(
                 detail = "posts: ${fromPage.size} | read from the page, no syndication request" +
                     " | long posts: ${fromPage.count { it.text.length > 280 }}"
             )
-            return@withContext Outcome.Success(feedOf(handle, fromPage))
+            return@withContext Outcome.Success(feedOf(handle, fromPage, fromPage = true))
         }
 
         val ids = extractStatusIds(body, handle)
@@ -127,7 +127,7 @@ class XComSource(
         Outcome.Success(feedOf(handle, posts))
     }
 
-    private fun feedOf(handle: String, posts: List<Post>): Feed {
+    private fun feedOf(handle: String, posts: List<Post>, fromPage: Boolean = false): Feed {
         // The first post may be a repost, whose author is someone else. Take
         // the profile's name and avatar only from a post it wrote itself, and
         // otherwise leave them blank so the cache keeps what it already knows.
@@ -140,7 +140,11 @@ class XComSource(
             fetchedAtMillis = System.currentTimeMillis(),
             avatarUrl = own?.avatarUrl,
             // No cursor exists here. Depth is Nitter's job.
-            nextCursor = null
+            nextCursor = null,
+            // The page's TimelinePinEntry names the pinned post, and only the
+            // page-read path carries it: syndication posts have no pin, so
+            // their feed says nothing about pins, see FeedMerge.combine.
+            pinNamed = fromPage && posts.any { it.isPinned }
         )
     }
 

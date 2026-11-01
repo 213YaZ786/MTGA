@@ -237,7 +237,7 @@ class TimelineRepository(
      * the top, each still labelled "Pinned" on its card.
      */
     private fun merge(posts: List<Post>): List<Post> =
-        posts.distinctBy { it.id }
+        distinctKeepingPin(posts)
             .sortedWith(
                 compareByDescending<Post> { it.isPinned }
                     .thenByDescending { it.publishedAtMillis }
@@ -256,3 +256,14 @@ class TimelineRepository(
         const val MAX_TIMELINE_POSTS = 20_000
     }
 }
+
+// Source: kotlinlang.org, Kotlin standard library groupBy
+// (https://kotlinlang.org/api/core/kotlin-stdlib/kotlin.collections/group-by.html).
+/**
+ * One copy per post id, the pinned one when both are there. Split out of
+ * TimelineRepository.merge (MTGA's own distinctBy) so a test can run it: the
+ * same id can sit in two accounts' files, and keeping the first copy made
+ * the pin depend on which file was read first.
+ */
+internal fun distinctKeepingPin(posts: List<Post>): List<Post> =
+    posts.groupBy { it.id }.values.map { copies -> copies.firstOrNull { it.isPinned } ?: copies.first() }

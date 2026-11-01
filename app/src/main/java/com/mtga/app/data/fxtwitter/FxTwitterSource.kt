@@ -95,13 +95,39 @@ class FxTwitterSource(
         }
     }
 
+    /** What asking FxTwitter for one post's whole text gave. */
+    sealed interface Whole {
+        /** The post's text, whole: FxTwitter carries the note tweet's text for long posts. */
+        class Text(val text: String) : Whole
+        /** A 404 repeated on every try: the post is gone, asking again will not change it. */
+        data object Gone : Whole
+        /** A transport failure, a 5xx, a limit or a body without text: worth asking again later. */
+        data object Unavailable : Whole
+    }
+
+    /**
+     * The whole text of one post by its id, from `/2/status/<id>`. A long post
+     * comes whole there (`is_note_tweet` in FxEmbed's API specification,
+     * https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json,
+     * MIT). Only a 404 that every try repeated counts as an answer that the
+     * post is gone, see [read]: FxTwitter's 404s are often transient.
+     */
+    suspend fun wholeText(id: String): Whole = withContext(Dispatchers.IO) {
+        when (val read = read("https://$HOST/2/status/$id", RequestLog.Kind.THREAD)) {
+            is Read.Body -> FxTwitterParser.statusText(read.text)?.let { Whole.Text(it) } ?: Whole.Unavailable
+            is Read.Failed -> if (read.missing) Whole.Gone else Whole.Unavailable
+        }
+    }
+
     private sealed interface Read {
         class Body(val text: String, val millis: Long) : Read
-        class Failed(val error: AppError) : Read
+        /** [missing] is true when every try answered 404. */
+        class Failed(val error: AppError, val missing: Boolean = false) : Read
     }
 
     private suspend fun read(url: String, kind: RequestLog.Kind): Read {
         var last: AppError = AppError.Unknown(null)
+        var notFound = 0
         repeat(TRIES) { attempt ->
             if (attempt > 0) delay(RETRY_DELAY_MS)
             if (!throttle.acquire(HOST)) return Read.Failed(AppError.RateLimited(HOST, null))
@@ -118,6 +144,7 @@ class FxTwitterSource(
                     throttle.clear(HOST)
                     return Read.Body(text, millis)
                 }
+                if (status == 404) notFound++
                 last = if (status == 404) AppError.InstanceError(HOST, 404) else ErrorMapper.fromResponse(HOST, response, text) ?: AppError.InstanceError(HOST, status)
                 if (status == 429) throttle.penalise(HOST, response.headers["Retry-After"]?.toLongOrNull())
                 log.record(kind, url, if (attempt < TRIES - 1) "http $status, trying again" else "http $status", httpStatus = status, bodyBytes = text.length, durationMillis = millis)
@@ -128,7 +155,7 @@ class FxTwitterSource(
                 log.record(kind, url, "transport failure", durationMillis = System.currentTimeMillis() - started, detail = "${t::class.java.simpleName}: ${t.message}")
             }
         }
-        return Read.Failed(last)
+        return Read.Failed(last, missing = notFound == TRIES)
     }
 
     companion object {

@@ -110,75 +110,14 @@ class FeedCache(
             return@withContext incoming
         }
 
-        val known = existing.posts.map { it.id }.toSet()
-        val newPosts = incoming.posts.filterNot { it.id in known }
-
-        // A post already stored may come back richer: x.com serves the head
-        // without cards or polls and with long texts cut off, Nitter serves
-        // them whole for the same ids. Keep the stored post and fill in what
-        // it lacked, take the fuller text, plus fresher counts.
-        //
-        // Pin status is the exception to "the stored post keeps its identity".
-        // Only page one of a Nitter profile read states it with authority:
-        // the pin is marked there, and its absence there means the author
-        // unpinned. mergedWith leaves isPinned alone, so a post stored before
-        // its author pinned it could otherwise never become pinned.
-        val statesPins = !isPagedFetch && incoming.pinAware
-        val seenAgain = incoming.posts.filter { it.id in known }.associateBy { it.id }
-        val refreshed = if (seenAgain.isEmpty()) existing.posts else existing.posts.map { post ->
-            seenAgain[post.id]?.let { fresh ->
-                val merged = post.mergedWith(fresh)
-                if (statesPins && merged.isPinned != fresh.isPinned) merged.copy(isPinned = fresh.isPinned) else merged
-            } ?: post
-        }
-
-        // A paged fetch that brings back nothing new means the cursor did not
-        // advance. Continuing would loop forever on the same page, so stop
-        // offering to load more rather than spinning against the instance.
-        val exhausted = isPagedFetch && newPosts.isEmpty()
-
-        // A refresh reads the first page again. When that page meets posts
-        // already stored, what is stored runs on from the head without a
-        // hole, so the deeper cursor kept from earlier paging is still where
-        // to continue. Before 2.4.2 the page's own cursor replaced it, the
-        // next scroll asked for page two, found only known posts, and paging
-        // ended for that account. Only between cursors of the same source: a
-        // cursor left by the source MTGA dropped cannot continue a Nitter one.
-        val keepDeeperCursor = !isPagedFetch &&
-            seenAgain.isNotEmpty() &&
-            existing.nextCursor != null &&
-            (incoming.nextCursor == null ||
-                LegacyCursor.fromDroppedSource(incoming.nextCursor) ==
-                LegacyCursor.fromDroppedSource(existing.nextCursor))
-
-        // A first page whose oldest post was not stored, above posts that
-        // were: what lies between is not stored. Its own cursor is where to
-        // read it from, kept apart from the paging cursor (often kept deeper).
-        val oldestOwnIn = incoming.posts.filterNot { it.isPinned }.minByOrNull { it.publishedAtMillis }
-        val gapAt = incoming.nextCursor?.takeIf {
-            !isPagedFetch && FxCursor.parse(it) != null && oldestOwnIn != null && oldestOwnIn.id !in known &&
-                existing.posts.any { post -> !post.isPinned && post.publishedAtMillis < oldestOwnIn.publishedAtMillis }
-        }
-
-        val combined = incoming.copy(
-            gapCursor = gapAt ?: existing.gapCursor,
-            posts = (refreshed + newPosts).sortedWith(PROFILE_ORDER),
-            // An empty page (no page source on) names no server.
-            fetchedFromHost = incoming.fetchedFromHost.ifBlank { existing.fetchedFromHost },
-            displayName = incoming.displayName.ifBlank { existing.displayName },
-            avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
-            bio = incoming.bio ?: existing.bio,
-            bannerUrl = incoming.bannerUrl ?: existing.bannerUrl,
-            location = incoming.location ?: existing.location,
-            website = incoming.website ?: existing.website,
-            joined = incoming.joined ?: existing.joined,
-            stats = incoming.stats ?: existing.stats,
-            nextCursor = when {
-                exhausted -> null
-                keepDeeperCursor -> existing.nextCursor
-                else -> incoming.nextCursor ?: existing.nextCursor
-            }
-        )
+        val merge = FeedMerge.combine(existing, incoming, isPagedFetch)
+        val combined = merge.feed
+        val newPosts = merge.newPosts
+        val seenAgain = merge.seenAgain
+        val statesPins = merge.statesPins
+        val exhausted = merge.exhausted
+        val keepDeeperCursor = merge.keepDeeperCursor
+        val gapAt = merge.gapAt
         // Everything needed to tell a post that was dropped from a post that
         // was never fetched. A refresh whose page meets nothing already stored
         // has landed clear of the store, which leaves a hole between the two.
@@ -201,7 +140,7 @@ class FeedCache(
                 append(" oldest: ${incoming.posts.minByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
                 append(" | stored newest was: ${existing.posts.maxByOrNull { it.publishedAtMillis }?.id ?: "NONE"}")
                 append(" | pins in: ${incoming.posts.count { it.isPinned }} stored: ${combined.posts.count { it.isPinned }}")
-                append(" | pin authority: ${if (statesPins) "yes" else "no"}")
+                append(" | pin authority: ${if (statesPins) "yes" else if (merge.namedPin != null) "names ${merge.namedPin}" else "no"}")
                 append(
                     " | cursor: " + when {
                         exhausted -> "STOPPED, page brought nothing new"
@@ -351,12 +290,23 @@ class FeedCache(
         if (existing.gapCursor != cursor) write(existing.copy(gapCursor = cursor))
     }
 
-    /** Replaces the text of stored posts, by id, for posts found cut. */
-    suspend fun replaceTexts(handle: String, texts: Map<String, String>) = withContext(Dispatchers.IO) {
-        if (texts.isEmpty()) return@withContext
+    /**
+     * Replaces the text of stored posts, by id, for posts found cut, and the
+     * text of their quoted posts ([quotedTexts], by the id of the post that
+     * quotes). The cut marker goes with it.
+     */
+    suspend fun replaceTexts(
+        handle: String,
+        texts: Map<String, String>,
+        quotedTexts: Map<String, String> = emptyMap()
+    ) = withContext(Dispatchers.IO) {
+        if (texts.isEmpty() && quotedTexts.isEmpty()) return@withContext
         val existing = read(handle) ?: return@withContext
-        write(existing.copy(posts = existing.posts.map { post -> texts[post.id]?.let { post.copy(text = it) } ?: post }))
-        log.record(RequestLog.Kind.CACHE, "cache/$handle", "long posts completed", detail = "${texts.size}")
+        write(FeedMerge.withWholeTexts(existing, texts, quotedTexts))
+        log.record(
+            RequestLog.Kind.CACHE, "cache/$handle", "long posts completed",
+            detail = "${texts.size} | quoted: ${quotedTexts.size}"
+        )
     }
 
     /** Every stored post's id with the time it was published. */
@@ -382,14 +332,145 @@ class FeedCache(
         const val MAX_SCROLLED_BACK_PER_ACCOUNT = 1_000
         const val DAY_MS = 24L * 60 * 60 * 1000
 
-        /**
-         * A profile's own order: the pinned post first, then newest first, which
-         * is how Nitter draws it. Sorting by date alone parked a pin that was a
-         * week old at the very bottom of the feed, where it also became the
-         * oldest post on screen, so paging behaved as though the account had
-         * already been read back a week.
-         */
-        val PROFILE_ORDER: Comparator<Post> = compareByDescending<Post> { it.isPinned }
-            .thenByDescending { it.publishedAtMillis }
+        val PROFILE_ORDER: Comparator<Post> = FeedMerge.PROFILE_ORDER
     }
+}
+
+/**
+ * How a fetched page joins what is stored, kept apart from the file handling
+ * so unit tests can run it without a device. The body of [FeedCache.append]
+ * moved here as it was (MTGA's own code, this file in its previous form).
+ *
+ * The pin rule is the one idea taken from Nitter (AGPL-3.0, idea only,
+ * https://github.com/zedeus/nitter/blob/master/src/parser.nim,
+ * parseGraphTimeline): the TimelinePinEntry of a timeline's first page names
+ * the pinned post, and only a first page carries it.
+ */
+internal object FeedMerge {
+
+    /**
+     * A profile's own order: the pinned post first, then newest first, which
+     * is how Nitter draws it. Sorting by date alone parked a pin that was a
+     * week old at the very bottom of the feed, where it also became the
+     * oldest post on screen, so paging behaved as though the account had
+     * already been read back a week.
+     */
+    val PROFILE_ORDER: Comparator<Post> = compareByDescending<Post> { it.isPinned }
+        .thenByDescending { it.publishedAtMillis }
+
+    class Combined(
+        val feed: Feed,
+        val newPosts: List<Post>,
+        val seenAgain: Map<String, Post>,
+        val statesPins: Boolean,
+        /** The id x.com named as the pinned post, when it did. */
+        val namedPin: String?,
+        val exhausted: Boolean,
+        val keepDeeperCursor: Boolean,
+        val gapAt: String?
+    )
+
+    /** Moved from FeedCache.append (MTGA), with the x.com pin rule added beside Nitter's. */
+    fun combine(existing: Feed, incoming: Feed, isPagedFetch: Boolean): Combined {
+        val known = existing.posts.mapTo(HashSet()) { it.id }
+        val newPosts = incoming.posts.filterNot { it.id in known }
+
+        // A post already stored may come back richer: x.com serves the head
+        // without cards or polls and with long texts cut off, Nitter serves
+        // them whole for the same ids. Keep the stored post and fill in what
+        // it lacked, take the fuller text, plus fresher counts.
+        //
+        // Pin status is the exception to "the stored post keeps its identity".
+        // Two readings state it with authority, both only on a first page.
+        // A Nitter profile page marks the pin, and its absence there means the
+        // author unpinned. An x.com page holding a TimelinePinEntry names the
+        // one pinned post, so a stored pin that is not it is stale, while a
+        // page without that entry says nothing. mergedWith leaves isPinned
+        // alone, so a post stored before its author pinned it could otherwise
+        // never become pinned. FxTwitter, RSS and syndication say nothing.
+        val statesPins = !isPagedFetch && incoming.pinAware
+        val namedPin = if (!isPagedFetch && incoming.pinNamed) {
+            incoming.posts.firstOrNull { it.isPinned }?.id
+        } else {
+            null
+        }
+        val seenAgain = incoming.posts.filter { it.id in known }.associateBy { it.id }
+        val refreshed = existing.posts.map { post ->
+            val fresh = seenAgain[post.id]
+            val merged = if (fresh != null) post.mergedWith(fresh) else post
+            val pinned = when {
+                namedPin != null -> merged.id == namedPin
+                statesPins && fresh != null -> fresh.isPinned
+                else -> merged.isPinned
+            }
+            if (pinned != merged.isPinned) merged.copy(isPinned = pinned) else merged
+        }
+
+        // A paged fetch that brings back nothing new means the cursor did not
+        // advance. Continuing would loop forever on the same page, so stop
+        // offering to load more rather than spinning against the instance.
+        val exhausted = isPagedFetch && newPosts.isEmpty()
+
+        // A refresh reads the first page again. When that page meets posts
+        // already stored, what is stored runs on from the head without a
+        // hole, so the deeper cursor kept from earlier paging is still where
+        // to continue. Before 2.4.2 the page's own cursor replaced it, the
+        // next scroll asked for page two, found only known posts, and paging
+        // ended for that account. Only between cursors of the same source: a
+        // cursor left by the source MTGA dropped cannot continue a Nitter one.
+        val keepDeeperCursor = !isPagedFetch &&
+            seenAgain.isNotEmpty() &&
+            existing.nextCursor != null &&
+            (incoming.nextCursor == null ||
+                LegacyCursor.fromDroppedSource(incoming.nextCursor) ==
+                LegacyCursor.fromDroppedSource(existing.nextCursor))
+
+        // A first page whose oldest post was not stored, above posts that
+        // were: what lies between is not stored. Its own cursor is where to
+        // read it from, kept apart from the paging cursor (often kept deeper).
+        val oldestOwnIn = incoming.posts.filterNot { it.isPinned }.minByOrNull { it.publishedAtMillis }
+        val gapAt = incoming.nextCursor?.takeIf {
+            !isPagedFetch && FxCursor.parse(it) != null && oldestOwnIn != null && oldestOwnIn.id !in known &&
+                existing.posts.any { post -> !post.isPinned && post.publishedAtMillis < oldestOwnIn.publishedAtMillis }
+        }
+
+        val combined = incoming.copy(
+            gapCursor = gapAt ?: existing.gapCursor,
+            posts = (refreshed + newPosts).sortedWith(PROFILE_ORDER),
+            // An empty page (no page source on) names no server.
+            fetchedFromHost = incoming.fetchedFromHost.ifBlank { existing.fetchedFromHost },
+            displayName = incoming.displayName.ifBlank { existing.displayName },
+            avatarUrl = incoming.avatarUrl ?: existing.avatarUrl,
+            bio = incoming.bio ?: existing.bio,
+            bannerUrl = incoming.bannerUrl ?: existing.bannerUrl,
+            location = incoming.location ?: existing.location,
+            website = incoming.website ?: existing.website,
+            joined = incoming.joined ?: existing.joined,
+            stats = incoming.stats ?: existing.stats,
+            nextCursor = when {
+                exhausted -> null
+                keepDeeperCursor -> existing.nextCursor
+                else -> incoming.nextCursor ?: existing.nextCursor
+            }
+        )
+        return Combined(combined, newPosts, seenAgain, statesPins, namedPin, exhausted, keepDeeperCursor, gapAt)
+    }
+
+    /**
+     * Puts whole texts into stored posts, by id, and into the posts they
+     * quote. A whole text clears the cut marker, the post is complete.
+     * Moved from FeedCache.replaceTexts (MTGA), quoted posts added.
+     */
+    fun withWholeTexts(feed: Feed, texts: Map<String, String>, quotedTexts: Map<String, String>): Feed =
+        feed.copy(posts = feed.posts.map { post ->
+            val text = texts[post.id]
+            val quotedText = quotedTexts[post.id]
+            var next = post
+            if (text != null) next = next.copy(text = text, textCut = false)
+            val quote = next.quoted
+            if (quotedText != null && quote != null) {
+                next = next.copy(quoted = quote.copy(text = quotedText, textCut = false))
+            }
+            next
+        })
 }
