@@ -25,7 +25,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import com.mtga.app.core.media.VideoCache
 import com.mtga.app.core.media.rememberMediaSource
+import org.koin.compose.koinInject
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.ui.component.BoldButton
@@ -75,11 +77,17 @@ fun MediaViewer(
         val source = rememberMediaSource(postId, index, item)
         when (item.type) {
             MediaType.PHOTO -> ZoomableImage(model = source.playback, onZoomChanged = onZoomChanged)
-            MediaType.VIDEO, MediaType.GIF -> VideoPage(
-                item = item,
-                url = source.playback,
-                active = active
-            )
+            MediaType.VIDEO, MediaType.GIF -> {
+                // A saved copy the reader deleted since fails to open: the
+                // network address takes over for this page.
+                var fellBack by remember(item.downloadUrl) { mutableStateOf(false) }
+                VideoPage(
+                    item = item,
+                    url = if (fellBack) item.downloadUrl else source.playback,
+                    active = active,
+                    onLocalFailed = { fellBack = true }
+                )
+            }
         }
     }
 }
@@ -89,8 +97,9 @@ fun MediaViewer(
  * it leaves. Plays only while its page is current and the app is in front.
  */
 @Composable
-private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
+private fun VideoPage(item: MediaItem, url: String, active: Boolean, onLocalFailed: () -> Unit) {
     val context = LocalContext.current
+    val videoCache: VideoCache = koinInject()
     val uriHandler = LocalUriHandler.current
     val policy = rememberMediaPolicy()
     val isGif = item.type == MediaType.GIF
@@ -99,13 +108,14 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
     // On mobile data with Wi-Fi only on, nothing is fetched until the reader
     // taps play. Otherwise the player prepares as soon as the page exists.
     // A saved file costs no data, so "Wi-Fi only" never holds it back.
-    var started by remember(url) { mutableStateOf(!policy.hold || url.startsWith("/")) }
+    var started by remember(url) { mutableStateOf(!policy.hold || url.startsWith("/") || url.startsWith("content://")) }
     var tappedPlay by remember(url) { mutableStateOf(false) }
     // GIFs have no sound. Videos follow the setting, and the button below.
     var muted by remember(url) { mutableStateOf(isGif || policy.startMuted) }
 
     val exo = remember(url) {
-        SafePlayer.build(context).apply {
+        // One cache behind the network, so a video seen online plays again offline.
+        SafePlayer.build(context, videoCache.dataSourceFactory()).apply {
             setMediaItem(PlayableItem.fromUri(url))
             if (isGif) repeatMode = Player.REPEAT_MODE_ALL
         }
@@ -114,7 +124,7 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean) {
     DisposableEffect(exo) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                failed = true
+                if (url != item.downloadUrl) onLocalFailed() else failed = true
             }
         }
         exo.addListener(listener)

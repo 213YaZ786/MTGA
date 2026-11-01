@@ -4,7 +4,14 @@ import com.mtga.app.core.security.SafeCoilDecoder
 import coil3.SingletonImageLoader
 import coil3.ImageLoader
 import android.app.Application
+import coil3.disk.DiskCache
+import com.mtga.app.core.media.ManualSaves
 import com.mtga.app.core.media.OfflineMedia
+import com.mtga.app.core.media.VideoCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okio.Path.Companion.toOkioPath
+import java.io.File
 import com.mtga.app.data.cache.FeedCache
 import com.mtga.app.data.read.ReadMarks
 import com.mtga.app.data.settings.SettingsStore
@@ -27,13 +34,32 @@ class MtgaApplication : Application() {
         // The links kit's catalogs (ClearURLs rules, public suffixes) from the assets, for LinkCleaner and the link sheet.
         com.mtga.app.core.link.ClearUrls.attach(this)
         // The saves that finished while the app was not running get their post address in the media store.
-        kotlin.concurrent.thread(name = "save-origin") { com.mtga.app.core.media.SaveOrigin.settle(this) }
+        // Then the files saved by hand are found again from their post, after the
+        // post address is in their row: the media store pass reads it.
+        kotlin.concurrent.thread(name = "save-origin") {
+            com.mtga.app.core.media.SaveOrigin.settle(this)
+            val manual = ManualSaves.of(this)
+            manual.settle(this)
+            manual.rescan(this)
+        }
+        // Hears the downloads finish for as long as the process lives.
+        ManualSaves.listen(this)
         // Every picture decoded in the isolated decoder, never in the app.
         SingletonImageLoader.setSafe { context ->
             // The network side first, pictures capped in bytes before the decoder.
             ImageLoader.Builder(context).components {
                 add(SafeCoilDecoder.network())
                 add(SafeCoilDecoder.Factory(context))
+            }.diskCache {
+                // Opened on first use, off the main thread. In filesDir, not cacheDir:
+                // Android empties cacheDir when space is short, and a post read
+                // on the train needs its pictures.
+                val target = File(context.filesDir, IMAGE_CACHE)
+                moveImageCache(context.cacheDir, target)
+                DiskCache.Builder()
+                    .directory(target.toOkioPath())
+                    .maxSizeBytes(IMAGE_CACHE_BYTES)
+                    .build()
             }.build()
         }
         startKoin {
@@ -49,6 +75,8 @@ class MtgaApplication : Application() {
         // Old posts go at launch, not only when their account is next fetched,
         // and their saved media goes with them. One retention, one sweep.
         koin.get<CoroutineScope>(named("appScope")).launch {
+            // The video cache reads its folder on first use: done here, not under the first player.
+            runCatching { withContext(Dispatchers.IO) { koin.get<VideoCache>().cache } }
             val cache = koin.get<FeedCache>()
             cache.applyRetention()
             val kept = cache.storedPostIds()
@@ -68,6 +96,29 @@ class MtgaApplication : Application() {
                 settings.current.syncIntervalMinutes,
                 settings.current.syncOnWifiOnly
             )
+        }
+    }
+
+    companion object {
+        private const val IMAGE_CACHE = "coil3_disk_cache"
+        private const val IMAGE_CACHE_BYTES = 500L * 1024 * 1024
+
+        /** The folders Coil itself has used under cacheDir, the old one first. */
+        private val OLD_IMAGE_CACHES = listOf("coil3_disk_cache", "image_cache")
+
+        /**
+         * Moves the pictures Coil kept under [cacheDir] to [target], so those
+         * the reader already saw stay. A rename on the same volume, and nothing
+         * is done when [target] exists already, when no old folder exists or
+         * when the rename fails: the pictures are then fetched again. Taken
+         * from Coil's setup of a disk cache of its own
+         * (coil-kt/coil, coil-core/src/commonMain/kotlin/coil3/disk/DiskCache.kt
+         * Builder.directory): https://github.com/coil-kt/coil/blob/main/coil-core/src/commonMain/kotlin/coil3/disk/DiskCache.kt
+         */
+        internal fun moveImageCache(cacheDir: File, target: File) {
+            if (target.exists()) return
+            val old = OLD_IMAGE_CACHES.map { File(cacheDir, it) }.firstOrNull { it.isDirectory } ?: return
+            runCatching { old.renameTo(target) }
         }
     }
 }

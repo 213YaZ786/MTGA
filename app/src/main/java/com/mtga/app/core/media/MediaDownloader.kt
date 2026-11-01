@@ -40,6 +40,11 @@ class MediaDownloader(private val context: Context) {
             toast("Could not start the download")
             return
         }
+        // A playlist saved as a file is a few lines of text named .mp4.
+        if (isHls(url)) {
+            toast("This video cannot be saved")
+            return
+        }
         val fileName = buildFileName(item, authorHandle, url)
         val request = baseRequest(url, fileName)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -60,6 +65,14 @@ class MediaDownloader(private val context: Context) {
             // download is done, see [SaveOrigin].
             .onSuccess { id ->
                 SaveOrigin.remember(context, id, origin)
+                // Which media of which post this file is, so it plays offline
+                // once it is done, see [ManualSaves].
+                val position = post?.media?.indexOfFirst { it.downloadUrl == item.downloadUrl } ?: -1
+                if (post != null && position >= 0) {
+                    ManualSaves.of(context).expect(
+                        id, post.id, post.authorHandle.lowercase(), position, item.type != MediaType.PHOTO
+                    )
+                }
                 toast("Saving to Downloads/$PUBLIC_FOLDER")
             }
             .onFailure { toast("Could not start the download") }
@@ -78,11 +91,16 @@ class MediaDownloader(private val context: Context) {
      * there or could not even be queued, so the caller can say so in the log
      * rather than guess.
      */
-    fun cache(target: File, item: MediaItem): Long? {
+    fun cache(target: File, item: MediaItem): Long? = cache(target, item.downloadUrl)
+
+    /** The same for any address: the file of a video, or its still. */
+    fun cache(target: File, address: String): Long? {
         if (target.exists()) return null
         val manager = manager() ?: return null
         // Same check as download.
-        val url = SafeLinks.openable(item.downloadUrl) ?: return null
+        val url = SafeLinks.openable(address) ?: return null
+        // HLS is a list of pieces, not a file: nothing to keep as one.
+        if (isHls(url)) return null
         val request = baseRequest(url, target.name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
             .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, target.name)
@@ -113,18 +131,29 @@ class MediaDownloader(private val context: Context) {
     }
 
     private fun guessExtension(url: String, fallback: String): String {
-        val candidates = listOf("jpg", "jpeg", "png", "webp", "gif", "mp4", "m3u8")
+        val candidates = listOf("jpg", "jpeg", "png", "webp", "gif", "mp4")
         val lower = url.lowercase()
         return candidates.firstOrNull { lower.contains(".$it") || lower.contains("%2e$it") }
-            ?.takeIf { it != "m3u8" }
             ?: fallback
     }
 
     private fun toast(message: String) =
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    companion object {
         /** Deliberate saves get their own drawer inside Downloads. */
-        const val PUBLIC_FOLDER = "MTGA"
+        private const val PUBLIC_FOLDER = "MTGA"
+
+        /**
+         * Whether [url] is an HLS playlist (.m3u8, also inside a Nitter proxied
+         * path where the dot is %2e). Media3 tells HLS by the same extension
+         * (androidx/media, libraries/common/src/main/java/androidx/media3/common/util/Util.java,
+         * inferContentType: ".m3u8"):
+         * https://github.com/androidx/media/blob/release/libraries/common/src/main/java/androidx/media3/common/util/Util.java
+         */
+        internal fun isHls(url: String): Boolean {
+            val lower = url.lowercase()
+            return lower.contains(".m3u8") || lower.contains("%2em3u8")
+        }
     }
 }

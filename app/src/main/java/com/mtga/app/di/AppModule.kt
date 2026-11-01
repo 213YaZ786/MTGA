@@ -8,6 +8,8 @@ import com.mtga.app.core.media.AutoMediaDownloader
 import com.mtga.app.core.media.OfflineMedia
 import com.mtga.app.core.media.MediaDownloader
 import com.mtga.app.core.media.MediaSavingNotice
+import com.mtga.app.core.media.SaveAttempts
+import com.mtga.app.core.media.VideoCache
 import com.mtga.app.core.network.ConnectivityMonitor
 import com.mtga.app.core.network.HostThrottle
 import com.mtga.app.core.network.HttpClientFactory
@@ -71,7 +73,9 @@ val appModule = module {
     single { OfflineMedia(androidContext()) }
     single { ReadMarks(androidContext()) }
     single { MediaSavingNotice(androidContext(), get(named("appScope"))) }
-    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get()) }
+    // One video cache for the whole app: a SimpleCache must be alone on its folder.
+    single { VideoCache(androidContext()) }
+    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get(), get(), SaveAttempts.of(androidContext())) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { PostMarks(androidContext()) }

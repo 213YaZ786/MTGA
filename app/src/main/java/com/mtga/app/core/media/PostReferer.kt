@@ -25,8 +25,10 @@ object PostReferer {
     // /<handle>/status/<id> at L34-46, isHandle and isId): a handle of 1 to 15
     // letters, digits and underscores, an id of digits. X's own address form,
     // https://x.com/<handle>/status/<id>, is the one kept.
-    private val HANDLE = Regex("[A-Za-z0-9_]{1,15}")
-    private val ID = Regex("[0-9]{1,20}")
+    private const val HANDLE_PATTERN = "[A-Za-z0-9_]{1,15}"
+    private const val ID_PATTERN = "[0-9]{1,20}"
+    private val HANDLE = Regex(HANDLE_PATTERN)
+    private val ID = Regex(ID_PATTERN)
 
     /**
      * The address of a save's post: its own permalink when that is on X's
@@ -44,6 +46,21 @@ object PostReferer {
         } else {
             null
         }
+
+    // Same source as [status] below.
+    private val STATUS = Regex("^https://[^/]+/($HANDLE_PATTERN)/status/($ID_PATTERN)(?:[/?].*)?$")
+
+    /**
+     * Handle and post id of a save's REFERER_URI, the reverse of [forPost], or
+     * null when it is not a status address on X's hosts. Taken from this app's
+     * XLink.parse status path, the same as [canonical]:
+     * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/core/link/XLink.kt
+     */
+    fun status(referer: String?): Pair<String, String>? {
+        val clean = forPermalink(referer) ?: return null
+        val match = STATUS.matchEntire(clean) ?: return null
+        return match.groupValues[1] to match.groupValues[2]
+    }
 
     /** The Referer to send for a save of the post at [permalink], or null for none. */
     fun forPermalink(permalink: String?): String? {

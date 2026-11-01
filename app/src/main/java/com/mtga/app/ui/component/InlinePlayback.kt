@@ -23,7 +23,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.mtga.app.core.media.VideoCache
 import com.mtga.app.core.model.MediaItem
+import org.koin.compose.koinInject
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
 import androidx.media3.common.MediaItem as PlayableItem
@@ -92,9 +94,11 @@ fun rememberInlineTarget(
 @Composable
 internal fun InlineVideo(url: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val videoCache: VideoCache = koinInject()
     var failed by remember(url) { mutableStateOf(false) }
     val exo = remember(url) {
-        SafePlayer.build(context).apply {
+        // One cache behind the network, so a video seen online plays again offline.
+        SafePlayer.build(context, videoCache.dataSourceFactory()).apply {
             setMediaItem(PlayableItem.fromUri(url))
             repeatMode = Player.REPEAT_MODE_ALL
             volume = 0f
