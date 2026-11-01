@@ -105,7 +105,7 @@ fun PostCard(
                     Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
                 ) {
-                    NameRow(post)
+                    NameRow(post, unread)
 
                     if (post.text.isNotBlank()) {
                         Text(post.text, style = MaterialTheme.typography.bodyLarge)
@@ -139,8 +139,6 @@ fun PostCard(
             }
         }
     }
-    // Arrived since the last visit and not yet scrolled past, see NewDot.
-    NewDot(unread, Modifier.align(Alignment.TopEnd).padding(top = if (compact) 11.dp else 13.dp, end = 26.dp))
     PostActionsOverlay(actions)
     }
 }
@@ -180,7 +178,7 @@ internal fun Avatar(
 }
 
 @Composable
-private fun NameRow(post: Post) {
+private fun NameRow(post: Post, unread: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             post.authorName,
@@ -205,6 +203,9 @@ private fun NameRow(post: Post) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1
         )
+        // Arrived since the last visit and not yet scrolled past. The dot sits on
+        // the line it marks, centred on it, as Fossify Messages' unread_count_badge (https://github.com/FossifyOrg/Messages/blob/main/app/src/main/res/layout/item_conversation.xml).
+        NewDot(unread, Modifier.padding(start = 8.dp))
     }
 }
 
