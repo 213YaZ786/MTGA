@@ -9,6 +9,8 @@ import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
+import com.mtga.app.ui.component.scrolledFromTop
+import com.mtga.app.ui.component.underFloatingTopBar
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.core.common.present
 import com.mtga.app.core.common.ChallengeKind
@@ -17,6 +19,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.size
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -219,8 +222,13 @@ private fun ConversationView(
         )
     }
 
+    val listState = rememberLazyListState()
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier.fillMaxSize().underFloatingTopBar(
+            barHeight = contentPadding.calculateTopPadding(),
+            scrolled = listState::scrolledFromTop
+        ),
         // Horizontal padding rather than a narrower list, so a drag in the
         // margins of a wide window scrolls too.
         contentPadding = PaddingValues(

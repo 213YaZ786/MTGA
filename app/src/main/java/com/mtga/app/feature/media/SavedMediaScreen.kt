@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -41,6 +42,8 @@ import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
+import com.mtga.app.ui.component.scrolledFromTop
+import com.mtga.app.ui.component.underFloatingTopBar
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
@@ -103,9 +106,14 @@ fun SavedMediaScreen(
                 return@Box
             }
 
+            val gridState = rememberLazyGridState()
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Adaptive(CELL_MIN),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().underFloatingTopBar(
+                    barHeight = padding.calculateTopPadding(),
+                    scrolled = gridState::scrolledFromTop
+                ),
                 contentPadding = PaddingValues(
                     start = LocalReadableInset.current + 16.dp,
                     end = LocalReadableInset.current + 16.dp,

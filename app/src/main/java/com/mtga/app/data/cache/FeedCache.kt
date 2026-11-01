@@ -293,19 +293,22 @@ class FeedCache(
     /**
      * Replaces the text of stored posts, by id, for posts found cut, and the
      * text of their quoted posts ([quotedTexts], by the id of the post that
-     * quotes). The cut marker goes with it.
+     * quotes). The cut marker goes with it. [checked] are the status ids that
+     * got a final answer, whole text or not: they are marked on disk so the
+     * next start does not ask again.
      */
     suspend fun replaceTexts(
         handle: String,
         texts: Map<String, String>,
-        quotedTexts: Map<String, String> = emptyMap()
+        quotedTexts: Map<String, String> = emptyMap(),
+        checked: Set<String> = emptySet()
     ) = withContext(Dispatchers.IO) {
-        if (texts.isEmpty() && quotedTexts.isEmpty()) return@withContext
+        if (texts.isEmpty() && quotedTexts.isEmpty() && checked.isEmpty()) return@withContext
         val existing = read(handle) ?: return@withContext
-        write(FeedMerge.withWholeTexts(existing, texts, quotedTexts))
+        write(FeedMerge.withWholeTexts(existing, texts, quotedTexts, checked))
         log.record(
             RequestLog.Kind.CACHE, "cache/$handle", "long posts completed",
-            detail = "${texts.size} | quoted: ${quotedTexts.size}"
+            detail = "${texts.size} | quoted: ${quotedTexts.size} | checked: ${checked.size}"
         )
     }
 
@@ -459,17 +462,28 @@ internal object FeedMerge {
     /**
      * Puts whole texts into stored posts, by id, and into the posts they
      * quote. A whole text clears the cut marker, the post is complete.
+     * [checked] ids (a post's own, or the id a quote points to) got a final
+     * answer and are marked [Post.textChecked], so they are not asked again.
      * Moved from FeedCache.replaceTexts (MTGA), quoted posts added.
      */
-    fun withWholeTexts(feed: Feed, texts: Map<String, String>, quotedTexts: Map<String, String>): Feed =
+    fun withWholeTexts(
+        feed: Feed,
+        texts: Map<String, String>,
+        quotedTexts: Map<String, String>,
+        checked: Set<String> = emptySet()
+    ): Feed =
         feed.copy(posts = feed.posts.map { post ->
             val text = texts[post.id]
             val quotedText = quotedTexts[post.id]
             var next = post
             if (text != null) next = next.copy(text = text, textCut = false)
+            if (post.id in checked) next = next.copy(textChecked = true)
             val quote = next.quoted
-            if (quotedText != null && quote != null) {
-                next = next.copy(quoted = quote.copy(text = quotedText, textCut = false))
+            if (quote != null) {
+                var marked = quote
+                if (quotedText != null) marked = marked.copy(text = quotedText, textCut = false)
+                if (quote.quotedId in checked) marked = marked.copy(textChecked = true)
+                if (marked != quote) next = next.copy(quoted = marked)
             }
             next
         })

@@ -61,6 +61,37 @@ class PostTextCutTest {
         assertEquals("9", merged.quotedId)
     }
 
+    // Source: the idea of Nitter's Redis cache, which keeps what it settled across
+    // restarts (https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim),
+    // tested with JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `a checked post stays checked when the same text comes again`() {
+        val stored = post("same text", cut = false).copy(textChecked = true)
+
+        assertTrue(stored.mergedWith(post("same text", cut = false)).textChecked)
+        assertTrue(stored.mergedWith(post("shorter", cut = false)).textChecked)
+    }
+
+    // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `a fuller text from another source asks again`() {
+        val stored = post("same text", cut = false).copy(textChecked = true)
+
+        val merged = stored.mergedWith(post("same text and a lot more", cut = false))
+
+        assertEquals("same text and a lot more", merged.text)
+        assertFalse(merged.textChecked)
+    }
+
+    // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `a quoted post keeps its checked mark the same way`() {
+        val stored = QuotedPost("a", "A", "text", "https://x.com/a/status/9", textChecked = true)
+
+        assertTrue(stored.mergedWith(QuotedPost("a", "A", "text", "https://x.com/a/status/9")).textChecked)
+        assertFalse(stored.mergedWith(QuotedPost("a", "A", "text and more", "https://x.com/a/status/9")).textChecked)
+    }
+
     @Test
     fun `the length window is the fallback, in code points and without a trailing link`() {
         val body = "a".repeat(260)
@@ -80,6 +111,7 @@ class PostTextCutTest {
         val post = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<Post>(old)
 
         assertFalse(post.textCut)
+        assertFalse(post.textChecked)
     }
 
     private fun post(text: String, cut: Boolean) = Post(

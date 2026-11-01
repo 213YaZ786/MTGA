@@ -166,7 +166,7 @@ class FeedRepository(
             RequestLog.Kind.CACHE, "cache/$handle", "long posts asked",
             detail = "asked: ${done.asked} | whole: ${done.texts.size + done.quotedTexts.size} | not answered, again next pass: ${done.unanswered}"
         )
-        cache.replaceTexts(handle, done.texts, done.quotedTexts)
+        cache.replaceTexts(handle, done.texts, done.quotedTexts, done.checked)
     }
 
     /** [fillGaps] with the loading notification, for a profile the reader opened. */
@@ -375,6 +375,8 @@ class FeedRepository(
  * earlier rule (FeedRepository.completeCutPosts), changed in three ways: a
  * post is settled only by a final answer, so a timeout or a 5xx is asked
  * again at the next pass; marked posts go first; quoted posts count too.
+ * A final answer is also marked on the stored post (Post.textChecked), so the
+ * same posts are not asked again at every start.
  */
 internal object CutCompletion {
 
@@ -384,7 +386,9 @@ internal object CutCompletion {
         /** Whole texts of quoted posts, by the id of the post that quotes them. */
         val quotedTexts: Map<String, String>,
         val asked: Int,
-        val unanswered: Int
+        val unanswered: Int,
+        /** Status ids that got a final answer this pass, marked on the stored posts. */
+        val checked: Set<String>
     )
 
     /** A pass stops early when this many answers in a row failed: FxTwitter is down. */
@@ -402,27 +406,28 @@ internal object CutCompletion {
     ): Done {
         val suspects = LinkedHashMap<String, Boolean>()
         for (post in posts) {
-            if (post.kind != PostKind.REPOST && post.id.all(Char::isDigit) && post.id !in settled &&
+            if (post.kind != PostKind.REPOST && post.id.all(Char::isDigit) && post.id !in settled && !post.textChecked &&
                 looksCut(post.text, post.textCut)
             ) {
                 suspects[post.id] = (suspects[post.id] ?: false) || post.textCut
             }
             val quote = post.quoted ?: continue
             val quotedId = quote.quotedId ?: continue
-            if (quotedId !in settled && looksCut(quote.text, quote.textCut)) {
+            if (quotedId !in settled && !quote.textChecked && looksCut(quote.text, quote.textCut)) {
                 suspects[quotedId] = (suspects[quotedId] ?: false) || quote.textCut
             }
         }
         val asking = suspects.entries.sortedByDescending { it.value }.take(limit).map { it.key }
 
         val answers = HashMap<String, String>()
+        val checked = HashSet<String>()
         var inARow = 0
         var asked = 0
         for (id in asking) {
             asked++
             when (val answer = ask(id)) {
-                is FxTwitterSource.Whole.Text -> { answers[id] = answer.text; settled += id; inARow = 0 }
-                FxTwitterSource.Whole.Gone -> { settled += id; inARow = 0 }
+                is FxTwitterSource.Whole.Text -> { answers[id] = answer.text; settled += id; checked += id; inARow = 0 }
+                FxTwitterSource.Whole.Gone -> { settled += id; checked += id; inARow = 0 }
                 FxTwitterSource.Whole.Unavailable -> inARow++
             }
             if (inARow >= GIVE_UP_AFTER) break
@@ -444,6 +449,6 @@ internal object CutCompletion {
                 else if (quote.textCut) quotedTexts[post.id] = quote.text
             }
         }
-        return Done(texts, quotedTexts, asked = asked, unanswered = asking.take(asked).count { it !in settled })
+        return Done(texts, quotedTexts, asked = asked, unanswered = asking.take(asked).count { it !in settled }, checked = checked)
     }
 }

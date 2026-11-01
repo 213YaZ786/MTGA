@@ -2,6 +2,7 @@ package com.mtga.app.data.archive
 
 import java.io.File
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineScope
@@ -201,12 +202,22 @@ class ArchiveSource(
         usable(known[key])?.let { return it.ids }
         usable(stored(key))?.let { known[key] = it; return it.ids }
         failedAt[key]?.takeIf { now - it < RETRY_AFTER_MS }?.let { return emptyList() }
-        val pending = asking.computeIfAbsent(key) { scope.async { lookUp(handle, wanted) } }
-        return try {
-            pending.await()
-        } finally {
-            asking.remove(key, pending)
+        // One request in flight per key, as Store5 does:
+        // https://github.com/MobileNativeFoundation/Store/blob/main/store/src/commonMain/kotlin/org/mobilenativefoundation/store/store5/impl/FetcherController.kt
+        // (Apache-2.0). It differs on one point: Store cancels the fetch when its
+        // last collector leaves, but this lookup is a warm-up meant to finish, so it
+        // lives in this class's own scope until done. The entry is dropped when the
+        // lookup completes, never when a caller leaves: a profile closed and opened
+        // again joins the lookup still running instead of starting a second one
+        // (two index calls of 13 to 60 s each made the archive answer 503).
+        val fresh = scope.async(start = CoroutineStart.LAZY) { lookUp(handle, wanted) }
+        val pending = asking.putIfAbsent(key, fresh)
+        if (pending != null) {
+            fresh.cancel()
+            return pending.await()
         }
+        fresh.invokeOnCompletion { asking.remove(key, fresh) }
+        return fresh.await()
     }
 
     /** The lists switched on. */

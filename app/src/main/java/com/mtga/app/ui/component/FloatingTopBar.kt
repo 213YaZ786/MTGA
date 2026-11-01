@@ -1,15 +1,15 @@
 package com.mtga.app.ui.component
 
-import com.mtga.app.ui.glass.groundHere
-import com.mtga.app.ui.glass.LocalGlass
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -29,6 +29,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.mtga.app.navigation.LocalReadableInset
@@ -85,13 +87,11 @@ fun FloatingTopBar(
             // and no sliver of it is left under the status bar.
             .onSizeChanged { size -> state?.heightOffsetLimit = -size.height.toFloat() }
             .offset { IntOffset(0, state?.heightOffset?.roundToInt() ?: 0) }
-            // Opaque, otherwise posts scroll through the gap above the zone:
-            // the page's ground as it lies here, ambient light included.
-            .groundHere(LocalGlass.current, MaterialTheme.colorScheme.background)
+            // No band behind the zone: what scrolls under it is faded by the
+            // list itself (underFloatingTopBar), not cut by an opaque edge.
             .statusBarsPadding()
             // The inset keeps the zone over the readable column on a wide
-            // window. The background above is drawn before it, so it still
-            // covers the full width and nothing scrolls through the margins.
+            // window.
             .padding(horizontal = 16.dp + LocalReadableInset.current, vertical = 8.dp)
     ) {
         ZoneSurface(
@@ -118,3 +118,54 @@ fun FloatingTopBar(
         }
     }
 }
+
+/**
+ * What scrolls under the floating top bar fades out instead of meeting an opaque edge, as the panes
+ * kit's FloatingFrame does under its header (ui/component/FloatingPane.kt:244-310, strength computed
+ * at :279-283) through [softTopEdge] (Android's FadedEdgeBox,
+ * https://github.com/android/snippets/blob/main/compose/snippets/src/main/java/com/example/compose/snippets/graphics/GraphicsModifiersSnippets.kt).
+ * Put it on the scrolling container itself.
+ *
+ * [barHeight] is the Scaffold's top inner padding: Scaffold measures its topBar slot and hands that
+ * height (status bar and the bar's 8 dp margins included) to the content, which is exactly the
+ * bar's own measured height. Reading it there needs no state shared between the bar and the list,
+ * and works for the screens whose bar is fixed as well as for the folding one. A folding bar gives
+ * [foldOffset], its scroll behavior's state.heightOffset (negative, 0 by default): the visible
+ * bottom follows it but never goes above the status bar, so text stays faded under the clock. It
+ * is a lambda, not the TopAppBarScrollBehavior, so the experimental Material API stays out of
+ * this signature. The height starts at the top of the window, the list being drawn under the
+ * status bar.
+ *
+ * [scrolled] is how far the content has left its top, in px (see [scrolledFromTop]). The strength is
+ * that over the visible bar height, from 0 to 1, as FloatingFrame does: nothing is erased at rest.
+ */
+@Composable
+fun Modifier.underFloatingTopBar(
+    barHeight: Dp,
+    scrolled: () -> Float,
+    foldOffset: () -> Float = { 0f }
+): Modifier {
+    val density = LocalDensity.current
+    val statusTop = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
+    // Read while drawing, so the fold redraws the fade without recomposing the list.
+    val height: () -> Dp = {
+        with(density) { (barHeight + foldOffset().toDp()).coerceAtLeast(statusTop) }
+    }
+    val strength: () -> Float = {
+        val fade = with(density) { height().toPx() }
+        if (fade <= 0f) 0f else (scrolled() / fade).coerceIn(0f, 1f)
+    }
+    return softTopEdge(height, strength)
+}
+
+/**
+ * How far a lazy list has scrolled from its top, in px: the first item's offset while it is the
+ * first visible one, else a number large enough for a full fade. Cheap to read when drawing
+ * (LazyListState.firstVisibleItemIndex and firstVisibleItemScrollOffset are snapshot state).
+ */
+fun LazyListState.scrolledFromTop(): Float =
+    if (firstVisibleItemIndex == 0) firstVisibleItemScrollOffset.toFloat() else Float.MAX_VALUE
+
+/** The same for a lazy grid (LazyGridState has the same two properties). */
+fun LazyGridState.scrolledFromTop(): Float =
+    if (firstVisibleItemIndex == 0) firstVisibleItemScrollOffset.toFloat() else Float.MAX_VALUE

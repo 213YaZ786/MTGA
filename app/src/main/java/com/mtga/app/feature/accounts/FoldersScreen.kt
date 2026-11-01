@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +47,8 @@ import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
+import com.mtga.app.ui.component.scrolledFromTop
+import com.mtga.app.ui.component.underFloatingTopBar
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
 
@@ -150,8 +153,13 @@ fun FoldersScreen(
             )
         }
     ) { padding ->
+        val listState = rememberLazyListState()
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier.fillMaxSize().underFloatingTopBar(
+                barHeight = padding.calculateTopPadding(),
+                scrolled = listState::scrolledFromTop
+            ),
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
                 end = 16.dp + LocalReadableInset.current,

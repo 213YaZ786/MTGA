@@ -39,7 +39,17 @@ data class Post(
      * result's text: https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts
      * Defaults to false so files stored before the field existed still load.
      */
-    val textCut: Boolean = false
+    val textCut: Boolean = false,
+    /**
+     * True once FxTwitter gave a final answer about this post's text (a whole
+     * text or gone), so the old length window and the marker are not asked
+     * again at every start. Kept on the stored post, as Nitter keeps what it
+     * has settled in its Redis cache instead of asking again after a restart:
+     * https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim
+     * A fuller text from another source resets it, see [mergedWith].
+     * Defaults to false so files stored before the field existed still load.
+     */
+    val textChecked: Boolean = false
 ) {
     /**
      * The same post seen again, possibly from a richer source. x.com gives the
@@ -63,6 +73,9 @@ data class Post(
             // A fuller text brings its own verdict. At equal length the post
             // stays cut only if both copies say so: one whole copy settles it.
             textCut = if (fuller) fresh.textCut else textCut && fresh.textCut,
+            // The answer was about this text: a fuller one is a new question,
+            // the same text seen again is not.
+            textChecked = if (fuller) fresh.textChecked else textChecked || fresh.textChecked,
             links = if (fresh.text.fullerThan(text)) fresh.links.ifEmpty { links } else links,
             media = media.ifEmpty { fresh.media },
             quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
@@ -132,7 +145,9 @@ data class QuotedPost(
     val permalink: String,
     val note: CommunityNote? = null,
     /** As [Post.textCut], for the quoted post's own text. */
-    val textCut: Boolean = false
+    val textCut: Boolean = false,
+    /** As [Post.textChecked], for the quoted post's own text. */
+    val textChecked: Boolean = false
 ) {
     /** Same rule as the post itself: the fuller text wins, and a note is kept. */
     fun mergedWith(fresh: QuotedPost?): QuotedPost {
@@ -140,7 +155,8 @@ data class QuotedPost(
         return copy(
             text = fullerText(text, fresh.text),
             note = fresh.note ?: note,
-            textCut = if (fresh.text.fullerThan(text)) fresh.textCut else textCut && fresh.textCut
+            textCut = if (fresh.text.fullerThan(text)) fresh.textCut else textCut && fresh.textCut,
+            textChecked = if (fresh.text.fullerThan(text)) fresh.textChecked else textChecked || fresh.textChecked
         )
     }
 

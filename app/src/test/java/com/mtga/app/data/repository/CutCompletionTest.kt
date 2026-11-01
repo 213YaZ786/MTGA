@@ -122,6 +122,53 @@ class CutCompletionTest {
         assertFalse(done.quotedTexts.isNotEmpty())
     }
 
+    // Source: the idea of Nitter's Redis cache, which keeps what it settled across
+    // restarts (https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim),
+    // tested with JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `a post already checked on disk is not asked after a restart`() = runBlocking {
+        val text = "a".repeat(260)
+        val posts = listOf(
+            post("10", text, cut = false).copy(textChecked = true),
+            post("11", "head", cut = true).copy(textChecked = true),
+            post("12", text, cut = false)
+        )
+        val asked = ArrayList<String>()
+
+        // A new empty settled set is what a restart leaves.
+        CutCompletion.run(posts, HashSet(), 15) { asked += it; Whole.Gone }
+
+        assertEquals(listOf("12"), asked)
+    }
+
+    // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `a quoted post already checked is not asked again`() = runBlocking {
+        val quote = QuotedPost("a", "A", "a".repeat(260), "https://x.com/a/status/77", textChecked = true)
+        val posts = listOf(post("10", "short whole text", cut = false).copy(quoted = quote))
+        var asks = 0
+
+        CutCompletion.run(posts, HashSet(), 15) { asks++; Whole.Gone }
+
+        assertEquals(0, asks)
+    }
+
+    // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
+    @Test
+    fun `only final answers are reported as checked`() = runBlocking {
+        val posts = listOf(post("1", "h", cut = true), post("2", "h", cut = true), post("3", "h", cut = true))
+
+        val done = CutCompletion.run(posts, HashSet(), 15) { id ->
+            when (id) {
+                "1" -> Whole.Text("h and more")
+                "2" -> Whole.Gone
+                else -> Whole.Unavailable
+            }
+        }
+
+        assertEquals(setOf("1", "2"), done.checked)
+    }
+
     @Test
     fun `the pinned copy wins when an id comes twice`() {
         val plain = post("5", "t", cut = false)

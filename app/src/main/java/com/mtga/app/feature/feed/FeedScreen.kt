@@ -72,6 +72,8 @@ import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ChallengePill
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
+import com.mtga.app.ui.component.scrolledFromTop
+import com.mtga.app.ui.component.underFloatingTopBar
 import com.mtga.app.ui.component.ErrorPanel
 import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
@@ -215,7 +217,11 @@ fun FeedScreen(
                 end = LocalReadableInset.current,
                 bottom = LocalDockPadding.current
             ).plus(padding),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().underFloatingTopBar(
+                barHeight = padding.calculateTopPadding(),
+                scrolled = listState::scrolledFromTop,
+                foldOffset = { scrollBehavior.state.heightOffset }
+            )
         ) {
             item(key = "header") {
                 ProfileHeader(

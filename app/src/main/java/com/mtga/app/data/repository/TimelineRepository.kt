@@ -81,21 +81,32 @@ class TimelineRepository(
      *
      * The concurrency limit is the point. Firing twenty simultaneous requests at
      * a single surviving instance is the fastest way to get rate limited, and
-     * the pool's backoff would then punish every later read.
+     * the pool's backoff would then punish every later read. Two at a time is
+     * the count fillGaps already runs with, and HostThrottle still spaces the
+     * requests to any one host, so a pair of accounts never asks a host faster
+     * than one account did. Squawker reads its subscriptions in parallel
+     * groups the same way
+     * (https://github.com/j-fbriere/squawker/blob/master/lib/group/_feed.dart,
+     * MIT). It stops at the first rate limit, which is not needed here: a
+     * host in cooldown makes HostThrottle.acquire refuse at once, and the
+     * account falls through to its next source without sending anything.
+     *
+     * x.com heads are read first when that source is on, and [onHeads] is
+     * called once they are in the cache, so Home repaints before the slower
+     * feeds answer. It is the order of the profile screen
+     * (FeedViewModel.refresh, MTGA's own).
      */
-    suspend fun refresh(only: Set<String>? = null, folder: String? = null): Merged = coroutineScope {
+    suspend fun refresh(
+        only: Set<String>? = null,
+        folder: String? = null,
+        onHeads: suspend () -> Unit = {}
+    ): Merged = coroutineScope {
         val handles = handlesIn(folder)
         if (handles.isEmpty()) return@coroutineScope Merged()
 
         val targets = if (only == null) handles else handles.filter { it.lowercase() in only }
 
         val gate = Semaphore(MAX_PARALLEL_FETCHES)
-
-        val results = targets.map { handle ->
-            async {
-                gate.withPermit { handle to feeds.loadFeed(handle) }
-            }
-        }.map { it.await() }
 
         val errors = mutableMapOf<String, AppError>()
         var oldest: Long? = null
@@ -113,17 +124,29 @@ class TimelineRepository(
         // updated.
         val headOk = mutableSetOf<String>()
         if (settings.current.useXcomDirect) {
-            for (handle in targets) {
-                // Through the repository, which knows whether x.com is on.
-                when (val head = feeds.loadHead(handle)) {
+            // Through the repository, which knows whether x.com is on. The
+            // reads run two at a time and the cache is written one account
+            // after the other.
+            val heads = targets.map { handle ->
+                async { gate.withPermit { handle to feeds.loadHead(handle) } }
+            }.map { it.await() }
+            for ((handle, head) in heads) {
+                when (head) {
                     is Outcome.Success -> {
                         if (cache.append(head.value).nextCursor != null) more = true
                         headOk += handle
                     }
-                    else -> Unit // instances still had their turn
+                    else -> Unit // instances still get their turn
                 }
             }
+            if (headOk.isNotEmpty()) onHeads()
         }
+
+        val results = targets.map { handle ->
+            async {
+                gate.withPermit { handle to feeds.loadFeed(handle) }
+            }
+        }.map { it.await() }
 
         for ((handle, outcome) in results) {
             when (outcome) {
@@ -246,12 +269,12 @@ class TimelineRepository(
 
     private companion object {
         /**
-         * One at a time. With a single healthy instance in the pool, "parallel"
-         * just means several simultaneous requests to the same small server,
-         * which is precisely what earns a 429. The throttle paces them anyway,
-         * so concurrency here would buy nothing.
+         * Two at a time, like FILL_PARALLEL. With a single healthy instance in
+         * the pool, "parallel" means simultaneous requests to the same small
+         * server, which is what earns a 429, so the count stays small and the
+         * throttle paces every host anyway. loadMore pages with the same count.
          */
-        const val MAX_PARALLEL_FETCHES = 1
+        const val MAX_PARALLEL_FETCHES = 2
         const val FILL_PARALLEL = 2
         const val MAX_TIMELINE_POSTS = 20_000
     }
