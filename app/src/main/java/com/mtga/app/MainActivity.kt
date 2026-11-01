@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
                 // Glass over Material You: the look for this theme, or none
                 // when the reader turned it off, and the page's ground with
                 // its ambient light under everything.
-                val look = rememberGlassLook(MaterialTheme.colorScheme, settings.glass)
+                val look = rememberGlassLook(MaterialTheme.colorScheme, settings.glass, quiet = true)
                 CompositionLocalProvider(LocalGlass provides look) {
                 Box(Modifier.fillMaxSize()) {
                     // Order matters. The check runs underneath the app, which

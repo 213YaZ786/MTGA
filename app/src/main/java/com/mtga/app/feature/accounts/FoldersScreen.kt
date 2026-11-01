@@ -196,6 +196,8 @@ private fun FolderZone(
         Column {
             Row(
                 modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                // The buttons keep a gap so they never touch: SMS's PersonActions (TileGap, 10 dp).
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

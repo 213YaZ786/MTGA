@@ -272,7 +272,8 @@ private fun InstanceCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.End
+                // The round buttons keep a gap so they never touch: SMS's PersonActions (TileGap, 10 dp).
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
             ) {
                 BoldIconButton(onClick = onMoveUp) {
                     Icon(MtgaIcons.ArrowUp, contentDescription = "Try earlier")
