@@ -23,6 +23,7 @@ import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,18 +75,18 @@ fun PostCard(
     // two things without needing a line drawn between them.
     val shape = ShapeDefaults.ExtraLarge
     val tap = rememberHaptics()
-    // A tap opens the post, a long press the pill of actions, see PostActions.
+    // A tap opens the post, a long press the suite's long press menu, see PostActions.
     val actions = rememberPostActions(post, onDownload)
-    Box(modifier.then(actions.tracker)) {
+    // The zone is drawn twice, as SMS's ThreadScreen.kt draws its bubble (in place, and again as the held copy
+    // without click handlers): [outer] places it, [clicks] is what the column answers to.
+    // The copy flies no avatar to the opened post (one shared key, one element) and plays no film of its own.
+    val zone: @Composable (Modifier, Modifier, Boolean) -> Unit = { outer, clicks, copy ->
     ZoneSurface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = if (compact) 3.dp else 5.dp),
+        modifier = outer,
         shape = shape
     ) {
         Column(
-            Modifier.combinedClickable(onClick = { tap.tick(); onClick() }, onLongClick = actions::open)
-                .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
+            clicks.padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
         ) {
             post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
@@ -98,7 +99,7 @@ fun PostCard(
                     post.avatarUrl,
                     post.authorName,
                     size = if (compact) 36.dp else 44.dp,
-                    sharedKey = post.id
+                    sharedKey = if (copy) null else post.id
                 )
 
                 Column(
@@ -139,7 +140,20 @@ fun PostCard(
             }
         }
     }
-    PostActionsOverlay(actions)
+    }
+    Box(modifier) {
+        // The tracker sits on the zone itself, after the padding, so its bounds are the zone HoldMenu lifts.
+        zone(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = if (compact) 3.dp else 5.dp)
+                .then(actions.tracker),
+            Modifier.combinedClickable(onClick = { tap.tick(); onClick() }, onLongClick = actions::open),
+            false
+        )
+        PostActionsOverlay(actions) {
+            CompositionLocalProvider(LocalInlinePlaying provides null) { zone(Modifier.fillMaxWidth(), Modifier, true) }
+        }
     }
 }
 
