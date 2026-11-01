@@ -7,6 +7,7 @@ import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
+import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.core.common.present
@@ -30,7 +31,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -112,7 +113,7 @@ fun PostDetailScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
-                title = { Text("Post") },
+                title = { BarTitle("Post") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
@@ -275,7 +276,8 @@ private fun ConversationView(
                     val gone = thread.error as? AppError.PostUnavailable
                     Text(
                         if (gone != null) "No longer available on X" else "Replies couldn't be loaded",
-                        style = MaterialTheme.typography.titleSmall
+                        style = MaterialTheme.typography.titleSmall,
+                        textAlign = TextAlign.Center
                     )
                     Text(
                         if (gone != null) presentation.explanation else presentation.headline,
@@ -354,7 +356,7 @@ private fun PostBody(
     // same object, only larger.
     ZoneSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(24.dp)
+        shape = ShapeDefaults.ExtraLarge
     ) {
     Column(
         modifier = Modifier
@@ -366,7 +368,7 @@ private fun PostBody(
 
         Surface(
             onClick = { onOpenProfile(post.authorHandle) },
-            shape = RoundedCornerShape(16.dp),
+            shape = ShapeDefaults.Large,
             // See through: this is a tap target on the zone, not a second
             // card inside the first one.
             color = Color.Transparent,

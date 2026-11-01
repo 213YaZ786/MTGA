@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.media3.common.PlaybackException
@@ -160,7 +161,7 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean, onLocalFail
             verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("This video could not be played here.", color = Color.White)
+            Text("This video could not be played here.", color = Color.White, textAlign = TextAlign.Center)
             BoldButton(onClick = { uriHandler.openUri(item.downloadUrl) }, filled = true) {
                 Text("Open in browser")
             }
@@ -199,6 +200,7 @@ private fun VideoPage(item: MediaItem, url: String, active: Boolean, onLocalFail
                 Text(
                     "Mobile data, Wi-Fi only is on",
                     color = Color.White,
+                    textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelMedium
                 )
             }

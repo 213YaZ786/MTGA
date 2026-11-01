@@ -1,14 +1,18 @@
 package com.mtga.app.ui.component
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -19,6 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -50,7 +61,8 @@ fun FolderDialog(
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (creating) {
                     // 0.6.51 of LinkedOut said here that a folder disappears
@@ -61,7 +73,8 @@ fun FolderDialog(
                         "An empty folder stays until you delete it in Accounts, Folders.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     )
                     TextField(
                         value = name,
@@ -94,18 +107,41 @@ fun FolderDialog(
 @Composable
 private fun Choice(label: String, chosen: Boolean, onChoose: () -> Unit) {
     val haptics = rememberHaptics()
-    val choose = {
-        haptics.tick()
-        onChoose()
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = chosen, onClick = choose)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+    ZoneSurface(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics { this.selected = chosen },
+        shape = CircleShape,
+        accent = chosen,
+        onClick = {
+            haptics.tick()
+            onChoose()
+        }
     ) {
-        GlassRadio(selected = chosen, onClick = choose)
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (chosen) {
+                Tick()
+                Spacer(Modifier.size(8.dp))
+            }
+            Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+// Ported from ChoiceDialog's Tick in this app (SMS ui/component/ChoiceDialog.kt, MIT), which draws the three-point
+// path of Material 3's Checkbox drawCheck:
+// https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/Checkbox.kt
+@Composable
+private fun Tick() {
+    val ink = LocalContentColor.current
+    Canvas(Modifier.size(18.dp)) {
+        val path = Path().apply {
+            moveTo(size.width * 0.2f, size.height * 0.5f)
+            lineTo(size.width * 0.4f, size.height * 0.7f)
+            lineTo(size.width * 0.8f, size.height * 0.3f)
+        }
+        drawPath(path, ink, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }

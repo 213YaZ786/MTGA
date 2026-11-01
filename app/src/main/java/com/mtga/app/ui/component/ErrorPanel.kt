@@ -1,7 +1,9 @@
 package com.mtga.app.ui.component
 
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.ShapeDefaults
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,15 +33,21 @@ fun ErrorPanel(
 
     ZoneSurface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(presentation.headline, style = MaterialTheme.typography.titleMedium)
+        // Centred like EmptyZone (SMS ui/component/EmptyZone.kt:36-76).
+        Column(
+            Modifier.padding(16.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(presentation.headline, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text(
                 presentation.explanation,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
             when (presentation.action) {
                 ErrorAction.RETRY -> BoldButton(onClick = onRetry) { Text("Try again") }

@@ -49,7 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -425,7 +425,7 @@ private fun HomeHeader(
 ) {
     ZoneSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(28.dp)
+        shape = ShapeDefaults.ExtraLarge
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
@@ -458,7 +458,7 @@ private fun HomeHeader(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(ShapeDefaults.Large)
                     .then(
                         if (onChooseFolder != null) {
                             Modifier.clickable(onClickLabel = "Choose which folder to show", onClick = onChooseFolder)
@@ -470,12 +470,13 @@ private fun HomeHeader(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (onChooseFolder == null) {
-                    Text("Home", style = MaterialTheme.typography.titleLarge)
+                    Text("Home", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             state.folder ?: "Home",
                             style = MaterialTheme.typography.titleLarge,
+                            textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
@@ -491,7 +492,8 @@ private fun HomeHeader(
                     Text(
                         it,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -543,7 +545,8 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
             else -> Text(
                 "No older posts available.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
         }
     }

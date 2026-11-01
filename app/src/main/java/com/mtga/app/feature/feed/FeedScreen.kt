@@ -14,7 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import com.mtga.app.ui.component.rememberMediaPolicy
@@ -70,6 +70,7 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ChallengePill
+import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.ErrorPanel
 import com.mtga.app.ui.component.LocalDockPadding
@@ -177,7 +178,7 @@ fun FeedScreen(
                 scrollBehavior = scrollBehavior,
                 title = {
                     if (headerGone) {
-                        Text(name ?: "@$handle", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        BarTitle(name ?: "@$handle")
                     }
                 },
                 navigationIcon = {
@@ -298,7 +299,8 @@ fun FeedScreen(
                         else -> Text(
                             "No older posts available.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -348,7 +350,7 @@ private fun ProfileHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(3f)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(ShapeDefaults.Medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             )
         }
@@ -372,7 +374,8 @@ private fun ProfileHeader(
             Text(
                 "@$handle",
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
         }
 
@@ -400,6 +403,7 @@ private fun ProfileHeader(
                 site.removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/'),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clickable { uriHandler.openUri(site) }

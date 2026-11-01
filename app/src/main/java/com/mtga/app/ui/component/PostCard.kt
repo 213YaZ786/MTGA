@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,7 +72,7 @@ fun PostCard(
     // it, the same rounded zone the settings sections use. The hairline that
     // used to separate two posts is gone with it: two zones with a gap read as
     // two things without needing a line drawn between them.
-    val shape = RoundedCornerShape(24.dp)
+    val shape = ShapeDefaults.ExtraLarge
     val tap = rememberHaptics()
     // A tap opens the post, a long press the pill of actions, see PostActions.
     val actions = rememberPostActions(post, onDownload)
@@ -279,7 +280,7 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(ShapeDefaults.Medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .clickable { if (waiting) revealed = true else onOpen(index) }
             ) {
@@ -314,7 +315,7 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                             .padding(8.dp)
                             .background(
                                 MaterialTheme.colorScheme.surface,
-                                RoundedCornerShape(6.dp)
+                                ShapeDefaults.ExtraSmall
                             )
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
@@ -356,7 +357,7 @@ internal fun QuoteBlock(
     val tap = rememberHaptics()
     Surface(
         onClick = { tap.tick(); onClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.innerZone,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -389,7 +390,7 @@ internal fun QuoteBlock(
 @Composable
 internal fun NoteBlock(note: CommunityNote, text: AnnotatedString? = null, maxLines: Int = Int.MAX_VALUE) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.tertiaryContainer,
         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
         modifier = Modifier.fillMaxWidth()
@@ -427,7 +428,7 @@ internal fun LinkCardBlock(card: LinkCard, onClick: () -> Unit) {
     val tap = rememberHaptics()
     Surface(
         onClick = { tap.tick(); onClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.innerZone,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -543,7 +544,7 @@ private fun ArticleBadge(modifier: Modifier) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSecondaryContainer,
         modifier = modifier
-            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer, ShapeDefaults.ExtraSmall)
             .padding(horizontal = 6.dp, vertical = 2.dp)
     )
 }
@@ -564,7 +565,7 @@ internal fun PollBlock(poll: Poll) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(ShapeDefaults.Small)
                     .background(MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 // The fill sits in its own box: under matchParentSize the width

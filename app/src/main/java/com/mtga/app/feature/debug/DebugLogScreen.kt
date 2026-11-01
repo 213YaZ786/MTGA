@@ -3,7 +3,6 @@ package com.mtga.app.feature.debug
 import com.mtga.app.ui.glass.LocalGlass
 import com.mtga.app.ui.glass.groundHere
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.mtga.app.ui.component.ZoneSurface
 import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
@@ -27,7 +26,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ShapeDefaults
+import com.mtga.app.ui.component.BarTitle
+import com.mtga.app.ui.component.EmptyZone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,13 +73,13 @@ fun DebugLogScreen(onBack: () -> Unit) {
         contentColor = MaterialTheme.colorScheme.onBackground,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 // The page's ground where the bar sits, ambient light included.
                 // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent, titleContentColor = MaterialTheme.colorScheme.primary),
                 // Over the reading column, like the content under it.
                 modifier = Modifier.groundHere(LocalGlass.current, MaterialTheme.colorScheme.background).padding(horizontal = LocalReadableInset.current),
-                title = { Text("Activity log") },
+                title = { BarTitle("Activity log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
@@ -114,12 +116,10 @@ fun DebugLogScreen(onBack: () -> Unit) {
             }
 
             if (entries.isEmpty()) {
-                Text(
-                    "Nothing recorded yet. Open an account or scroll for older posts, then " +
-                        "come back here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp + LocalReadableInset.current, vertical = 24.dp)
+                EmptyZone(
+                    title = "Nothing recorded yet",
+                    message = "Open an account or scroll for older posts, then come back here.",
+                    modifier = Modifier.fillMaxSize().padding(horizontal = LocalReadableInset.current)
                 )
             } else {
                 LazyColumn(
@@ -134,7 +134,7 @@ fun DebugLogScreen(onBack: () -> Unit) {
                     items(entries.reversed()) { entry ->
                         ZoneSurface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = ShapeDefaults.Large,
                             color = MaterialTheme.colorScheme.surfaceContainer
                         ) {
                             Column(Modifier.padding(12.dp)) {

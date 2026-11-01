@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,7 +32,9 @@ import androidx.compose.material3.Text
 import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.GlassSwitch
 import com.mtga.app.ui.component.QuietButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ShapeDefaults
+import com.mtga.app.ui.component.BarTitle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mtga.app.core.common.AppError
 import com.mtga.app.core.common.present
@@ -70,13 +72,13 @@ fun DiagnosticsScreen(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 // The page's ground where the bar sits, ambient light included.
                 // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent, titleContentColor = MaterialTheme.colorScheme.primary),
                 // Over the reading column, like the content under it.
                 modifier = Modifier.groundHere(LocalGlass.current, MaterialTheme.colorScheme.background).padding(horizontal = LocalReadableInset.current),
-                title = { Text("Connection check") },
+                title = { BarTitle("Connection check") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
@@ -146,7 +148,9 @@ fun DiagnosticsScreen(
                         "instance here is red, that is the upstream situation, not a fault " +
                         "in the app.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -197,15 +201,16 @@ private fun OverallBanner(state: DiagnosticsUiState) {
 
     ZoneSurface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(headline, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(headline, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text(
                 detail,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
         }
     }
@@ -224,7 +229,7 @@ private fun InstanceCard(
 
     ZoneSurface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -263,7 +268,7 @@ private fun InstanceCard(
                             .padding(top = 6.dp)
                             .background(
                                 MaterialTheme.colorScheme.surfaceContainerHigh,
-                                RoundedCornerShape(8.dp)
+                                ShapeDefaults.Small
                             )
                             .padding(8.dp)
                     )
@@ -357,7 +362,9 @@ private fun AddInstanceDialog(
                 Text(
                     "MTGA only talks to instances over https.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
@@ -392,11 +399,11 @@ object InstanceRowDefaults {
 private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -> Unit) {
     ZoneSurface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Text("Server list", style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Server list", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             val age = status.updatedAtMillis?.let { relativeTime(it) }
             Text(
                 when {
@@ -407,13 +414,15 @@ private fun ListCard(status: InstancePool.ListStatus, count: Int, onUpdate: () -
                     else -> "From the Nitter wiki, updated $age ago, $count servers"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
             status.lastError?.let { error ->
                 Text(
                     "Last update failed: " + error.present().headline,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }

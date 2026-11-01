@@ -36,7 +36,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilledTonalButton
@@ -268,7 +268,7 @@ fun AccountsScreen(
 private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Unit)?) {
     ZoneSurface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = ShapeDefaults.ExtraLarge,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -319,7 +319,7 @@ private fun AccountCard(row: AccountRow, onClick: () -> Unit, onFile: (() -> Uni
 private fun CandidateCard(handle: String, onOpen: () -> Unit, onFollow: () -> Unit) {
     ZoneSurface(
         onClick = onOpen,
-        shape = RoundedCornerShape(20.dp),
+        shape = ShapeDefaults.ExtraLarge,
         color = MaterialTheme.colorScheme.secondaryContainer,
         accent = true,
         modifier = Modifier.fillMaxWidth()

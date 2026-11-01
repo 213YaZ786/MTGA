@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -171,7 +170,7 @@ fun PostActionsOverlay(actions: PostActions) {
                 val liked = state.isLiked(actions.post.id)
                 val archived = state.isArchived(actions.post.id)
                 val close = { actions.shown = false }
-                ZoneSurface(shape = RoundedCornerShape(50), shadowElevation = 6.dp) {
+                ZoneSurface(shape = androidx.compose.foundation.shape.CircleShape, shadowElevation = 6.dp) {
                     Column(
                         modifier = Modifier.padding(4.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),

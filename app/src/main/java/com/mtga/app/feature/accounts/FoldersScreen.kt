@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.mtga.app.core.model.FollowedAccount
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.Avatar
+import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
@@ -137,7 +138,7 @@ fun FoldersScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
-                title = { Text("Folders") },
+                title = { BarTitle("Folders") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(MtgaIcons.ArrowBack, contentDescription = "Back") }
                 },
@@ -190,7 +191,7 @@ private fun FolderZone(
 ) {
     val count = rows.count { it.folder == name }
     ZoneSurface(
-        shape = RoundedCornerShape(24.dp),
+        shape = ShapeDefaults.ExtraLarge,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {

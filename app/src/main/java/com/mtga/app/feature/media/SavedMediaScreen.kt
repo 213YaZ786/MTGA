@@ -39,6 +39,7 @@ import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.QuietButton
+import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.icon.MtgaIcons
@@ -77,7 +78,7 @@ fun SavedMediaScreen(
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
-                title = { Text("Saved media") },
+                title = { BarTitle("Saved media") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MtgaIcons.ArrowBack, contentDescription = "Back")

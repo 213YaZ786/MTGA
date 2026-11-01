@@ -10,10 +10,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ShapeDefaults
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -40,6 +48,26 @@ import kotlin.math.roundToInt
  * own background included, so what leaves the screen is the zone and not just
  * its text.
  */
+/**
+ * A screen's title in a top bar: centred, up to two lines, and a single word too wide for the room
+ * shrinks last. Ported from SMS's FloatingTop (ui/component/FloatingPane.kt:128-173, MIT), which sets
+ * a BasicText with maxLines = 2 and Compose's TextAutoSize.StepBased
+ * (https://developer.android.com/develop/ui/compose/text/autosize). The size is the bar's own
+ * titleLarge, two lines of it fit the 64 dp bar.
+ */
+@Composable
+fun BarTitle(text: String, modifier: Modifier = Modifier) {
+    val style = MaterialTheme.typography.titleLarge
+    BasicText(
+        text,
+        modifier = modifier.semantics { heading() },
+        style = style.copy(color = LocalContentColor.current, textAlign = TextAlign.Center),
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = style.fontSize, stepSize = 0.5.sp)
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FloatingTopBar(
@@ -67,7 +95,7 @@ fun FloatingTopBar(
             .padding(horizontal = 16.dp + LocalReadableInset.current, vertical = 8.dp)
     ) {
         ZoneSurface(
-            shape = RoundedCornerShape(28.dp),
+            shape = ShapeDefaults.ExtraLarge,
             modifier = Modifier.fillMaxWidth()
         ) {
             CenterAlignedTopAppBar(

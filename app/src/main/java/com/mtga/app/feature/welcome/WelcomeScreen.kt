@@ -43,7 +43,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ShapeDefaults
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -378,7 +378,7 @@ private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Uni
             haptics.tick()
             onChoose(value)
         },
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
         accent = picked,
         modifier = Modifier.fillMaxWidth()
@@ -405,7 +405,7 @@ private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Uni
 private fun LinkExample() {
     val handleStyle = SpanStyle(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
     ZoneSurface(
-        shape = RoundedCornerShape(16.dp),
+        shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Text(
@@ -414,6 +414,7 @@ private fun LinkExample() {
                 withStyle(handleStyle) { append("nytimes") }
             },
             style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
+            textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
         )
     }
@@ -421,7 +422,7 @@ private fun LinkExample() {
 
 @Composable
 private fun Point(text: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
         Box(
             Modifier
                 .padding(top = 8.dp)
@@ -431,7 +432,9 @@ private fun Point(text: String) {
         Text(
             text,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }

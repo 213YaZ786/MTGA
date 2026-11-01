@@ -20,7 +20,7 @@ fun Placeholder(title: String, subtitle: String, modifier: Modifier = Modifier) 
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Text(
             subtitle,
             style = MaterialTheme.typography.bodyMedium,

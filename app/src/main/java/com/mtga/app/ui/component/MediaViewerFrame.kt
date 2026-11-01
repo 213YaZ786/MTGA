@@ -181,6 +181,8 @@ fun MediaViewerFrame(
                                 if (count > 1) "${pager.currentPage + 1} / $count" else "",
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium,
+                                // Centred between Close and the actions (the user's rule: a title centred between its actions).
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 modifier = Modifier.weight(1f)
                             )
                             actions(pager.currentPage)
