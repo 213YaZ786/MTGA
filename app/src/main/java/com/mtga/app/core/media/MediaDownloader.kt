@@ -105,9 +105,11 @@ class MediaDownloader(private val context: Context) {
         val url = SafeLinks.openable(address) ?: return null
         // HLS is a list of pieces, not a file: nothing to keep as one.
         if (isHls(url)) return null
+        // The account's folder, made before the download lands in it.
+        target.parentFile?.mkdirs()
         val request = baseRequest(url, target.name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
-            .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, target.name)
+            .setDestinationInExternalFilesDir(context, OfflineMedia.FOLDER, "${target.parentFile?.name}/${target.name}")
         return runCatching { manager.enqueue(request) }.getOrNull()
     }
 

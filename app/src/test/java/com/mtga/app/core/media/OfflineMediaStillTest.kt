@@ -18,18 +18,31 @@ class OfflineMediaStillTest {
     fun `a still goes back to its post and position`() {
         val name = OfflineMedia.stillName("42", "SomeOne", 1, video)
 
-        assertEquals("someone__42__1__still.jpg", name)
-        assertEquals(OfflineMedia.Parsed("someone", "42", 1, still = true), OfflineMedia.parse(name))
+        assertEquals("42.1.still.jpg", name)
+        assertEquals(
+            OfflineMedia.Parsed("someone", "42", 1, still = true),
+            OfflineMedia.parse(name, OfflineMedia.getMediafilePath("SomeOne"))
+        )
     }
 
     @Test
     fun `the still and the video of one media have different names`() {
-        assertEquals("someone__42__1.mp4", OfflineMedia.name("42", "someone", 1, video))
-        assertEquals(false, OfflineMedia.parse("someone__42__1.mp4")?.still)
+        assertEquals("42.1.mp4", OfflineMedia.name("42", "someone", 1, video))
+        assertEquals(false, OfflineMedia.parse("42.1.mp4", "someone")?.still)
     }
 
     @Test
-    fun `a fourth part that is not still is no file of ours`() {
+    fun `a third part that is not still is no file of ours`() {
+        assertNull(OfflineMedia.parse("42.1.other.jpg", "someone"))
+        assertNull(OfflineMedia.parse("42.1.still.extra.jpg", "someone"))
+    }
+
+    @Test
+    fun `a still written before the account folders still parses`() {
+        assertEquals(
+            OfflineMedia.Parsed("someone", "42", 1, still = true),
+            OfflineMedia.parse("someone__42__1__still.jpg")
+        )
         assertNull(OfflineMedia.parse("someone__42__1__other.jpg"))
         assertNull(OfflineMedia.parse("a__b__c__d__still.jpg"))
     }

@@ -1,6 +1,13 @@
 package com.mtga.app.feature.media
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.ContentResolver
+import android.database.ContentObserver
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mtga.app.core.media.ManualSaves
 import com.mtga.app.core.media.OfflineMedia
@@ -8,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -69,13 +77,24 @@ data class SavedMediaUiState(
  * made by hand come from [ManualSaves]. A saved media in both shows once, as
  * the copy in the app's folder.
  */
-class SavedMediaViewModel(private val offline: OfflineMedia) : ViewModel() {
+class SavedMediaViewModel(
+    private val offline: OfflineMedia,
+    application: Application
+) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(SavedMediaUiState())
     val state: StateFlow<SavedMediaUiState> = _state.asStateFlow()
 
+    private var contentObserver: ContentObserver? = null
+
     init {
-        reload()
+        loadImages()
+        // An automatic save lands in the app's folder, out of MediaStore's sight:
+        // the index says so by its version, and the grid reads again at each new
+        // value after the first.
+        viewModelScope.launch {
+            offline.version.drop(1).collect { loadImages() }
+        }
     }
 
     /**
@@ -98,17 +117,51 @@ class SavedMediaViewModel(private val offline: OfflineMedia) : ViewModel() {
         }
     }
 
-    private fun reload() {
+    /**
+     * Loads the saved media into [state], and on its first run starts watching
+     * Downloads, where the saves made by hand land, to load again at each
+     * change. [rescan] is the observer's: a file deleted elsewhere (Files) drops
+     * out of the manual index first, see [ManualSaves.rescan].
+     * https://github.com/android/storage-samples/blob/main/MediaStore/app/src/main/java/com/android/samples/mediastore/MainActivityViewModel.kt#loadImages
+     */
+    fun loadImages(rescan: Boolean = false) {
         viewModelScope.launch {
-            val auto = offline.entries()
-            // Reads the folder again too, which also catches the manual saves.
-            val stills = offline.stillPaths()
-            val built = withContext(Dispatchers.Default) {
-                val sized = auto.map { Auto(it.handle, it.postId, it.index, it.file.path, it.file.length()) }
-                build(sized, stills, offline.manual.all())
+            if (rescan) withContext(Dispatchers.IO) { offline.manual.rescan(getApplication<Application>()) }
+            reload()
+
+            if (contentObserver == null) {
+                contentObserver = getApplication<Application>().contentResolver.registerObserver(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                ) {
+                    loadImages(rescan = true)
+                }
             }
-            _state.value = built.copy(loading = false)
         }
+    }
+
+    /**
+     * Stops watching Downloads with the screen.
+     * https://github.com/android/storage-samples/blob/main/MediaStore/app/src/main/java/com/android/samples/mediastore/MainActivityViewModel.kt#onCleared
+     */
+    override fun onCleared() {
+        contentObserver?.let {
+            getApplication<Application>().contentResolver.unregisterContentObserver(it)
+        }
+    }
+
+    /**
+     * The folder and the index read once and built into the rows, as before.
+     * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/media/SavedMediaViewModel.kt#reload
+     */
+    private suspend fun reload() {
+        val auto = offline.entries()
+        // Reads the folder again too, which also catches the manual saves.
+        val stills = offline.stillPaths()
+        val built = withContext(Dispatchers.Default) {
+            val sized = auto.map { Auto(it.handle, it.postId, it.index, it.file.path, it.file.length()) }
+            build(sized, stills, offline.manual.all())
+        }
+        _state.value = built.copy(loading = false)
     }
 
     /** One file of the app's folder with its size, read once. */
@@ -167,4 +220,21 @@ class SavedMediaViewModel(private val offline: OfflineMedia) : ViewModel() {
             )
         }
     }
+}
+
+/**
+ * Convenience extension method to register a [ContentObserver] given a lambda.
+ * https://github.com/android/storage-samples/blob/main/MediaStore/app/src/main/java/com/android/samples/mediastore/MainActivityViewModel.kt#registerObserver
+ */
+private fun ContentResolver.registerObserver(
+    uri: Uri,
+    observer: (selfChange: Boolean) -> Unit
+): ContentObserver {
+    val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            observer(selfChange)
+        }
+    }
+    registerContentObserver(uri, true, contentObserver)
+    return contentObserver
 }

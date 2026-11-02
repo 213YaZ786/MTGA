@@ -1,6 +1,7 @@
 package com.mtga.app.core.media
 
 import android.content.Context
+import android.webkit.URLUtil
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import kotlinx.coroutines.Dispatchers
@@ -22,11 +23,14 @@ import java.io.File
  * fate for a cache. The ones the reader saved by hand sit in Downloads/MTGA and
  * are found again through [ManualSaves].
  *
- * The index of the automatic ones is the file name and there is no database. A
- * name carries the handle, the post id and the position of the media within
- * that post, which is everything needed to go from a post on screen to a file
- * on disk and back. A database for that would be a second copy of the truth,
- * free to disagree with the folder.
+ * The index of the automatic ones is the file name and there is no database.
+ * A folder per account (AntennaPod's folder per feed) holds files named
+ * `<post id>.<position>.<extension>`: the folder, the post id and the position
+ * of the media within that post are everything needed to go from a post on
+ * screen to a file on disk and back. A database for that would be a second
+ * copy of the truth, free to disagree with the folder. The files saved before
+ * this scheme sit flat in the media folder as `handle__id__position.ext` and
+ * stay readable.
  *
  * Every addition below (stills, the version, the grouped deletes) extends this
  * file's own scheme, https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/core/media/OfflineMedia.kt
@@ -62,11 +66,11 @@ class OfflineMedia(context: Context) {
 
     /** Where [item] of [postId] is, or would be. Never null, may not exist. */
     fun fileFor(postId: String, authorHandle: String, index: Int, item: MediaItem): File =
-        File(directory, name(postId, authorHandle, index, item))
+        File(File(directory, getMediafilePath(authorHandle)), name(postId, authorHandle, index, item))
 
     /** Where the still of a video of [postId] is, or would be. Same scheme as [fileFor]. */
     fun stillFor(postId: String, authorHandle: String, index: Int, item: MediaItem): File =
-        File(directory, stillName(postId, authorHandle, index, item))
+        File(File(directory, getMediafilePath(authorHandle)), stillName(postId, authorHandle, index, item))
 
     /**
      * postId and position to absolute path, for everything on disk.
@@ -91,8 +95,8 @@ class OfflineMedia(context: Context) {
         manual.load()
         val main = HashMap<String, String>()
         val still = HashMap<String, String>()
-        directory.listFiles().orEmpty().forEach { file ->
-            val parsed = parse(file.name) ?: return@forEach
+        files().forEach { file ->
+            val parsed = parseFile(file) ?: return@forEach
             (if (parsed.still) still else main)[key(parsed.postId, parsed.index)] = file.absolutePath
         }
         if (main != index || still != stills) {
@@ -122,11 +126,9 @@ class OfflineMedia(context: Context) {
 
     /** The automatic copies on disk, stills left out, in no order: the screens sort what they need. */
     suspend fun entries(): List<Entry> = withContext(Dispatchers.IO) {
-        directory.listFiles()
-            .orEmpty()
-            .mapNotNull { file ->
-                parse(file.name)?.takeIf { !it.still }?.let { Entry(file, it.handle, it.postId, it.index) }
-            }
+        files().mapNotNull { file ->
+            parseFile(file)?.takeIf { !it.still }?.let { Entry(file, it.handle, it.postId, it.index) }
+        }
     }
 
     /** The saved still of each video of the folder, by post id and position. Same listing as [refresh]. */
@@ -136,7 +138,7 @@ class OfflineMedia(context: Context) {
     }
 
     suspend fun sizeBytes(): Long = withContext(Dispatchers.IO) {
-        directory.listFiles().orEmpty().sumOf { it.length() }
+        files().sumOf { it.length() }
     }
 
     suspend fun delete(file: File): Boolean {
@@ -152,17 +154,35 @@ class OfflineMedia(context: Context) {
      */
     suspend fun deleteWhere(matches: (Parsed) -> Boolean): Int = withContext(Dispatchers.IO) {
         var removed = 0
-        directory.listFiles().orEmpty().forEach { file ->
-            val parsed = parse(file.name)
+        files().forEach { file ->
+            val parsed = parseFile(file)
             if (parsed != null && matches(parsed) && runCatching { file.delete() }.getOrDefault(false)) removed++
         }
         if (removed > 0) refresh()
         removed
     }
 
+    /**
+     * Every file of the media folder in one listing: the flat ones saved
+     * before the account folders, then those of each account folder. The
+     * listing of this file's previous version, one level deeper:
+     * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/core/media/OfflineMedia.kt#refresh
+     */
+    private fun files(): List<File> = directory.listFiles().orEmpty().flatMap { child ->
+        if (child.isDirectory) child.listFiles().orEmpty().filter { it.isFile } else listOf(child)
+    }
+
+    /**
+     * What [file] says about its media: by its account folder, or by its flat
+     * name when it sits in [directory]. The parse of this file's previous
+     * version, https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/core/media/OfflineMedia.kt#parse
+     */
+    private fun parseFile(file: File): Parsed? =
+        if (file.parentFile == directory) parse(file.name) else parse(file.name, file.parentFile?.name)
+
     suspend fun clear() {
         withContext(Dispatchers.IO) {
-            directory.listFiles().orEmpty().forEach { runCatching { it.delete() } }
+            directory.listFiles().orEmpty().forEach { runCatching { it.deleteRecursively() } }
         }
         refresh()
     }
@@ -176,8 +196,8 @@ class OfflineMedia(context: Context) {
      */
     suspend fun keepOnly(postIds: Set<String>): Int = withContext(Dispatchers.IO) {
         var removed = 0
-        directory.listFiles().orEmpty().forEach { file ->
-            val parsed = parse(file.name)
+        files().forEach { file ->
+            val parsed = parseFile(file)
             if (parsed == null || parsed.postId !in postIds) {
                 if (runCatching { file.delete() }.getOrDefault(false)) removed++
             }
@@ -199,27 +219,69 @@ class OfflineMedia(context: Context) {
         private const val STILL = "still"
 
         /**
-         * handle, then post id, then position within the post, then
-         * extension. The separator is a double underscore because a handle
-         * can contain a single one.
-         *
-         * This name is the whole index. Pure, so the round trip with [parse]
-         * can be tested off Android, which is the only thing standing between
-         * a saved file and the post that owns it.
+         * The account's folder under the media folder, one for every account
+         * (X handles are case blind, hence the lower case).
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service-interface/src/main/java/de/danoeh/antennapod/net/download/serviceinterface/DownloadRequestCreator.java#getMediafilePath
          */
+        internal fun getMediafilePath(authorHandle: String): String =
+            FileNameGenerator.generateFileName(authorHandle.lowercase())
+
+        /**
+         * post id, then position within the post, then extension, the
+         * extension taken as AntennaPod does: URLUtil's guess from the address
+         * and the mime type, the part after its last dot. The handle is the
+         * folder's business ([getMediafilePath]), not the name's.
+         *
+         * The folder and this name are the whole index, the only thing
+         * standing between a saved file and the post that owns it.
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service-interface/src/main/java/de/danoeh/antennapod/net/download/serviceinterface/DownloadRequestCreator.java#getMediafilename
+         */
+        @Suppress("UNUSED_PARAMETER")
         internal fun name(postId: String, authorHandle: String, index: Int, item: MediaItem): String {
-            val extension = when (item.type) {
-                MediaType.PHOTO -> extensionOf(item.downloadUrl, "jpg")
-                else -> extensionOf(item.downloadUrl, "mp4")
+            val mimeType = if (item.type == MediaType.PHOTO) "image/jpeg" else "video/mp4"
+            val urlBaseFilename = guessFileName(item.downloadUrl, mimeType)
+            var baseFilename = FileNameGenerator.generateFileName(postId)
+            val filenameMaxLength = 220
+            if (baseFilename.length > filenameMaxLength) {
+                baseFilename = baseFilename.substring(0, filenameMaxLength)
             }
-            return "${authorHandle.lowercase()}__${postId}__$index.$extension"
+            return baseFilename + "." + index + "." + getExtension(urlBaseFilename)
         }
 
-        /** The name of the still of a video: [name] with a fourth part and a picture extension. */
-        internal fun stillName(postId: String, authorHandle: String, index: Int, item: MediaItem): String =
-            "${authorHandle.lowercase()}__${postId}__${index}__$STILL.${extensionOf(item.previewUrl, "jpg")}"
+        /**
+         * The name of the still of a video: [name]'s base with a "still" part
+         * and a picture extension from the preview address.
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service-interface/src/main/java/de/danoeh/antennapod/net/download/serviceinterface/DownloadRequestCreator.java#getMediafilename
+         */
+        @Suppress("UNUSED_PARAMETER")
+        internal fun stillName(postId: String, authorHandle: String, index: Int, item: MediaItem): String {
+            val mimeType = "image/jpeg"
+            val urlBaseFilename = guessFileName(item.previewUrl, mimeType)
+            var baseFilename = FileNameGenerator.generateFileName(postId)
+            val filenameMaxLength = 220
+            if (baseFilename.length > filenameMaxLength) {
+                baseFilename = baseFilename.substring(0, filenameMaxLength)
+            }
+            return baseFilename + "." + index + "." + STILL + "." + getExtension(urlBaseFilename)
+        }
 
-        internal fun parse(fileName: String): Parsed? {
+        /**
+         * What a file name says about its media. [folder] is the account
+         * folder the file sits in; null for a file saved before the folders,
+         * flat in the media folder as `handle__postId__index.ext` (or
+         * `...__still.ext`), read as it always was.
+         */
+        internal fun parse(fileName: String, folder: String? = null): Parsed? {
+            if (folder == null) return parseLegacy(fileName)
+            val parts = fileName.substringBeforeLast('.').split('.')
+            if (parts.size != 2 && !(parts.size == 3 && parts[2] == STILL)) return null
+            val index = parts[1].toIntOrNull() ?: return null
+            if (folder.isEmpty() || parts[0].isEmpty()) return null
+            return Parsed(folder, parts[0], index, still = parts.size == 3)
+        }
+
+        /** The parse of this file's previous version, the names written before the account folders. */
+        private fun parseLegacy(fileName: String): Parsed? {
             val parts = fileName.substringBeforeLast('.').split("__")
             if (parts.size != 3 && !(parts.size == 4 && parts[3] == STILL)) return null
             val index = parts[2].toIntOrNull() ?: return null
@@ -227,9 +289,37 @@ class OfflineMedia(context: Context) {
             return Parsed(parts[0], parts[1], index, still = parts.size == 4)
         }
 
-        private fun extensionOf(url: String, fallback: String): String {
-            val tail = url.substringBefore('?').substringAfterLast('.', "")
-            return if (tail.length in 2..4 && tail.all { it.isLetterOrDigit() }) tail else fallback
+        private const val EXTENSION_SEPARATOR = '.'
+        private const val NOT_FOUND = -1
+        private const val EMPTY_STRING = ""
+
+        /**
+         * What follows the last dot of [fileName], empty for none.
+         * https://github.com/apache/commons-io/blob/master/src/main/java/org/apache/commons/io/FilenameUtils.java#getExtension
+         */
+        private fun getExtension(fileName: String): String {
+            val index = indexOfExtension(fileName)
+            if (index == NOT_FOUND) {
+                return EMPTY_STRING
+            }
+            return fileName.substring(index + 1)
         }
+
+        /** The position of the last dot, or [NOT_FOUND]. FilenameUtils's indexOfExtension, without its Windows and path parts: [fileName] is a file name. */
+        private fun indexOfExtension(fileName: String): Int = fileName.lastIndexOf(EXTENSION_SEPARATOR)
+
+        /**
+         * URLUtil.guessFileName(url, null, mimeType), as AntennaPod calls it.
+         * A unit test on the JVM has no URLUtil (the stub jar throws "not
+         * mocked"): the tail of the address stands in there, which names the
+         * same for an address that carries its extension.
+         * https://github.com/aosp-mirror/platform_frameworks_base/blob/main/core/java/android/webkit/URLUtil.java#guessFileName
+         */
+        private fun guessFileName(url: String, mimeType: String): String =
+            runCatching { URLUtil.guessFileName(url, null, mimeType) }.getOrElse {
+                val extension = url.substringBefore('?').substringAfterLast(EXTENSION_SEPARATOR, EMPTY_STRING)
+                val known = extension.length in 2..4 && extension.all { it.isLetterOrDigit() }
+                "downloadfile." + if (known) extension else if (mimeType.startsWith("image/")) "jpg" else "mp4"
+            }
     }
 }

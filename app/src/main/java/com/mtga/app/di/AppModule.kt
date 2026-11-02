@@ -47,6 +47,7 @@ import com.mtga.app.feature.timeline.TimelineViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import org.koin.android.ext.koin.androidApplication
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.core.qualifier.named
@@ -118,5 +119,5 @@ val appModule = module {
     viewModel { FeedViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get(), androidContext()) }
-    viewModel { SavedMediaViewModel(get()) }
+    viewModel { SavedMediaViewModel(get(), androidApplication()) }
 }
