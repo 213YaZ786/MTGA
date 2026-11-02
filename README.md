@@ -53,6 +53,6 @@ To the Nitter maintainers and the people who run its servers. Parts of the appro
 
 Links are checked before they open, after [URLCheck](https://github.com/TrianguloY/URLCheck) (CC BY 4.0). The tracking rules are [ClearURLs](https://github.com/ClearURLs/Rules) (LGPL-3.0), the site names come from the [Public Suffix List](https://publicsuffix.org) (MPL-2.0).
 
-Code is ported from [Feeder](https://github.com/spacecowboy/Feeder) (GPL-3.0), [AntennaPod](https://github.com/AntennaPod/AntennaPod) (GPL-3.0), [SparkButton](https://github.com/connyduck/sparkbutton) (Apache-2.0), [OneBusAway](https://github.com/OneBusAway/onebusaway-android) (Apache-2.0), [FxEmbed](https://github.com/FxEmbed/FxEmbed) (MIT), [Squawker](https://github.com/j-fbriere/squawker) (MIT) and [seroval](https://github.com/lxsmnsyc/seroval) (MIT).
+Code is ported from [Feeder](https://github.com/spacecowboy/Feeder) (GPL-3.0), [AntennaPod](https://github.com/AntennaPod/AntennaPod) (GPL-3.0), [SparkButton](https://github.com/connyduck/sparkbutton) (Apache-2.0), [OneBusAway](https://github.com/OneBusAway/onebusaway-android) (Apache-2.0), Android's [storage-samples](https://github.com/android/storage-samples) (Apache-2.0), [Apache Commons IO](https://github.com/apache/commons-io) (Apache-2.0), [FxEmbed](https://github.com/FxEmbed/FxEmbed) (MIT), [Squawker](https://github.com/j-fbriere/squawker) (MIT) and [seroval](https://github.com/lxsmnsyc/seroval) (MIT).
 
 GPL-3.0 licensed. Releases up to 2.15.17 were MIT.
