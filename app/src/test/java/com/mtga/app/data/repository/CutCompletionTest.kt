@@ -122,15 +122,16 @@ class CutCompletionTest {
         assertFalse(done.quotedTexts.isNotEmpty())
     }
 
-    // Source: the idea of Nitter's Redis cache, which keeps what it settled across
-    // restarts (https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim),
+    // Source: Feeder's getFeedsItemsWithDefaultFullTextNeedingDownload, which selects only
+    // fulltext_downloaded <> 1
+    // (https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/db/room/FeedItemDao.kt#L458-L479),
     // tested with JUnit 4 (https://github.com/junit-team/junit4).
     @Test
-    fun `a post already checked on disk is not asked after a restart`() = runBlocking {
+    fun `a post with its full text downloaded on disk is not asked after a restart`() = runBlocking {
         val text = "a".repeat(260)
         val posts = listOf(
-            post("10", text, cut = false).copy(textChecked = true),
-            post("11", "head", cut = true).copy(textChecked = true),
+            post("10", text, cut = false).copy(fullTextDownloaded = true),
+            post("11", "head", cut = true).copy(fullTextDownloaded = true),
             post("12", text, cut = false)
         )
         val asked = ArrayList<String>()
@@ -143,8 +144,8 @@ class CutCompletionTest {
 
     // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
     @Test
-    fun `a quoted post already checked is not asked again`() = runBlocking {
-        val quote = QuotedPost("a", "A", "a".repeat(260), "https://x.com/a/status/77", textChecked = true)
+    fun `a quoted post with its full text downloaded is not asked again`() = runBlocking {
+        val quote = QuotedPost("a", "A", "a".repeat(260), "https://x.com/a/status/77", fullTextDownloaded = true)
         val posts = listOf(post("10", "short whole text", cut = false).copy(quoted = quote))
         var asks = 0
 
@@ -155,7 +156,7 @@ class CutCompletionTest {
 
     // Source: as above, JUnit 4 (https://github.com/junit-team/junit4).
     @Test
-    fun `only final answers are reported as checked`() = runBlocking {
+    fun `only final answers are reported to mark as full text downloaded`() = runBlocking {
         val posts = listOf(post("1", "h", cut = true), post("2", "h", cut = true), post("3", "h", cut = true))
 
         val done = CutCompletion.run(posts, HashSet(), 15) { id ->
@@ -166,7 +167,7 @@ class CutCompletionTest {
             }
         }
 
-        assertEquals(setOf("1", "2"), done.checked)
+        assertEquals(setOf("1", "2"), done.fullTextDownloaded)
     }
 
     @Test

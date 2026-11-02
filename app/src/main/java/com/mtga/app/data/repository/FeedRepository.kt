@@ -166,7 +166,8 @@ class FeedRepository(
             RequestLog.Kind.CACHE, "cache/$handle", "long posts asked",
             detail = "asked: ${done.asked} | whole: ${done.texts.size + done.quotedTexts.size} | not answered, again next pass: ${done.unanswered}"
         )
-        cache.replaceTexts(handle, done.texts, done.quotedTexts, done.checked)
+        cache.replaceTexts(handle, done.texts, done.quotedTexts)
+        cache.markAsFullTextDownloaded(handle, done.fullTextDownloaded)
     }
 
     /** [fillGaps] with the loading notification, for a profile the reader opened. */
@@ -375,10 +376,22 @@ class FeedRepository(
  * earlier rule (FeedRepository.completeCutPosts), changed in three ways: a
  * post is settled only by a final answer, so a timeout or a 5xx is asked
  * again at the next pass; marked posts go first; quoted posts count too.
- * A final answer is also marked on the stored post (Post.textChecked), so the
- * same posts are not asked again at every start.
+ * A final answer is also marked on the stored post (Post.fullTextDownloaded),
+ * as Feeder does after its full text fetch (FullTextParser.
+ * parseFullArticleIfMissing calls markAsFullTextDownloaded in its finally,
+ * https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/model/FullTextParser.kt#L66).
+ * MTGA marks only after a final answer, never on a timeout or a 5xx, which
+ * Feeder's finally would also mark.
  */
 internal object CutCompletion {
+
+    /**
+     * Port of Feeder's `getFeedsItemsWithDefaultFullTextNeedingDownload`, the
+     * items fi with fulltext_downloaded <> 1:
+     * https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/db/room/FeedItemDao.kt#L458-L479
+     */
+    private fun getFeedsItemsWithDefaultFullTextNeedingDownload(fi: List<Post>): List<Post> =
+        fi.filter { !it.fullTextDownloaded }
 
     class Done(
         /** Whole texts by the id of the stored post. */
@@ -387,8 +400,8 @@ internal object CutCompletion {
         val quotedTexts: Map<String, String>,
         val asked: Int,
         val unanswered: Int,
-        /** Status ids that got a final answer this pass, marked on the stored posts. */
-        val checked: Set<String>
+        /** Status ids that got a final answer this pass, to mark with FeedCache.markAsFullTextDownloaded. */
+        val fullTextDownloaded: Set<String>
     )
 
     /** A pass stops early when this many answers in a row failed: FxTwitter is down. */
@@ -405,29 +418,31 @@ internal object CutCompletion {
         ask: suspend (String) -> FxTwitterSource.Whole
     ): Done {
         val suspects = LinkedHashMap<String, Boolean>()
-        for (post in posts) {
-            if (post.kind != PostKind.REPOST && post.id.all(Char::isDigit) && post.id !in settled && !post.textChecked &&
+        for (post in getFeedsItemsWithDefaultFullTextNeedingDownload(posts)) {
+            if (post.kind != PostKind.REPOST && post.id.all(Char::isDigit) && post.id !in settled &&
                 looksCut(post.text, post.textCut)
             ) {
                 suspects[post.id] = (suspects[post.id] ?: false) || post.textCut
             }
+        }
+        for (post in posts) {
             val quote = post.quoted ?: continue
             val quotedId = quote.quotedId ?: continue
-            if (quotedId !in settled && !quote.textChecked && looksCut(quote.text, quote.textCut)) {
+            if (quotedId !in settled && !quote.fullTextDownloaded && looksCut(quote.text, quote.textCut)) {
                 suspects[quotedId] = (suspects[quotedId] ?: false) || quote.textCut
             }
         }
         val asking = suspects.entries.sortedByDescending { it.value }.take(limit).map { it.key }
 
         val answers = HashMap<String, String>()
-        val checked = HashSet<String>()
+        val fullTextDownloaded = HashSet<String>()
         var inARow = 0
         var asked = 0
         for (id in asking) {
             asked++
             when (val answer = ask(id)) {
-                is FxTwitterSource.Whole.Text -> { answers[id] = answer.text; settled += id; checked += id; inARow = 0 }
-                FxTwitterSource.Whole.Gone -> { settled += id; checked += id; inARow = 0 }
+                is FxTwitterSource.Whole.Text -> { answers[id] = answer.text; settled += id; fullTextDownloaded += id; inARow = 0 }
+                FxTwitterSource.Whole.Gone -> { settled += id; fullTextDownloaded += id; inARow = 0 }
                 FxTwitterSource.Whole.Unavailable -> inARow++
             }
             if (inARow >= GIVE_UP_AFTER) break
@@ -449,6 +464,6 @@ internal object CutCompletion {
                 else if (quote.textCut) quotedTexts[post.id] = quote.text
             }
         }
-        return Done(texts, quotedTexts, asked = asked, unanswered = asking.take(asked).count { it !in settled }, checked = checked)
+        return Done(texts, quotedTexts, asked = asked, unanswered = asking.take(asked).count { it !in settled }, fullTextDownloaded = fullTextDownloaded)
     }
 }

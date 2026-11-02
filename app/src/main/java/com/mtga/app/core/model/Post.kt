@@ -1,6 +1,8 @@
 package com.mtga.app.core.model
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /**
  * One post, normalised.
@@ -41,15 +43,19 @@ data class Post(
      */
     val textCut: Boolean = false,
     /**
-     * True once FxTwitter gave a final answer about this post's text (a whole
-     * text or gone), so the old length window and the marker are not asked
-     * again at every start. Kept on the stored post, as Nitter keeps what it
-     * has settled in its Redis cache instead of asking again after a restart:
-     * https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim
-     * A fuller text from another source resets it, see [mergedWith].
-     * Defaults to false so files stored before the field existed still load.
+     * True once the whole text was asked for and answered, so the post is not
+     * asked again at every start. Feeder's per item flag, set once its full
+     * text fetch ran and false by default:
+     * https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/db/room/FeedItem.kt#L117
+     * MTGA stores JSON files, not Room rows. Files written up to 2.15.17 name
+     * the field `textChecked`: @JsonNames makes the decoder read that old key
+     * too, so posts marked before the rename stay marked. The file is written
+     * with the new key. A fuller text from another source resets it, see
+     * [mergedWith]. Files stored before the field existed load as false.
      */
-    val textChecked: Boolean = false
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("textChecked")
+    val fullTextDownloaded: Boolean = false
 ) {
     /**
      * The same post seen again, possibly from a richer source. x.com gives the
@@ -75,7 +81,7 @@ data class Post(
             textCut = if (fuller) fresh.textCut else textCut && fresh.textCut,
             // The answer was about this text: a fuller one is a new question,
             // the same text seen again is not.
-            textChecked = if (fuller) fresh.textChecked else textChecked || fresh.textChecked,
+            fullTextDownloaded = if (fuller) fresh.fullTextDownloaded else fullTextDownloaded || fresh.fullTextDownloaded,
             links = if (fresh.text.fullerThan(text)) fresh.links.ifEmpty { links } else links,
             media = media.ifEmpty { fresh.media },
             quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
@@ -146,8 +152,10 @@ data class QuotedPost(
     val note: CommunityNote? = null,
     /** As [Post.textCut], for the quoted post's own text. */
     val textCut: Boolean = false,
-    /** As [Post.textChecked], for the quoted post's own text. */
-    val textChecked: Boolean = false
+    /** As [Post.fullTextDownloaded], for the quoted post's own text, with the same old key. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("textChecked")
+    val fullTextDownloaded: Boolean = false
 ) {
     /** Same rule as the post itself: the fuller text wins, and a note is kept. */
     fun mergedWith(fresh: QuotedPost?): QuotedPost {
@@ -156,7 +164,7 @@ data class QuotedPost(
             text = fullerText(text, fresh.text),
             note = fresh.note ?: note,
             textCut = if (fresh.text.fullerThan(text)) fresh.textCut else textCut && fresh.textCut,
-            textChecked = if (fresh.text.fullerThan(text)) fresh.textChecked else textChecked || fresh.textChecked
+            fullTextDownloaded = if (fresh.text.fullerThan(text)) fresh.fullTextDownloaded else fullTextDownloaded || fresh.fullTextDownloaded
         )
     }
 

@@ -112,11 +112,11 @@ class FeedMergeTest {
         assertEquals("other", done.posts.single { it.id == "2" }.text)
     }
 
-    // Source: the idea of Nitter's Redis cache, which keeps what it settled across
-    // restarts (https://github.com/zedeus/nitter/blob/master/src/redis_cache.nim),
+    // Source: Feeder's markAsFullTextDownloaded, which sets the flag of the item with that id
+    // (https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/db/room/FeedItemDao.kt#L458-L479),
     // tested with JUnit 4 (https://github.com/junit-team/junit4).
     @Test
-    fun `checked ids are marked on the post and on the quote that points to them`() {
+    fun `marked ids are set on the post and on the quote that points to them`() {
         val quote = QuotedPost("a", "A", "q", "https://x.com/a/status/77")
         val stored = feed(
             post("1", 100, text = "unmarked"),
@@ -126,10 +126,10 @@ class FeedMergeTest {
 
         val done = FeedMerge.withWholeTexts(stored, emptyMap(), emptyMap(), setOf("1", "77"))
 
-        assertTrue(done.posts.single { it.id == "1" }.textChecked)
-        assertTrue(done.posts.single { it.id == "2" }.quoted!!.textChecked)
-        assertFalse(done.posts.single { it.id == "2" }.textChecked)
-        assertFalse(done.posts.single { it.id == "3" }.textChecked)
+        assertTrue(done.posts.single { it.id == "1" }.fullTextDownloaded)
+        assertTrue(done.posts.single { it.id == "2" }.quoted!!.fullTextDownloaded)
+        assertFalse(done.posts.single { it.id == "2" }.fullTextDownloaded)
+        assertFalse(done.posts.single { it.id == "3" }.fullTextDownloaded)
     }
 
     @Test

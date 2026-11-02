@@ -75,7 +75,7 @@ val appModule = module {
     single { MediaSavingNotice(androidContext(), get(named("appScope"))) }
     // One video cache for the whole app: a SimpleCache must be alone on its folder.
     single { VideoCache(androidContext()) }
-    single { AutoMediaDownloader(get(), get(), get(), get(), get(), get(), get(), SaveAttempts.of(androidContext())) }
+    single { AutoMediaDownloader(androidContext(), get(), get(), get(), get(), get(), get(), get(), SaveAttempts.of(androidContext())) }
     single { InstanceStore(androidContext()) }
     single { AccountStore(androidContext()) }
     single { PostMarks(androidContext()) }

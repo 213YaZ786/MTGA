@@ -10,7 +10,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The catch-up pass's pure parts, in the shape of this app's own selection test:
+ * The catch-up pass's pure parts, in the steps of AntennaPod's automatic
+ * download algorithm (gate, candidates, drop, cap):
+ * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+ * and in the shape of this app's own selection test:
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/test/java/com/mtga/app/core/media/AutoMediaDownloaderSelectionTest.kt
  */
 class AutoMediaDownloaderCatchUpTest {
@@ -18,13 +21,20 @@ class AutoMediaDownloaderCatchUpTest {
     private val day = 24L * 60 * 60 * 1000
     private val now = 100 * day
 
+    /** The candidates, the drop and the cap, in AntennaPod's order. */
     private fun select(
         posts: List<Post>,
         keepDays: Int = 0,
-        max: Int = 40,
+        cacheSize: Int = 40,
+        downloaded: Int = 0,
         have: (String, Int, Boolean) -> Boolean = { _, _, _ -> false },
         asked: (String) -> Boolean = { false }
-    ) = AutoMediaDownloader.selectCatchUp(posts, now, keepDays, max, have, asked)
+    ): List<AutoMediaDownloader.Want> {
+        val candidates = AutoMediaDownloader.autoDownloadCandidates(posts, now, keepDays)
+        val missing = AutoMediaDownloader.dropDownloaded(candidates, have, asked)
+        val episodeSpaceLeft = AutoMediaDownloader.episodeSpaceLeft(cacheSize, downloaded, missing.size)
+        return missing.subList(0, episodeSpaceLeft)
+    }
 
     @Test
     fun `newest posts first`() {
@@ -37,7 +47,7 @@ class AutoMediaDownloaderCatchUpTest {
     fun `stops at the cap, mid post if need be`() {
         val posts = listOf(photoPost("c", 30 * day, photos = 3), photoPost("b", 20 * day))
 
-        val picked = select(posts, max = 2)
+        val picked = select(posts, cacheSize = 2)
 
         assertEquals(listOf("c" to 0, "c" to 1), picked.map { it.post.id to it.position })
     }
@@ -46,10 +56,30 @@ class AutoMediaDownloaderCatchUpTest {
     fun `the cap counts the stills too`() {
         val posts = listOf(videoPost("v", 30 * day), photoPost("p", 20 * day))
 
-        val picked = select(posts, max = 2)
+        val picked = select(posts, cacheSize = 2)
 
         assertEquals(listOf(true, false), picked.map { it.still })
         assertEquals(listOf("v", "v"), picked.map { it.post.id })
+    }
+
+    @Test
+    fun `the cap counts what the first pass queued`() {
+        val posts = listOf(photoPost("c", 30 * day, photos = 3))
+
+        val picked = select(posts, cacheSize = 3, downloaded = 2)
+
+        assertEquals(listOf(0), picked.map { it.position })
+    }
+
+    @Test
+    fun `space left is all the candidates when they fit`() {
+        assertEquals(5, AutoMediaDownloader.episodeSpaceLeft(40, 10, 5))
+        assertEquals(30, AutoMediaDownloader.episodeSpaceLeft(40, 10, 50))
+    }
+
+    @Test
+    fun `space left never goes below zero`() {
+        assertEquals(0, AutoMediaDownloader.episodeSpaceLeft(40, 45, 5))
     }
 
     @Test
@@ -120,7 +150,7 @@ class AutoMediaDownloaderCatchUpTest {
     fun `thousands of posts are cut at the cap`() {
         val posts = (1..5_000).map { photoPost("p$it", it * 1_000L) }
 
-        val picked = select(posts, max = AutoMediaDownloader.MAX_CATCH_UP_FILES)
+        val picked = select(posts, cacheSize = AutoMediaDownloader.MAX_CATCH_UP_FILES)
 
         assertEquals(40, picked.size)
         assertEquals("p5000", picked.first().post.id)
@@ -134,6 +164,14 @@ class AutoMediaDownloaderCatchUpTest {
         assertFalse(AutoMediaDownloader.allows(AutoDownload.UNMETERED, metered = true))
         assertTrue(AutoMediaDownloader.allows(AutoDownload.ANY, metered = false))
         assertTrue(AutoMediaDownloader.allows(AutoDownload.ANY, metered = true))
+    }
+
+    @Test
+    fun `the power rule, charging or not on mobile data`() {
+        assertTrue(AutoMediaDownloader.powerAllows(charging = true, metered = true))
+        assertTrue(AutoMediaDownloader.powerAllows(charging = true, metered = false))
+        assertTrue(AutoMediaDownloader.powerAllows(charging = false, metered = false))
+        assertFalse(AutoMediaDownloader.powerAllows(charging = false, metered = true))
     }
 
     @Test

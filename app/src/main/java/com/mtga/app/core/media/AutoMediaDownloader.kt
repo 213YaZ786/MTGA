@@ -1,5 +1,9 @@
 package com.mtga.app.core.media
 
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
@@ -34,11 +38,15 @@ import kotlinx.coroutines.withContext
  * thousand files at once, the rest following on later refreshes. And the
  * network rule the reader chose, for both passes.
  *
- * Every addition in this file (the catch-up, the stills, the network rule)
- * extends this file's own passes, which it adapts:
+ * The catch-up pass follows AntennaPod's automatic download algorithm step by
+ * step: the network and power gate, the candidates, dropping what is already
+ * downloaded or has no media, the cap on what is left, then queueing:
+ * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+ * The first pass and the stills are this file's own, which it adapts:
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/core/media/AutoMediaDownloader.kt
  */
 class AutoMediaDownloader(
+    private val context: Context,
     private val downloader: MediaDownloader,
     private val store: OfflineMedia,
     private val settings: SettingsStore,
@@ -70,7 +78,7 @@ class AutoMediaDownloader(
         val names = mutableListOf<String>()
         saveFresh(posts, current.autoDownloadedUntilMillis, mode, ids, names)
         val fresh = ids.size
-        catchUp(current.keepPostsDays, ids, names)
+        catchUp(mode, current.keepPostsDays, ids, names)
         if (ids.isNotEmpty()) {
             attempts.add(names)
             // Returns at once: the batch outlives this call, and the timeline
@@ -118,22 +126,35 @@ class AutoMediaDownloader(
     }
 
     /**
-     * The second pass: up to [MAX_CATCH_UP_FILES] files of the posts the
-     * retention keeps, newest first, whose media is not on the phone.
+     * The second pass, AntennaPod's autoDownloadUndownloadedItems:
+     * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+     * Files of the posts the retention keeps, newest first, whose media is
+     * not on the phone, at most [MAX_CATCH_UP_FILES] counting what the first
+     * pass just queued.
      */
-    private suspend fun catchUp(keepDays: Int, ids: MutableList<Long>, names: MutableList<String>) {
+    private suspend fun catchUp(mode: AutoDownload, keepDays: Int, ids: MutableList<Long>, names: MutableList<String>) {
+        val metered = connectivity.metered.value
+        // True if we should auto download based on network status.
+        val networkShouldAutoDl = allows(mode, metered)
+        // True if we should auto download based on power status.
+        val powerShouldAutoDl = powerAllows(deviceCharging(context), metered)
+        // We should only auto download if both network AND power are happy.
+        if (!(networkShouldAutoDl && powerShouldAutoDl)) {
+            note("catch-up skipped", "mobile data and the phone is not charging")
+            return
+        }
         val wanted = withContext(Dispatchers.Default) {
-            selectCatchUp(
-                posts = cache.allPosts(),
-                nowMillis = clock(),
-                keepDays = keepDays,
-                max = MAX_CATCH_UP_FILES,
+            val candidates = autoDownloadCandidates(cache.allPosts(), clock(), keepDays)
+            val missing = dropDownloaded(
+                candidates = candidates,
                 have = { postId, position, still ->
                     if (still) store.localStill(postId, position) != null else store.localPath(postId, position) != null
                 },
                 // Also what the first pass just queued, not yet in the notes.
                 asked = { name -> attempts.recently(name) || name in names }
             )
+            val episodeSpaceLeft = episodeSpaceLeft(MAX_CATCH_UP_FILES, ids.size, missing.size)
+            missing.subList(0, episodeSpaceLeft)
         }
         wanted.forEach { want ->
             val target = if (want.still) {
@@ -184,51 +205,106 @@ class AutoMediaDownloader(
         }
 
         /**
-         * The files of [posts] still missing, newest post first, at most [max]
-         * of them: the gaps of media saving, taken from the stored posts.
-         *
-         * [have] says whether a media (or a video's still) is on the phone,
-         * [asked] whether a file name was queued less than a week ago, so a
-         * file still coming or one that always fails is not queued at every
-         * opening. A post older than the retention ([keepDays], zero keeps
-         * everything) is not kept and so not saved. A video's still comes
-         * before the video, small and what the post shows first. A playlist
-         * (HLS) is no file and is skipped.
+         * The device is charging or full, AntennaPod's check with its code:
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#deviceCharging
+         */
+        internal fun deviceCharging(context: Context): Boolean {
+            val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val batteryStatus = context.registerReceiver(null, intentFilter) ?: return false
+
+            val status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            return status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+        }
+
+        /**
+         * AntennaPod's `deviceCharging(context) || isEnableAutodownloadOnBattery()`.
+         * MTGA has no battery choice and runs the catch-up only while the app
+         * is open, so the battery is allowed on an unmetered network and the
+         * phone must be charging on mobile data.
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+         */
+        internal fun powerAllows(charging: Boolean, metered: Boolean): Boolean = charging || !metered
+
+        /**
+         * The candidates: every file of the posts the retention keeps, newest
+         * post first. A video's still comes before the video, small and what
+         * the post shows first. A post older than the retention ([keepDays],
+         * zero keeps everything) is not kept and so not saved.
          *
          * Newest first, unlike [selectFresh]: there is no watermark to move,
          * what is on the phone answers for what was done, and the newest posts
          * are the ones read again.
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
          */
-        internal fun selectCatchUp(
-            posts: List<Post>,
-            nowMillis: Long,
-            keepDays: Int,
-            max: Int,
-            have: (postId: String, position: Int, still: Boolean) -> Boolean,
-            asked: (fileName: String) -> Boolean
-        ): List<Want> {
+        internal fun autoDownloadCandidates(posts: List<Post>, nowMillis: Long, keepDays: Int): List<Want> {
             val oldest = if (keepDays > 0) nowMillis - keepDays * DAY_MILLIS else Long.MIN_VALUE
-            val picked = ArrayList<Want>()
+            val candidates = ArrayList<Want>()
             for (post in posts.sortedByDescending { it.publishedAtMillis }) {
                 if (post.publishedAtMillis < oldest) continue
                 for ((position, item) in post.media.withIndex()) {
-                    if (item.type != MediaType.PHOTO && item.previewUrl.isNotBlank() &&
-                        !have(post.id, position, true) &&
-                        !asked(OfflineMedia.stillName(post.id, post.authorHandle, position, item))
-                    ) {
-                        if (picked.size >= max) return picked
-                        picked += Want(post, position, item, still = true)
+                    if (item.type != MediaType.PHOTO && item.previewUrl.isNotBlank()) {
+                        candidates += Want(post, position, item, still = true)
                     }
-                    if (!MediaDownloader.isHls(item.downloadUrl) &&
-                        !have(post.id, position, false) &&
-                        !asked(OfflineMedia.name(post.id, post.authorHandle, position, item))
-                    ) {
-                        if (picked.size >= max) return picked
-                        picked += Want(post, position, item, still = false)
-                    }
+                    candidates += Want(post, position, item, still = false)
                 }
             }
-            return picked
+            return candidates
+        }
+
+        /**
+         * Filters the candidates that are not auto downloadable: already on
+         * the phone ([have], AntennaPod's isDownloaded), without a file to
+         * fetch (a playlist, HLS, is no file: AntennaPod's !hasMedia), or
+         * queued less than a week ago ([asked], so a file still coming or one
+         * that always fails is not queued at every opening).
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+         */
+        internal fun dropDownloaded(
+            candidates: List<Want>,
+            have: (postId: String, position: Int, still: Boolean) -> Boolean,
+            asked: (fileName: String) -> Boolean
+        ): List<Want> {
+            val kept = ArrayList(candidates)
+            val it = kept.iterator()
+            while (it.hasNext()) {
+                val want = it.next()
+                val post = want.post
+                val name = if (want.still) {
+                    OfflineMedia.stillName(post.id, post.authorHandle, want.position, want.item)
+                } else {
+                    OfflineMedia.name(post.id, post.authorHandle, want.position, want.item)
+                }
+                if (!want.still && MediaDownloader.isHls(want.item.downloadUrl) ||
+                    have(post.id, want.position, want.still) ||
+                    asked(name)
+                ) {
+                    it.remove()
+                }
+            }
+            return kept
+        }
+
+        /**
+         * How many of [autoDownloadableEpisodes] fit under [episodeCacheSize],
+         * AntennaPod's episodeSpaceLeft. [downloadedEpisodes] is what the first
+         * pass already queued (AntennaPod's active downloads). MTGA keeps no
+         * count of saved files, so the cache size is the per pass cap of 40.
+         * AntennaPod's subList throws when the space left is negative, here
+         * it stops at zero.
+         * https://github.com/AntennaPod/AntennaPod/blob/develop/net/download/service/src/main/java/de/danoeh/antennapod/net/download/service/episode/autodownload/AutomaticDownloadAlgorithm.java#autoDownloadUndownloadedItems
+         */
+        internal fun episodeSpaceLeft(
+            episodeCacheSize: Int,
+            downloadedEpisodes: Int,
+            autoDownloadableEpisodes: Int
+        ): Int {
+            val episodeSpaceLeft = if (episodeCacheSize >= downloadedEpisodes + autoDownloadableEpisodes) {
+                autoDownloadableEpisodes
+            } else {
+                episodeCacheSize - downloadedEpisodes
+            }
+            return episodeSpaceLeft.coerceAtLeast(0)
         }
 
         /**
