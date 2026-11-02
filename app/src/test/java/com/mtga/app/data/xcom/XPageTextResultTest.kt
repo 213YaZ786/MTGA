@@ -64,7 +64,10 @@ class XPageTextResultTest {
     @Test
     fun `a page without a pin entry names no pinned post`() {
         val answer = Json.parseToJsonElement(LITERAL).jsonPrimitive.content
+        // The entry itself names the pin now (Squawker's TimelinePinEntry read),
+        // so both the entry and the Pin context are taken away.
         val unpinned = answer.replace("\"context_type\":\"Pin\"", "\"context_type\":\"Other\"")
+            .replace("\"TimelinePinEntry\"", "\"TimelineOtherEntry\"")
 
         val posts = XPagePayload.posts(page(JsonPrimitive(unpinned).toString()))
 

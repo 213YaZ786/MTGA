@@ -108,10 +108,33 @@ internal object XPagePayload {
     }
 
     private fun timelineItem(item: JsonObject): Post? {
+        if (item.string("__typename") == "TimelinePinEntry" || item.string("type") == "TimelinePinEntry") {
+            return pinEntry(item)
+        }
         if (item.string("__typename") != "TimelineTweet") return null
         val pinned = item.obj("social_context")?.string("context_type") == "Pin"
         val tweet = unwrap(item.obj("tweet_results")?.obj("result")) ?: return null
         return toPost(tweet, pinned)
+    }
+
+    /**
+     * The pinned post of a TimelinePinEntry, read the way Squawker does in
+     * createProfileUnconversationedChainsGraphql
+     * (https://github.com/j-fbriere/squawker/blob/master/lib/client/client.dart#L1010-L1040):
+     * the three places where X has put the tweet result, tried in that order,
+     * then the `tweet` inside it when the result has no rest_id (a visibility
+     * wrapper). A renamed wrapper on the way down costs nothing as long as one
+     * of the three paths still holds the result.
+     */
+    private fun pinEntry(pinEntry: JsonObject): Post? {
+        var result: JsonObject? = pinEntry.obj("entry")?.obj("content")?.obj("content")?.obj("tweetResult")?.obj("result")
+        result = result ?: pinEntry.obj("entry")?.obj("content")?.obj("itemContent")?.obj("tweet_results")?.obj("result")
+        result = result ?: pinEntry.obj("entry")?.obj("content")?.obj("content")?.obj("tweet_results")?.obj("result")
+        if (result != null) {
+            result = if (result["rest_id"] != null) result else result.obj("tweet")
+            if (result != null) return toPost(result, pinned = true)
+        }
+        return null
     }
 
     /**
@@ -139,7 +162,6 @@ internal object XPagePayload {
         val handle = user?.obj("core")?.string("screen_name") ?: return null
         val details = tweet.obj("details")
         val media = media(tweet.array("media_entities2"))
-        val urls = tweet.array("url_entities").orEmpty()
         val note = tweet.obj("note_tweet")?.obj("note_tweet_results")?.obj("result")
         val noteText = note?.string("text")
         val raw = noteText ?: details?.string("full_text").orEmpty()
@@ -147,8 +169,16 @@ internal object XPagePayload {
         // processor.ts takes the text of note_tweet_results.result, else only
         // the cut legacy text): marked so the completion does not guess by length.
         val cut = isCutNote(tweet)
-        val noteUrls = note?.obj("entity_set")?.array("urls").orEmpty()
-        val allUrls = urls + noteUrls
+        // When the note has its text, its entity_set replaces the legacy
+        // entities, as FxEmbed does, because the legacy offsets and links
+        // belong to the cut text. Only the links are read here, so the links of
+        // a long post expand through readableText.
+        // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts#L517-L537
+        val urls = if (noteText != null) {
+            note?.obj("entity_set")?.array("urls").orEmpty()
+        } else {
+            tweet.array("url_entities").orEmpty()
+        }
         val quoted = quoted(tweet)
 
         return Post(
@@ -156,8 +186,8 @@ internal object XPagePayload {
             authorHandle = handle,
             authorName = user.obj("core")?.string("name") ?: handle,
             avatarUrl = user.obj("avatar")?.string("image_url"),
-            text = readableText(raw, allUrls, hasAttachment = media.isNotEmpty() || quoted != null),
-            links = allUrls.mapNotNull { (it as? JsonObject)?.string("expanded_url") }.distinct(),
+            text = readableText(raw, urls, hasAttachment = media.isNotEmpty() || quoted != null),
+            links = urls.mapNotNull { (it as? JsonObject)?.string("expanded_url") }.distinct(),
             publishedAtMillis = details?.long("created_at_ms")
                 ?: SyndicationSource.snowflakeToMillis(id),
             permalink = "https://x.com/$handle/status/$id",
@@ -357,32 +387,63 @@ internal object JsLiteral {
     }
 
     /**
-     * Copies the string literal at [quote] and returns the index after it.
-     * JavaScript allows \x and \' escapes that JSON does not, so those two
-     * are rewritten on the way.
+     * Copies the string literal at [quote] as a JSON string and returns the
+     * index after it. Ported from Seroval's deserializeString
+     * (https://github.com/lxsmnsyc/seroval/blob/main/packages/seroval/src/core/string.ts#deserializeString):
+     * only the escapes its serializeString writes are decoded, which are the
+     * backslash, the double quote, \n \r \b \t \f, \x3C and the line and
+     * paragraph separators. Any other backslash stays a literal backslash, so
+     * it is written doubled for JSON. The old rewrite of every \x and \' was
+     * wider than Seroval and changed text that was never escaped.
      */
     private fun copyString(source: String, quote: Int, out: StringBuilder): Int {
         out.append('"')
-        var i = quote + 1
-        while (i < source.length) {
-            val c = source[i]
-            when {
-                c == '\\' && source.getOrNull(i + 1) == 'x' -> {
-                    out.append("\\u00").append(source, i + 2, minOf(i + 4, source.length))
-                    i += 4
+        var index = quote + 1
+        while (index < source.length) {
+            val c = source[index]
+            if (c == '"') {
+                out.append('"')
+                return index + 1
+            }
+            if (c != '\\') {
+                // JSON refuses a raw control character inside a string.
+                if (c < ' ') out.append(String.format("\\u%04x", c.code)) else out.append(c)
+                index++
+                continue
+            }
+            var replacement: String? = null
+            // Code units the escape spans, including the backslash.
+            var length = 2
+            when (source.getOrNull(index + 1)) {
+                '\\' -> replacement = "\\\\"
+                '"' -> replacement = "\\\""
+                'n' -> replacement = "\\n"
+                'r' -> replacement = "\\r"
+                'b' -> replacement = "\\b"
+                't' -> replacement = "\\t"
+                'f' -> replacement = "\\f"
+                'x' -> if (source.startsWith("3C", index + 2)) {
+                    replacement = "<"
+                    length = 4
                 }
-                c == '\\' && source.getOrNull(i + 1) == '\'' -> { out.append('\''); i += 2 }
-                c == '\\' -> {
-                    out.append(c)
-                    source.getOrNull(i + 1)?.let(out::append)
-                    i += 2
+                'u' -> if (source.startsWith("2028", index + 2)) {
+                    replacement = "\\u2028"
+                    length = 6
+                } else if (source.startsWith("2029", index + 2)) {
+                    replacement = "\\u2029"
+                    length = 6
                 }
-                c == '"' -> { out.append('"'); return i + 1 }
-                c == '\n' -> { out.append("\\n"); i++ }
-                else -> { out.append(c); i++ }
+                else -> Unit
+            }
+            if (replacement != null) {
+                out.append(replacement)
+                index += length
+            } else {
+                out.append("\\\\")
+                index++
             }
         }
-        return i
+        return index
     }
 
     /**

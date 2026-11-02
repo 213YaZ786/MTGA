@@ -2,15 +2,14 @@ package com.mtga.app.data.archive
 
 import java.io.File
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineScope
 import com.mtga.app.core.common.writeTextAtomically
 import android.content.Context
 import com.mtga.app.core.common.Outcome
 import com.mtga.app.core.debug.RequestLog
 import com.mtga.app.core.model.ArchiveCursor
+import com.mtga.app.core.network.SingleFlight
 import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.Post
 import com.mtga.app.data.settings.SettingsStore
@@ -60,7 +59,6 @@ class ArchiveSource(
     private class Known(val atMillis: Long, val ids: List<Long>, val asked: Set<String>)
 
     private val known = ConcurrentHashMap<String, Known>()
-    private val asking = ConcurrentHashMap<String, Deferred<List<Long>>>()
     private val failedAt = ConcurrentHashMap<String, Long>()
     /**
      * Ids X's CDN said are gone (deleted, withheld, age restricted), per
@@ -70,6 +68,7 @@ class ArchiveSource(
     private val gone = ConcurrentHashMap<String, MutableSet<Long>>()
     private val reading = Semaphore(PARALLEL)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val flight = SingleFlight<String, List<Long>>(scope)
     private val folder = File(context.filesDir, "archive").apply { mkdirs() }
 
     /**
@@ -202,22 +201,12 @@ class ArchiveSource(
         usable(known[key])?.let { return it.ids }
         usable(stored(key))?.let { known[key] = it; return it.ids }
         failedAt[key]?.takeIf { now - it < RETRY_AFTER_MS }?.let { return emptyList() }
-        // One request in flight per key, as Store5 does:
-        // https://github.com/MobileNativeFoundation/Store/blob/main/store/src/commonMain/kotlin/org/mobilenativefoundation/store/store5/impl/FetcherController.kt
-        // (Apache-2.0). It differs on one point: Store cancels the fetch when its
-        // last collector leaves, but this lookup is a warm-up meant to finish, so it
-        // lives in this class's own scope until done. The entry is dropped when the
-        // lookup completes, never when a caller leaves: a profile closed and opened
-        // again joins the lookup still running instead of starting a second one
-        // (two index calls of 13 to 60 s each made the archive answer 503).
-        val fresh = scope.async(start = CoroutineStart.LAZY) { lookUp(handle, wanted) }
-        val pending = asking.putIfAbsent(key, fresh)
-        if (pending != null) {
-            fresh.cancel()
-            return pending.await()
-        }
-        fresh.invokeOnCompletion { asking.remove(key, fresh) }
-        return fresh.await()
+        // One lookup in flight per key, in this class's own scope: it is a warm-up meant
+        // to finish, so a profile closed and opened again joins the lookup still running
+        // instead of starting a second one (two index calls of 13 to 60 s each made the
+        // archive answer 503). A lookup that throws resolves to null, so no ids this time
+        // and the next call asks again.
+        return flight.run(key) { lookUp(handle, wanted) }.orEmpty()
     }
 
     /** The lists switched on. */
