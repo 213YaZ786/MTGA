@@ -2,8 +2,11 @@ package com.mtga.app.ui.component
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -14,9 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.boundsInWindow
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.Post
 import com.mtga.app.data.marks.PostMarks
+import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 
 /**
@@ -33,7 +37,7 @@ import org.koin.compose.koinInject
  * message menu): the post lifts out of the feed over the blurred screen and
  * a pane of glass under it offers like, archive, share, and save media when
  * the post has some. Likes and archives stay on the phone, see PostMarks. A
- * new like plays SparkBurst's star over the card once the menu has closed.
+ * new like plays SparkButton's star over the card once the menu has closed.
  *
  * The post card puts [tracker] on the zone it draws, calls [open] on a long
  * press, and places [PostActionsOverlay] in the same box, giving it the
@@ -45,7 +49,8 @@ class PostActions internal constructor(
     private val marks: PostMarks,
     private val onDownload: (MediaItem) -> Unit,
     private val context: Context,
-    private val haptics: Haptics
+    private val haptics: Haptics,
+    internal val sparkState: SparkButtonState
 ) {
     internal var menuOpen by mutableStateOf(false)
     /** The zone's place in its window, which HoldMenu lifts the copy from. */
@@ -66,7 +71,10 @@ class PostActions internal constructor(
 
     // HoldMenu closes before it runs an action, so the burst starts on a card that is back in place.
     internal fun like() {
-        if (!marks.marks.value.isLiked(post.id)) burst = true
+        if (!marks.marks.value.isLiked(post.id)) {
+            burst = true
+            sparkState.animate()
+        }
         marks.toggleLike(post)
     }
 
@@ -90,12 +98,13 @@ fun rememberPostActions(post: Post, onDownload: (MediaItem) -> Unit): PostAction
     val marks: PostMarks = koinInject()
     val context = LocalContext.current
     val haptics = rememberHaptics()
-    return remember(post.id, post) { PostActions(post, marks, onDownload, context, haptics) }
+    val sparkState = rememberSparkButtonState()
+    return remember(post.id, post) { PostActions(post, marks, onDownload, context, haptics, sparkState) }
 }
 
 // How a caller opens HoldMenu, from SMS's ThreadScreen.kt around line 1969:
 // https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/feature/thread/ThreadScreen.kt
-// The star is Tusky's favourite button, varunest/sparkbutton through SparkBurst.
+// The star is Tusky's favourite button, connyduck/sparkbutton through SparkButton.
 @Composable
 fun BoxScope.PostActionsOverlay(actions: PostActions, held: @Composable () -> Unit) {
     val marks: PostMarks = koinInject()
@@ -117,16 +126,36 @@ fun BoxScope.PostActionsOverlay(actions: PostActions, held: @Composable () -> Un
         )
     }
 
+    // SparkButton has no end callback, so the star is removed after the length of its keyframes,
+    // https://github.com/connyduck/sparkbutton/blob/main/sparkbutton-compose/src/main/kotlin/at/connyduck/sparkbutton/compose/SparkButton.kt#SparkButton
+    LaunchedEffect(actions.burst) {
+        if (actions.burst) {
+            delay(SPARK_DURATION_MILLIS)
+            actions.burst = false
+        }
+    }
+
     // Instagram's double tap heart plays over the post itself, centred, so the star does too.
+    // The state's animate() starts the animation from code, as the library's SparkButtonState allows
+    // (same file, #SparkButtonState). The library's own colours are kept: STAR_GOLD (#FFB300) is neither
+    // its amber (#FFC107) nor its deep orange (#FF5722), it only tints the star. It stays enabled: the
+    // library draws a disabled button at 0.38 alpha, star and sparks included, and it is only on screen
+    // for the burst's second, its click doing nothing.
     if (actions.burst) {
-        SparkBurst(
-            icon = ActionIcons.star,
-            iconSize = 56.dp,
-            primary = STAR_GOLD,
-            secondary = lerp(STAR_GOLD, Color.White, 0.45f),
-            onEnd = { actions.burst = false },
-            modifier = Modifier.align(Alignment.Center)
-        )
+        SparkButton(
+            onClick = {},
+            modifier = Modifier.align(Alignment.Center),
+            animateOnClick = false,
+            enabled = true,
+            state = actions.sparkState
+        ) {
+            Image(
+                imageVector = ActionIcons.star,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                colorFilter = ColorFilter.tint(STAR_GOLD)
+            )
+        }
     }
 }
 

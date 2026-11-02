@@ -1,8 +1,9 @@
 package com.mtga.app.feature.diagnostics
 
-import com.mtga.app.ui.glass.LocalGlass
-import com.mtga.app.ui.glass.groundHere
-import androidx.compose.material3.TopAppBarDefaults
+import com.mtga.app.ui.component.FloatingTopBar
+import com.mtga.app.ui.component.scrolledFromTop
+import com.mtga.app.ui.component.underFloatingTopBar
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.mtga.app.ui.component.ZoneAlertDialog
 import com.mtga.app.ui.component.ZoneSurface
 import com.mtga.app.ui.component.LoadingMark
@@ -32,7 +33,6 @@ import androidx.compose.material3.Text
 import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.GlassSwitch
 import com.mtga.app.ui.component.QuietButton
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ShapeDefaults
 import com.mtga.app.ui.component.BarTitle
 import androidx.compose.runtime.Composable
@@ -72,12 +72,8 @@ fun DiagnosticsScreen(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
-            CenterAlignedTopAppBar(
-                // The page's ground where the bar sits, ambient light included.
-                // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent, titleContentColor = MaterialTheme.colorScheme.primary),
-                // Over the reading column, like the content under it.
-                modifier = Modifier.groundHere(LocalGlass.current, MaterialTheme.colorScheme.background).padding(horizontal = LocalReadableInset.current),
+            // The floating bar, as FeedScreen and FoldersScreen use it: no band behind it, the list fades under it.
+            FloatingTopBar(
                 title = { BarTitle("Connection check") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -99,8 +95,13 @@ fun DiagnosticsScreen(
             )
         }
     ) { padding ->
+        val listState = rememberLazyListState()
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier.fillMaxSize().underFloatingTopBar(
+                barHeight = padding.calculateTopPadding(),
+                scrolled = listState::scrolledFromTop
+            ),
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
                 end = 16.dp + LocalReadableInset.current,
@@ -277,8 +278,9 @@ private fun InstanceCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                // The round buttons keep a gap so they never touch: SMS's PersonActions (TileGap, 10 dp).
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+                // The round buttons keep a gap so they never touch: spacedBy(TileGap) across the full width, as SMS's PersonActions
+                // (AGPL-3.0, same author, https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/ui/component/PersonActions.kt#TileGap).
+                horizontalArrangement = Arrangement.spacedBy(TileGap)
             ) {
                 BoldIconButton(onClick = onMoveUp) {
                     Icon(MtgaIcons.ArrowUp, contentDescription = "Try earlier")
@@ -295,6 +297,10 @@ private fun InstanceCard(
         }
     }
 }
+
+// The gap between the round buttons, SMS's TileGap (AGPL-3.0, same author,
+// https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/ui/component/PersonActions.kt#TileGap).
+private val TileGap = 10.dp
 
 @Composable
 private fun StatusDot(status: HealthStatus) {

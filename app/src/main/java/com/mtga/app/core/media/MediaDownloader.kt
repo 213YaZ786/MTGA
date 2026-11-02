@@ -5,11 +5,15 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
+import androidx.media3.common.C
+import androidx.media3.common.util.Util
 import com.mtga.app.core.link.SafeLinks
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
 import java.io.File
+import java.net.URI
+import java.net.URLDecoder
 
 /**
  * Fetches media to disk, to one of two places.
@@ -145,15 +149,33 @@ class MediaDownloader(private val context: Context) {
         private const val PUBLIC_FOLDER = "MTGA"
 
         /**
-         * Whether [url] is an HLS playlist (.m3u8, also inside a Nitter proxied
-         * path where the dot is %2e). Media3 tells HLS by the same extension
-         * (androidx/media, libraries/common/src/main/java/androidx/media3/common/util/Util.java,
-         * inferContentType: ".m3u8"):
-         * https://github.com/androidx/media/blob/release/libraries/common/src/main/java/androidx/media3/common/util/Util.java
+         * Whether [url] is an HLS playlist, told by Media3's own rule: the
+         * extension of the path's last segment, after the last dot, through
+         * `Util.inferContentTypeForExtension` (m3u8 is HLS), see
+         * https://github.com/androidx/media/blob/release/libraries/common/src/main/java/androidx/media3/common/util/Util.java#inferContentType
+         *
+         * `inferContentType(Uri)` itself needs android.net.Uri, which unit tests
+         * on the JVM cannot run (no Robolectric here), so the last segment is
+         * cut with java.net.URI the same way `Uri.getLastPathSegment` does and
+         * only the extension goes to Media3.
+         *
+         * One shape Media3 does not cover: Nitter proxies a file as
+         * `/video/<sig>/<whole address, percent encoded>`, so the last segment
+         * decodes to a full address with its own `?tag=` query and the
+         * extension then reads `m3u8?tag=1`. That segment is judged again as
+         * an address of its own.
          */
         internal fun isHls(url: String): Boolean {
-            val lower = url.lowercase()
-            return lower.contains(".m3u8") || lower.contains("%2em3u8")
+            val segment = runCatching {
+                // Uri.getLastPathSegment: the encoded path cut at its last slash, then decoded.
+                val last = URI(url).rawPath.orEmpty().substringAfterLast('/')
+                URLDecoder.decode(last.replace("+", "%2B"), Charsets.UTF_8)
+            }.getOrNull() ?: return false
+            val extension = segment.substringAfterLast('.', "")
+            if (Util.inferContentTypeForExtension(extension) == C.CONTENT_TYPE_HLS) return true
+            // Nitter's proxied shape, see above. The decoded segment is shorter
+            // than the address it came from, so this ends.
+            return segment.contains("://") && isHls(segment)
         }
     }
 }

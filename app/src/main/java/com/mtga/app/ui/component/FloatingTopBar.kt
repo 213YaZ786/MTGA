@@ -52,7 +52,8 @@ import kotlin.math.roundToInt
  */
 /**
  * A screen's title in a top bar: centred, up to two lines, and a single word too wide for the room
- * shrinks last. Ported from SMS's FloatingTop (ui/component/FloatingPane.kt:128-173, MIT), which sets
+ * shrinks last. Ported from SMS's FloatingTop (AGPL-3.0, same author,
+ * https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/ui/component/FloatingPane.kt#FloatingTop), which sets
  * a BasicText with maxLines = 2 and Compose's TextAutoSize.StepBased
  * (https://developer.android.com/develop/ui/compose/text/autosize). The size is the bar's own
  * titleLarge, two lines of it fit the 64 dp bar.

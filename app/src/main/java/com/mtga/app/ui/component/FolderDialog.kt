@@ -130,7 +130,8 @@ private fun Choice(label: String, chosen: Boolean, onChoose: () -> Unit) {
     }
 }
 
-// Ported from ChoiceDialog's Tick in this app (SMS ui/component/ChoiceDialog.kt, MIT), which draws the three-point
+// Ported from ChoiceDialog's Tick in this app (SMS, AGPL-3.0, same author,
+// https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/ui/component/ChoiceDialog.kt#Tick), which draws the three-point
 // path of Material 3's Checkbox drawCheck:
 // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/Checkbox.kt
 @Composable
