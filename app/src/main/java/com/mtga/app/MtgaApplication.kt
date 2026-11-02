@@ -54,10 +54,8 @@ class MtgaApplication : Application() {
                 // Opened on first use, off the main thread. In filesDir, not cacheDir:
                 // Android empties cacheDir when space is short, and a post read
                 // on the train needs its pictures.
-                val target = File(context.filesDir, IMAGE_CACHE)
-                moveImageCache(context.cacheDir, target)
                 DiskCache.Builder()
-                    .directory(target.toOkioPath())
+                    .directory(File(context.filesDir, IMAGE_CACHE).toOkioPath())
                     .maxSizeBytes(IMAGE_CACHE_BYTES)
                     .build()
             }.build()
@@ -102,23 +100,5 @@ class MtgaApplication : Application() {
     companion object {
         private const val IMAGE_CACHE = "coil3_disk_cache"
         private const val IMAGE_CACHE_BYTES = 500L * 1024 * 1024
-
-        /** The folders Coil itself has used under cacheDir, the old one first. */
-        private val OLD_IMAGE_CACHES = listOf("coil3_disk_cache", "image_cache")
-
-        /**
-         * Moves the pictures Coil kept under [cacheDir] to [target], so those
-         * the reader already saw stay. A rename on the same volume, and nothing
-         * is done when [target] exists already, when no old folder exists or
-         * when the rename fails: the pictures are then fetched again. Taken
-         * from Coil's setup of a disk cache of its own
-         * (coil-kt/coil, coil-core/src/commonMain/kotlin/coil3/disk/DiskCache.kt
-         * Builder.directory): https://github.com/coil-kt/coil/blob/main/coil-core/src/commonMain/kotlin/coil3/disk/DiskCache.kt
-         */
-        internal fun moveImageCache(cacheDir: File, target: File) {
-            if (target.exists()) return
-            val old = OLD_IMAGE_CACHES.map { File(cacheDir, it) }.firstOrNull { it.isDirectory } ?: return
-            runCatching { old.renameTo(target) }
-        }
     }
 }
