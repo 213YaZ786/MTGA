@@ -1,173 +1,99 @@
+/*
+ * The welcome guide as tiles, after FlorisBoard's SetupScreen: every step is read from the system (what is enabled,
+ * selected, allowed) and shown done or not, the tiles are Modules' SetupTiles. MTGA's own settings logic of the former
+ * pager (media choice, updates, new post alerts, the sources) is kept as it was.
+ *
+ * Copyright (C) 2021-2025 The FlorisBoard Contributors, Apache License 2.0
+ * (http://www.apache.org/licenses/LICENSE-2.0), translated from
+ * https://github.com/florisboard/florisboard/blob/main/app/src/main/kotlin/dev/patrickgold/florisboard/app/setup/SetupScreen.kt
+ */
 package com.mtga.app.feature.welcome
 
-import androidx.compose.foundation.layout.systemBarsPadding
-import com.mtga.app.core.update.UpdateMode
-import com.mtga.app.core.update.Updates
-import com.mtga.app.feature.settings.SettingsViewModel
-import com.mtga.app.feature.settings.SOURCE_OPTIONS
-import androidx.compose.runtime.collectAsState
-import org.koin.androidx.compose.koinViewModel
-import com.mtga.app.core.system.BatteryExemption
-import com.mtga.app.ui.component.LoadingMark
-import com.mtga.app.ui.component.QuietButton
-import com.mtga.app.ui.glass.glassZone
-import com.mtga.app.ui.glass.LocalGlass
-import com.mtga.app.ui.component.BoldButton
-import com.mtga.app.ui.component.ZoneSurface
-import com.mtga.app.ui.component.rememberHaptics
-import org.koin.compose.koinInject
-import com.mtga.app.data.settings.SettingsStore
-import com.mtga.app.data.settings.AutoDownload
-import androidx.core.content.ContextCompat
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.rememberLauncherForActivityResult
-import android.os.Build
-import android.content.pm.PackageManager
 import android.Manifest
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ShapeDefaults
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.mtga.app.core.system.BatteryExemption
+import com.mtga.app.core.update.UpdateMode
+import com.mtga.app.core.update.Updates
+import com.mtga.app.data.accounts.AccountStore
+import com.mtga.app.data.settings.AutoDownload
+import com.mtga.app.data.settings.SettingsStore
+import com.mtga.app.feature.settings.SOURCE_OPTIONS
+import com.mtga.app.feature.settings.SettingsIcons
+import com.mtga.app.feature.settings.SettingsViewModel
+import com.mtga.app.ui.component.BoldButton
+import com.mtga.app.ui.component.ChoiceDialog
+import com.mtga.app.ui.component.LoadingMark
+import com.mtga.app.ui.component.SetupTile
+import com.mtga.app.ui.component.SetupTileDialog
+import com.mtga.app.ui.component.SetupTileGrid
+import com.mtga.app.ui.component.leftText
+import com.mtga.app.ui.component.requiredDone
+import com.mtga.app.ui.component.requiredLeft
 import com.mtga.app.ui.icon.MtgaIcons
-import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
-private data class WelcomePage(
-    val icon: ImageVector,
-    val title: String,
-    val intro: String,
-    val points: List<String>,
-    /** Shows "x.com/nytimes" with the handle picked out. */
-    val showLinkExample: Boolean = false,
-    /** The last page asks for a decision instead of explaining anything. */
-    val showMediaChoice: Boolean = false,
-    /** The app's own animation, large, in place of the icon. */
-    val showMark: Boolean = false,
-    val showUpdateChoice: Boolean = false,
-    val showNotifyChoice: Boolean = false,
-    val showSourceChoice: Boolean = false
-)
-
-private val PAGES = listOf(
-    WelcomePage(
-        showMark = true,
-        icon = MtgaIcons.Home,
-        title = "Welcome to MTGA",
-        intro = "Read public posts from X with no account, no tracking and no ads.",
-        points = listOf(
-            "You choose the accounts to follow. The list stays on this device.",
-            "Home gathers their newest posts in one timeline."
-        )
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Person,
-        title = "Find a handle",
-        intro = "Every X account has a handle, the name written after the @. For example @nytimes.",
-        points = listOf(
-            "On a profile, it sits right under the display name.",
-            "In a profile link, it comes right after x.com/ as below.",
-            "It is made of letters, digits and underscores, 15 at most."
-        ),
-        showLinkExample = true
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Search,
-        title = "Follow an account",
-        intro = "Three ways to add someone.",
-        points = listOf(
-            "In Accounts, type the handle or paste the profile link in the search bar, then tap Follow.",
-            "In the X app or a browser, share a profile to MTGA. It opens here, then tap Follow.",
-            "Coming from Fritter or Squawker? Import your list in Settings, under Data. Their groups become folders."
-        )
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Folder,
-        title = "Sort into folders",
-        intro = "Folders give one stream each, news in one, friends in another.",
-        points = listOf(
-            "Create them in Accounts with the folder button, then file each account with its chip.",
-            "Home switches between them from its title, and shows every account by default.",
-            "Everything loads when the app opens, so switching folders is instant."
-        )
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Search,
-        title = "Sources",
-        intro = "Where posts are read. All of them together find the most.",
-        points = listOf("Tap one to leave it out. Changeable in Settings."),
-        showSourceChoice = true
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Download,
-        title = "Save media automatically",
-        intro = "Posts saved on the phone open again offline.",
-        points = listOf("Changeable in Settings."),
-        showMediaChoice = true
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Refresh,
-        title = "Updates",
-        intro = "When a new version is out.",
-        points = listOf("Changeable in Settings."),
-        showUpdateChoice = true
-    ),
-    WelcomePage(
-        icon = MtgaIcons.Bell,
-        title = "New posts",
-        intro = "A notification when followed accounts post.",
-        points = listOf("Changeable in Settings."),
-        showNotifyChoice = true
-    )
-)
+// not ported: WelcomePage and PAGES (the pager's pages: their texts moved into the tiles' summaries)
+// not ported: PageContent, Dots, Point, LinkExample, accentDisc (the pages' own drawing: the pager is gone)
+// not ported: MediaChoice, Choices, Option (rows of the pager's pages: the tiles open the app's ChoiceDialog instead)
+// not ported: awaitTransition (FlorisBoard's wait on a Flow of the system's change: each state is read again at every resume)
+// not ported: flow (FlorisBoard's Flow of step changes: the tiles are read again at every resume instead)
+// not ported: Steps (FlorisBoard's sealed step ids: a tile carries its own string id)
+// not ported: SetupLinks (FlorisBoard's links of its footer: MTGA's guide has none)
+// not ported: SetupScreen (the name only: its header, steps and footer are WelcomeContent, its state logic rememberSetupTiles)
 
 /**
- * A short guide shown on first launch, and again from Settings. Five pages:
- * what MTGA is, what a handle is and where to find one, how to follow, how to
- * sort into folders, and the one decision that spends the reader's data.
- *
- * [onFinish] receives true when the reader asks to go to Accounts.
+ * The few choices worth making, the best one already set, as tiles: each is read again each time the screen comes
+ * back (SetupScreen reads isFlorisBoardEnabled, isFlorisBoardSelected and hasNotificationPermission, and sets the
+ * current step from them), and turns done by itself. [onFinish] receives true when the reader asks for Accounts.
+ * Ported from rememberSetupTiles of Language
+ * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#rememberSetupTiles
+ * with the settings logic of MTGA's former WelcomeScreen
+ * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#WelcomeScreen
+ * Steps: Follow, Save media (required), Updates, New posts, then one per source.
  */
 @Composable
-fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
-    val pager = rememberPagerState(pageCount = { PAGES.size })
-    val scope = rememberCoroutineScope()
-    val last = pager.currentPage == PAGES.lastIndex
+fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTile> {
     val settings: SettingsStore = koinInject()
+    val accounts: AccountStore = koinInject()
     val context = LocalContext.current
+    val followed by accounts.accounts.collectAsState()
+    var checks by remember { mutableIntStateOf(0) }
+
     // On first launch nothing is picked: this is the only setting that spends
     // the reader's data without asking again, so it is not left as a default
     // they never saw. Reopened from Settings, the current choice is shown.
@@ -176,7 +102,22 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
     var chosen by remember {
         mutableStateOf(settings.current.takeIf { it.welcomeSeen }?.autoDownloadMedia)
     }
-    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // Updates and new post notifications start from the current settings;
+    // each asks for the permission it needs when turned on, not before.
+    var updates by remember { mutableStateOf(settings.current.updates) }
+    val sync: SettingsViewModel = koinViewModel()
+    var notify by remember { mutableStateOf(settings.current.backgroundSync && settings.current.notifyNewPosts) }
+    LifecycleResumeEffect(Unit) {
+        checks++
+        updates = settings.current.updates
+        notify = settings.current.backgroundSync && settings.current.notifyNewPosts
+        onPauseOrDispose { }
+    }
+    val canInstall = remember(checks) { Updates.canInstall(context) }
+    // The choice dialog open ("media" or "updates"), "" when none.
+    var choosing by rememberSaveable { mutableStateOf("") }
+
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { checks++ }
     val choose: (AutoDownload) -> Unit = { choice ->
         chosen = choice
         // Same as the Settings dialog: the watermark restarts, so what is on
@@ -192,17 +133,12 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-
-    // Updates and new post notifications start from the current settings;
-    // each asks for the permission it needs when turned on, not before.
-    var updates by remember { mutableStateOf(settings.current.updates) }
     val chooseUpdates: (UpdateMode) -> Unit = { mode ->
         updates = mode
         settings.update { it.copy(updates = mode) }
         if (mode == UpdateMode.INSTALL && !Updates.canInstall(context)) Updates.allowInstalls(context)
+        checks++
     }
-    val sync: SettingsViewModel = koinViewModel()
-    var notify by remember { mutableStateOf(settings.current.backgroundSync && settings.current.notifyNewPosts) }
     val turnOnNotify = {
         notify = true
         sync.setBackgroundSync(true)
@@ -226,250 +162,181 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
         }
     }
 
-    // Drawn over the whole window, so it keeps clear of the system bars itself.
-    Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            QuietButton(onClick = { onFinish(false) }) { Text(if (last) "Close" else "Skip") }
-        }
-
-        HorizontalPager(
-            state = pager,
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        ) { index ->
-            val page = PAGES[index]
-            PageContent(page) {
-                when {
-                    page.showMediaChoice -> MediaChoice(chosen = chosen, onChoose = choose)
-                    page.showUpdateChoice -> Choices(
-                        listOf(UpdateMode.OFF to "Off", UpdateMode.NOTIFY to "Notify me", UpdateMode.INSTALL to "Install"),
-                        updates,
-                        chooseUpdates
-                    )
-                    page.showNotifyChoice -> Choices(listOf(false to "Off", true to "Notify me"), notify, chooseNotify)
-                    page.showSourceChoice -> SourceChoices(settings)
-                }
-            }
-        }
-
-        Dots(count = PAGES.size, current = pager.currentPage)
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (pager.currentPage > 0) {
-                QuietButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }) {
-                    Text("Back")
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            BoldButton(
-                filled = true,
-                // The media page has no way forward until the choice is made.
-                // Skip, top right, still leaves at any time.
-                enabled = !PAGES[pager.currentPage].showMediaChoice || chosen != null,
-                onClick = {
-                    // Install is chosen from the start, and Android lets an app
-                    // install only once allowed: moving on from that page asks.
-                    if (PAGES[pager.currentPage].showUpdateChoice && updates == UpdateMode.INSTALL && !Updates.canInstall(context)) {
-                        Updates.allowInstalls(context)
-                    }
-                    if (last) onFinish(true) else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) }
-                }
-            ) { Text(if (last) "Go to Accounts" else "Next") }
-        }
-    }
-}
-
-@Composable
-private fun PageContent(page: WelcomePage, choice: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
-    ) {
-        if (page.showMark) {
-            LoadingMark(size = 160.dp)
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .accentDisc(),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    page.icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-        }
-        Text(
-            page.title,
-            style = MaterialTheme.typography.headlineSmall,
-            // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
-            color = MaterialTheme.colorScheme.primary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.semantics { heading() }
+    if (choosing == "media") {
+        ChoiceDialog(
+            title = "Save media",
+            options = listOf(
+                AutoDownload.OFF to "Never",
+                AutoDownload.UNMETERED to "On Wi-Fi only",
+                AutoDownload.ANY to "On Wi-Fi or mobile data"
+            ),
+            onPick = choose,
+            onDismiss = { choosing = "" },
+            selected = chosen
         )
-        Text(
-            page.intro,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center
+    }
+    if (choosing == "updates") {
+        ChoiceDialog(
+            title = "Updates",
+            options = listOf(UpdateMode.OFF to "Off", UpdateMode.NOTIFY to "Notify me", UpdateMode.INSTALL to "Install"),
+            onPick = chooseUpdates,
+            onDismiss = { choosing = "" },
+            selected = updates
         )
-        if (page.showLinkExample) LinkExample()
-        choice()
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            page.points.forEach { Point(it) }
+    }
+
+    val installBlocked = updates == UpdateMode.INSTALL && !canInstall
+
+    return listOf(
+        SetupTile(
+            id = "follow", name = "Follow", title = "Follow an account", icon = MtgaIcons.Person,
+            state = if (followed.isEmpty()) "None yet" else "${followed.size} followed",
+            summary = "Every X account has a handle, the name after the @, like @nytimes. It sits under the display name " +
+                "on a profile and after x.com/ in a profile link. Three ways to follow: in Accounts, type the handle or " +
+                "paste the link, then tap Follow; share a profile from the X app or a browser to MTGA; or import a list " +
+                "from Fritter or Squawker in Settings, under Data. Folders give one stream each: create them in Accounts " +
+                "and file each account with its chip. Tap to open Accounts.",
+            done = followed.isNotEmpty(), required = false,
+            onClick = { onFinish(true) }
+        ),
+        SetupTile(
+            id = "media", name = "Save media", title = "Save media automatically", icon = MtgaIcons.Download,
+            state = when (chosen) {
+                null -> "Not chosen"
+                AutoDownload.OFF -> "Never"
+                AutoDownload.UNMETERED -> "On Wi-Fi only"
+                AutoDownload.ANY -> "On Wi-Fi or mobile data"
+            },
+            summary = "Posts saved on the phone open again offline. It spends data without asking again, so choose: " +
+                "never, on Wi-Fi only, or on Wi-Fi or mobile data. Changeable in Settings.",
+            done = chosen != null, required = true,
+            onClick = { choosing = "media" }
+        ),
+        SetupTile(
+            id = "updates", name = "Updates", title = "Updates", icon = MtgaIcons.Refresh,
+            state = when {
+                installBlocked -> "Install, not allowed"
+                updates == UpdateMode.OFF -> "Off"
+                updates == UpdateMode.NOTIFY -> "Notify me"
+                else -> "Install"
+            },
+            summary = "What happens when a new version is out: nothing, a notice, or the install itself. Install needs " +
+                "Android's leave to install apps: choosing Install asks for it while it is missing. Changeable in Settings.",
+            done = updates != UpdateMode.OFF && (updates != UpdateMode.INSTALL || canInstall),
+            required = false, error = installBlocked,
+            // The choice always opens, so Install can be left from here; choosing Install asks the leave (chooseUpdates).
+            onClick = { choosing = "updates" }
+        ),
+        SetupTile(
+            id = "notify", name = "New posts", title = "New posts", icon = MtgaIcons.Bell,
+            state = if (notify) "On" else "Off",
+            summary = "A notification when followed accounts post. Checks run with the app closed, so Android's " +
+                "notification permission and battery exemption are asked when it is turned on. Changeable in Settings.",
+            done = notify, required = false,
+            onClick = { chooseNotify(!notify) }
+        )
+    ) + SourceChoices(settings)
+}
+
+/**
+ * Each source on or off, any number of them: a tile on is done. The summary says what each one sees. Ported from
+ * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#SourceChoices
+ * where it drew a row per source; it now gives one tile per source, read from the same SOURCE_OPTIONS.
+ * Icons are the closest existing ones: none is drawn for a single source.
+ */
+@Composable
+private fun SourceChoices(settings: SettingsStore): List<SetupTile> {
+    val current by settings.settings.collectAsState()
+    return SOURCE_OPTIONS.map { option ->
+        val on = option.isOn(current)
+        val (name, icon) = when (option.title) {
+            "Newest posts from X" -> "Newest from X" to MtgaIcons.Pulse
+            "FxTwitter" -> "FxTwitter" to SettingsIcons.Link
+            "Nitter servers" -> "Nitter servers" to SettingsIcons.Dns
+            "Internet Archive" -> "Internet Archive" to SettingsIcons.Timer
+            else -> option.title to MtgaIcons.Search
         }
-    }
-}
-
-/** Three rows, one of which has to be tapped before the guide can be left. */
-@Composable
-private fun MediaChoice(chosen: AutoDownload?, onChoose: (AutoDownload) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Option("Never", AutoDownload.OFF, chosen, onChoose)
-        Option("On Wi-Fi only", AutoDownload.UNMETERED, chosen, onChoose)
-        Option("On Wi-Fi or mobile data", AutoDownload.ANY, chosen, onChoose)
-    }
-}
-
-/** Rows to pick one from. */
-@Composable
-private fun <T> Choices(options: List<Pair<T, String>>, chosen: T?, onChoose: (T) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEach { (value, label) -> Option(label, value, chosen, onChoose) }
+        SetupTile(
+            id = "source:${option.title}", name = name, title = option.title, icon = icon,
+            state = if (on) "On" else "Off",
+            summary = option.summary + " Tap to turn it on or off. All of them together find the most posts. " +
+                "Changeable in Settings.",
+            done = on, required = false,
+            onClick = { settings.update { option.set(it, !on) } }
+        )
     }
 }
 
 /**
- * Each source on or off, any number of them: a picked row is on. The
- * summary says what each one sees.
+ * The guide shown on first launch, and again from Settings: the logo, the title, how many steps are left, the tiles,
+ * then Start (Done when reopened), which waits for the required ones. [onFinish] receives true when the reader asks
+ * to go to Accounts. Ported from SetupScreen#SetupScreen of
+ * https://github.com/florisboard/florisboard/blob/main/app/src/main/kotlin/dev/patrickgold/florisboard/app/setup/SetupScreen.kt
+ * through Language's
+ * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#WelcomeScreen
+ * and MTGA's former
+ * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#WelcomeScreen
  */
 @Composable
-private fun SourceChoices(settings: SettingsStore) {
-    val current by settings.settings.collectAsState()
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SOURCE_OPTIONS.forEach { option ->
-            val on = option.isOn(current)
-            Option(
-                label = option.title,
-                value = true,
-                chosen = on,
-                onChoose = { settings.update { option.set(it, !on) } },
-                detail = option.summary
-            )
-        }
+fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
+    val settings: SettingsStore = koinInject()
+    val reopened = remember { settings.current.welcomeSeen }
+    val steps = rememberSetupTiles(onFinish)
+    // The tile whose long press is open (its id), "" when none.
+    var explained by rememberSaveable { mutableStateOf("") }
+
+    WelcomeContent(steps, reopened, { onFinish(false) }) { explained = it.id }
+
+    steps.firstOrNull { it.id == explained }?.let { tile ->
+        SetupTileDialog(tile, onDismiss = { explained = "" })
     }
 }
 
-/** A filled primary colour when picked, so the answer is unmistakable. */
+/**
+ * What the guide draws from the tiles it is given: the layout of SetupScreen (header, steps, footer with the one
+ * button), split from [WelcomeScreen] as Language's. Ported from
+ * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#WelcomeContent
+ * and
+ * https://github.com/florisboard/florisboard/blob/main/app/src/main/kotlin/dev/patrickgold/florisboard/app/setup/SetupScreen.kt#SetupScreen
+ */
 @Composable
-private fun <T> Option(label: String, value: T, chosen: T?, onChoose: (T) -> Unit, detail: String? = null) {
-    val picked = chosen == value
-    val haptics = rememberHaptics()
-    ZoneSurface(
-        onClick = {
-            haptics.tick()
-            onChoose(value)
-        },
-        shape = ShapeDefaults.Large,
-        color = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-        accent = picked,
-        modifier = Modifier.fillMaxWidth()
+internal fun WelcomeContent(tiles: List<SetupTile>, reopened: Boolean, onStart: () -> Unit, onExplain: (SetupTile) -> Unit = {}) {
+    val steps = tiles
+    // Drawn over the whole window, so it keeps clear of the system bars itself.
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
     ) {
-        // The text takes the zone's own colour, which knows whether it is picked.
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 8.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Rows that switch on and off carry a check: in glass, a
-                // picked zone and a plain one differ only by a light tint.
-                if (detail != null && picked) Icon(MtgaIcons.Check, contentDescription = "On", modifier = Modifier.size(20.dp))
-                Text(label, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+            Spacer(Modifier.height(40.dp))
+            LoadingMark(size = 120.dp, running = false)
+            Spacer(Modifier.height(20.dp))
+            // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
+            Text("Welcome to MTGA", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(8.dp))
+            Text(steps.leftText(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(24.dp))
+            SetupTileGrid(steps, onExplain)
+
+            Spacer(Modifier.height(32.dp))
+            val ready = steps.requiredDone()
+            BoldButton(filled = true, enabled = ready, onClick = onStart) { Text(if (reopened) "Done" else "Start") }
+            if (!ready) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Still needed: " + steps.requiredLeft().joinToString(", ") { it.name },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
             }
-            if (detail != null) {
-                Text(detail, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-            }
+            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-    }
-}
-
-@Composable
-private fun LinkExample() {
-    val handleStyle = SpanStyle(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-    ZoneSurface(
-        shape = ShapeDefaults.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
-    ) {
-        Text(
-            buildAnnotatedString {
-                append("https://x.com/")
-                withStyle(handleStyle) { append("nytimes") }
-            },
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-        )
-    }
-}
-
-@Composable
-private fun Point(text: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
-        Box(
-            Modifier
-                .padding(top = 8.dp)
-                .size(6.dp)
-                .background(MaterialTheme.colorScheme.primary, CircleShape)
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-    }
-}
-
-@Composable
-private fun Dots(count: Int, current: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        repeat(count) { index ->
-            Box(
-                Modifier
-                    .size(if (index == current) 10.dp else 8.dp)
-                    .background(
-                        if (index == current) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outlineVariant
-                        },
-                        CircleShape
-                    )
-            )
-        }
-    }
-}
-
-/** The page's icon on a disc of the accent: a drop of glass in the accent when glass is on. */
-@Composable
-private fun Modifier.accentDisc(): Modifier {
-    val glass = LocalGlass.current
-    return if (glass == null) {
-        background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-    } else {
-        glassZone(CircleShape, glass, lens = 1f).background(glass.accentTint, CircleShape)
     }
 }
