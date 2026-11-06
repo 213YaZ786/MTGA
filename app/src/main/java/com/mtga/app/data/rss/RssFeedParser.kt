@@ -138,10 +138,19 @@ class RssFeedParser {
      * Nitter descriptions are small, predictable HTML. A tag stripper plus
      * entity decoding beats pulling in a parser, and beats android.text.Html
      * which drags UI classes into a pure function.
+     *
+     * Nitter writes the text of a post as <p>text with every "\n" replaced by
+     * "<br>\n"</p> (renderRssTweet), the line break being the tag and the newline
+     * after it only the template's layout: that pair reads as one line break.
+     * AGPL-3.0, ported from Nitter:
+     * https://github.com/zedeus/nitter/blob/master/src/views/rss.nimf#renderRssTweet
+     * not ported: the media, card, article, poll, community note and quote blocks
+     * (this parser reads the description's text and images only).
      */
-    private fun htmlToPlainText(html: String): String {
+    internal fun htmlToPlainText(html: String): String {
         val out = StringBuilder(html.length)
         var inTag = false
+        var afterBreak = false
         var index = 0
         while (index < html.length) {
             val c = html[index]
@@ -150,8 +159,14 @@ class RssFeedParser {
                     inTag = true
                     val lower = html.substring(index, minOf(index + 5, html.length)).lowercase()
                     if (lower.startsWith("<br") || lower.startsWith("<p")) out.append('\n')
+                    afterBreak = lower.startsWith("<br")
                 }
-                c == '>' -> inTag = false
+                c == '>' -> {
+                    inTag = false
+                    // The newline Nitter puts right after its br is layout, not a second break.
+                    if (afterBreak && html.getOrNull(index + 1) == '\n') index++
+                    afterBreak = false
+                }
                 !inTag -> out.append(c)
             }
             index++

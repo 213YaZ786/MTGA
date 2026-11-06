@@ -133,7 +133,7 @@ class HtmlSource(
                 return@withContext Outcome.Failure(error)
             }
 
-            unavailableReason(body)?.let {
+            unavailableReason(body, handle)?.let {
                 log.record(
                     kind = kind,
                     url = url,
@@ -348,20 +348,6 @@ class HtmlSource(
         }
     }
 
-    /**
-     * Nitter renders upstream problems as an error panel with HTTP 200, so the
-     * status code alone would call these successes.
-     */
-    private fun unavailableReason(body: String): String? {
-        val lower = body.lowercase()
-        return when {
-            "user has been suspended" in lower -> "X has suspended this account."
-            "tweets are protected" in lower -> "This account is protected."
-            "user not found" in lower -> null
-            else -> null
-        }
-    }
-
     private fun error429(status: Int) = status == 429
 
     /** Tags stripped so the log shows what a reader would see, not the doctype. */
@@ -381,6 +367,45 @@ class HtmlSource(
     }
 
     companion object {
+        // AGPL-3.0, ported from Nitter:
+        // https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getSuspended
+        internal fun getSuspended(username: String): String =
+            "User \"$username\" has been suspended"
+
+        // AGPL-3.0, ported from Nitter:
+        // https://github.com/zedeus/nitter/blob/master/src/views/profile.nim#renderProtected
+        // Nitter draws the header classed "timeline-header timeline-protected" with an h2
+        // "This account's tweets are protected." in place of the timeline. The h2 is read
+        // inside that header only, never in the posts around it.
+        // not ported: the p line "Only confirmed followers have access to @username's
+        // tweets." (the h2 already says it), tdiv timeline-container (a wrapper).
+        internal fun renderProtected(html: String): Boolean {
+            val header = html.indexOf("timeline-header timeline-protected").takeIf { it >= 0 } ?: return false
+            val h2 = html.indexOf("<h2", header).takeIf { it >= 0 && it - header < 200 } ?: return false
+            val start = html.indexOf('>', h2).takeIf { it >= 0 } ?: return false
+            val end = html.indexOf("</h2>", start).takeIf { it >= 0 } ?: return false
+            return "tweets are protected" in html.substring(start + 1, end).lowercase()
+        }
+
+        // Nitter renders upstream problems as an error panel with HTTP 200, so the
+        // status code alone would call these successes. Suspended is Nitter's own
+        // sentence (getSuspended), protected is its timeline-protected header
+        // (renderProtected) or the error panel, never a post's text.
+        // AGPL-3.0, ported from Nitter, which shows the suspended text and the protected header:
+        // https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getSuspended
+        internal fun unavailableReason(body: String, username: String): String? {
+            val panelAt = body.indexOf("class=\"error-panel\"")
+            // The panel is a short span; its quotes arrive as &quot;.
+            val panelEnd = body.indexOf("</div", panelAt).takeIf { it >= 0 } ?: body.length
+            val panel = if (panelAt < 0) "" else body.substring(panelAt, panelEnd)
+                .replace("&quot;", "\"").replace("&#39;", "'").lowercase()
+            return when {
+                getSuspended(username).lowercase() in panel -> "X has suspended this account."
+                renderProtected(body) || "tweets are protected" in panel -> "This account is protected."
+                else -> null
+            }
+        }
+
         private const val BROWSER_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/124.0.0.0 Mobile Safari/537.36"

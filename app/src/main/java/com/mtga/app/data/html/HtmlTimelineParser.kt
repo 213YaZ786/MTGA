@@ -367,17 +367,26 @@ class HtmlTimelineParser {
         cursor = 0
         while (true) {
             val at = body.indexOf("<video", cursor, ignoreCase = true).takeIf { it >= 0 } ?: break
-            val isGif = body.attributeNear(at, "class=\"", 60)?.contains("gif") == true
-            val poster = body.attributeNear(at, "poster=\"", 300)
-            val source = body.sourceAfter(at) ?: body.attributeNear(at, "data-url=\"", 300)
-            val download = body.attributeNear("class=\"video-download\"", "href=\"", 300)
+            // AGPL-3.0, ported from Nitter: renderVideo draws one "attachment" per video
+            // (renderVideoAttachment: the video, its overlay-duration, its video-download
+            // link, in that order), so a video owns the markup up to the next <video.
+            // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderVideo
+            // not ported: hasCardContent / card-content (title and description of a
+            // video card; parseCard reads them), renderVideoDisabled and
+            // renderVideoUnavailable (no <video> in them, nothing to download).
+            val nextVideo = body.indexOf("<video", at + 6, ignoreCase = true).takeIf { it >= 0 } ?: body.length
+            val attachment = body.substring(at, nextVideo)
+            val isGif = attachment.attributeNear(0, "class=\"", 60)?.contains("gif") == true
+            val poster = attachment.attributeNear(0, "poster=\"", 300)
+            val source = attachment.sourceAfter(0) ?: attachment.attributeNear(0, "data-url=\"", 300)
+            val download = attachment.attributeNear("class=\"video-download\"", "href=\"", 300)
 
             if (poster != null || source != null) {
                 items += MediaItem(
                     previewUrl = absolute(poster ?: source!!, host),
                     downloadUrl = absolute(download ?: source ?: poster!!, host),
                     type = if (isGif) MediaType.GIF else MediaType.VIDEO,
-                    durationLabel = body.tagContent("class=\"overlay-duration\"")?.let(::htmlToText)
+                    durationLabel = attachment.tagContent("class=\"overlay-duration\"")?.let(::htmlToText)
                 )
             }
             cursor = at + 6
