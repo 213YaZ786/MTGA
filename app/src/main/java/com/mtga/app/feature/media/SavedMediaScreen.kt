@@ -253,5 +253,4 @@ private fun Cell(cell: SavedCell, onOpen: () -> Unit) {
 }
 
 private val CELL_MIN = 104.dp
-// SMS's TileGap (PersonActions.kt), the gap Connection check and Folders took: 4 dp let the cells touch.
-private val GAP = 10.dp
+private val GAP = 4.dp
