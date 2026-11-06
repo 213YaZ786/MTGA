@@ -439,6 +439,8 @@ private fun PostBody(
                 name = quote.name,
                 text = quote.text,
                 note = quote.note,
+                media = quote.media,
+                unavailable = quote.unavailable,
                 onClick = { uriHandler.openUri(quote.permalink) }
             )
         }

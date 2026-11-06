@@ -236,11 +236,27 @@ internal object XPagePayload {
         return text
     }
 
+    // AGPL-3.0, ported from Nitter, parseLegacyMediaEntities: the media of a tweet by type,
+    // "photo", "video", "animated_gif", each with its url and thumb (media_url_https).
+    // https://github.com/zedeus/nitter/blob/master/src/parser.nim#L313-L331
+    // not ported: addMedia (a list add), ext_alt_text (no alt text shown), the video's
+    // additional_media_info.source_user and attribution link (no attribution shown), the gif's
+    // video_info.variants[0] (the best mp4 is taken for a gif as for a video).
+    // The size is added, read as the post's own: original_info, else Squawker's sizes.large
+    // (largestAspectRatio), else the video's aspect_ratio (fromMedia).
     private fun media(entities: JsonArray?): List<MediaItem> = entities.orEmpty().mapNotNull { entry ->
         val obj = entry as? JsonObject ?: return@mapNotNull null
         val still = obj.string("media_url_https") ?: return@mapNotNull null
+        val original = obj.obj("original_info")
+        val large = largestAspectRatio(listOf(obj))
+        val aspect = fromMedia(obj).aspectRatio?.mapNotNull { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+        val size = listOf(
+            original?.int("width") to original?.int("height"),
+            large?.int("w") to large?.int("h"),
+            aspect?.getOrNull(0) to aspect?.getOrNull(1)
+        ).firstNotNullOfOrNull { (w, h) -> if (w != null && h != null && w > 0 && h > 0) w to h else null }
         when (obj.string("type")) {
-            "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO)
+            "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO, width = size?.first, height = size?.second)
             "video", "animated_gif" -> {
                 val best = obj.obj("video_info")?.array("variants").orEmpty()
                     .mapNotNull { it as? JsonObject }
@@ -252,7 +268,9 @@ internal object XPagePayload {
                     previewUrl = still,
                     downloadUrl = best ?: still,
                     type = if (gif) MediaType.GIF else MediaType.VIDEO,
-                    durationLabel = if (gif) null else obj.obj("video_info")?.long("duration_millis")?.let(::duration)
+                    durationLabel = if (gif) null else obj.obj("video_info")?.long("duration_millis")?.let(::duration),
+                    width = size?.first,
+                    height = size?.second
                 )
             }
             else -> null
@@ -268,7 +286,16 @@ internal object XPagePayload {
         val holder = tweet.entries.firstOrNull { (key, value) ->
             key.startsWith("quoted") && value is JsonObject
         }?.value as? JsonObject ?: return null
-        val result = unwrap(holder.obj("result") ?: holder) ?: return null
+        // A quote X will not show comes as a TweetTombstone (or TweetUnavailable, with no text):
+        // it was dropped before and is kept as an unavailable quote.
+        val gone = holder.obj("result") ?: holder
+        if (gone.string("__typename") == "TweetTombstone") {
+            return QuotedPost("", "", "", "", unavailable = tombstone(gone.obj("tombstone")))
+        }
+        if (gone.string("__typename") == "TweetUnavailable") {
+            return QuotedPost("", "", "", "", unavailable = tombstone(null))
+        }
+        val result = unwrap(gone) ?: return null
         val handle = result.obj("core")?.obj("user_results")?.obj("result")
             ?.obj("core")?.string("screen_name") ?: return null
         val id = result.string("rest_id") ?: return null
@@ -280,7 +307,8 @@ internal object XPagePayload {
                 ?.obj("core")?.string("name") ?: handle,
             text = text,
             permalink = "https://x.com/$handle/status/$id",
-            textCut = isCutNote(result)
+            textCut = isCutNote(result),
+            media = media(result.array("media_entities2"))
         )
     }
 
@@ -307,10 +335,33 @@ internal object XPagePayload {
         )
     }
 
+    // Squawker (MIT), TweetVideoMetadata.fromMedia: aspectRatio, variants and imageUrl of media.
+    // https://github.com/j-fbriere/squawker/blob/master/lib/tweet/_video.dart#L75-L79
+    // not ported: the 1.0 aspectRatio default (null, PostCard has its own), the division
+    // (the pair is kept and divided in PostCard), streamUrlsBuilderFromVariants (the best
+    // mp4 of variants is picked in media).
+    private class TweetVideoMetadata(val aspectRatio: JsonArray?, val imageUrl: String?, val variants: JsonArray?)
+
+    private fun fromMedia(media: JsonObject): TweetVideoMetadata {
+        val videoInfo = media.obj("video_info")
+        val aspectRatio = videoInfo?.array("aspect_ratio")
+        val variants = videoInfo?.array("variants")
+        val imageUrl = media.string("media_url_https")
+        return TweetVideoMetadata(aspectRatio, imageUrl, variants)
+    }
+
     private fun duration(millis: Long): String {
         val seconds = millis / 1000
         return String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60)
     }
+
+    // Squawker (MIT), TweetMedia: largestAspectRatio, the media's sizes.large.w over
+    // sizes.large.h, the largest (reduce(math.max)), each `?? 1` as in the source. It
+    // returns that large size (its w and h) and not the quotient: PostCard divides.
+    // https://github.com/j-fbriere/squawker/blob/master/lib/tweet/_media.dart#L143
+    private fun largestAspectRatio(media: List<JsonObject>): JsonObject? = media
+        .mapNotNull { e -> e.obj("sizes")?.obj("large") }
+        .maxByOrNull { (it.int("w") ?: 1).toDouble() / (it.int("h") ?: 1) }
 
     private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject
     private fun JsonObject.array(key: String): JsonArray? = this[key] as? JsonArray
@@ -320,7 +371,20 @@ internal object XPagePayload {
     private fun JsonObject.int(key: String): Int? =
         long(key)?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
 
-    private const val COMPLETED_MARKER = "kind:\"GraphQLRequestStream.Completed\""
+    // Squawker (MIT), `factory TweetWithCard.tombstone(dynamic e)`: tweetWithCard.text is
+    // e['richText']['text'], else e['text']['text'], else L10n.current.this_tweet_is_unavailable,
+    // then replaceFirst(' Learn more', ''). Nitter's TweetTombstone selects tombstone.richText
+    // then tombstone.text and getTombstone removes the same suffix
+    // (https://github.com/zedeus/nitter/blob/master/src/parser.nim#L574).
+    // https://github.com/j-fbriere/squawker/blob/master/lib/client/client.dart#L1398-L1405
+    // not ported: idStr = '' and isTombstone = true (the caller makes the quote of this text).
+    private fun tombstone(e: JsonObject?): String {
+        val tweetWithCard = (e?.obj("richText")?.string("text") ?: e?.obj("text")?.string("text") ?: "This post is unavailable")
+            .replaceFirst(" Learn more", "")
+        return tweetWithCard
+    }
+
+    private const val COMPLETED_MARKER ="kind:\"GraphQLRequestStream.Completed\""
     private const val RESULT_TEXT_MARKER = "kind:\"Result.Ok\",value:\""
 
     private val TRAILING_TCO = Regex("\\s*https://t\\.co/\\w+\\s*$")

@@ -131,6 +131,8 @@ object FxTwitterParser {
     }
 
     private fun quoted(quote: JsonObject): QuotedPost? {
+        // A quote that cannot be read arrives as a tombstone and used to be dropped.
+        if (isTombstone(quote)) return twitterTombstone(quote)
         val author = quote.obj("author") ?: return null
         val handle = author.string("screen_name") ?: return null
         val id = quote.string("id").orEmpty()
@@ -139,8 +141,43 @@ object FxTwitterParser {
             name = author.string("name") ?: handle,
             text = quote.string("text").orEmpty(),
             permalink = quote.string("url") ?: "https://x.com/$handle/status/$id",
-            note = note(quote["community_note"])
+            note = note(quote["community_note"]),
+            media = media(quote.obj("media"))
         )
+    }
+
+    // FxEmbed (MIT): an unavailable post is `{ type: 'tombstone', provider, reason, message,
+    // ...partial }` (id, url, author), twitterTombstone builds it and the quote slot holds it.
+    // Read here as a QuotedPost whose `unavailable` is the message.
+    // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts#L198-L205
+    // not ported: the builder side (provider and the spread of partial: MTGA reads the object,
+    // it never makes one).
+    private fun twitterTombstone(partial: JsonObject): QuotedPost {
+        val reason = partial.string("reason")
+        val message = partial.string("message") ?: tombstoneMessageForReason(reason)
+        val author = partial.obj("author")
+        val id = partial.string("id")
+        return QuotedPost(
+            handle = author?.string("screen_name").orEmpty(),
+            name = author?.string("name").orEmpty(),
+            text = "",
+            permalink = partial.string("url") ?: id?.let { "https://x.com/i/status/$it" }.orEmpty(),
+            unavailable = message
+        )
+    }
+
+    // isTombstone, fallbackMessageEn and tombstoneMessageForReason (English only).
+    // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/helpers/tombstone.ts#L12-L47
+    // not ported: tombstoneKey and the `t` translator (the app's texts are its own),
+    // stripTombstones and stripQuotesDeep (they remove tombstones, MTGA shows them).
+    private fun isTombstone(x: JsonObject): Boolean = x.string("type") == "tombstone"
+
+    private fun tombstoneMessageForReason(reason: String?): String = when (reason) {
+        "deleted" -> "This post is deleted"
+        "suspended" -> "This post is from a suspended account"
+        "private" -> "This post is from a private account"
+        "blocked" -> "This post has been blocked from view by its author"
+        else -> "This post is unavailable"
     }
 
     /** The links the author typed, already expanded, in order. */
@@ -158,7 +195,15 @@ object FxTwitterParser {
             when (item.string("type")) {
                 // The original is asked by name; the plain address is the
                 // lighter version a list shows.
-                "photo" -> MediaItem(previewUrl = url.substringBefore('?'), downloadUrl = url, type = MediaType.PHOTO)
+                // FxTwitter gives each photo and video its width and height (its API spec
+                // requires them), which PostCard draws the picture at.
+                "photo" -> MediaItem(
+                    previewUrl = url.substringBefore('?'),
+                    downloadUrl = url,
+                    type = MediaType.PHOTO,
+                    width = item.int("width"),
+                    height = item.int("height")
+                )
                 "video", "gif" -> {
                     val gif = item.string("type") == "gif"
                     val best = (item["formats"] as? JsonArray).orEmpty()
@@ -170,7 +215,9 @@ object FxTwitterParser {
                         previewUrl = item.string("thumbnail_url") ?: url,
                         downloadUrl = best ?: url,
                         type = if (gif) MediaType.GIF else MediaType.VIDEO,
-                        durationLabel = if (gif) null else item.double("duration")?.let(::duration)
+                        durationLabel = if (gif) null else item.double("duration")?.let(::duration),
+                        width = item.int("width"),
+                        height = item.int("height")
                     )
                 }
                 else -> null

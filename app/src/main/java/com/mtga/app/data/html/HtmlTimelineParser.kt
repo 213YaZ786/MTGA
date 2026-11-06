@@ -165,11 +165,19 @@ class HtmlTimelineParser {
         val text = contentHtml?.let(::htmlToText).orEmpty()
 
         val isRepost = "class=\"retweet-header\"" in chunk
-        val replyTo = body.tagContent("class=\"replying-to\"")
+        // AGPL-3.0, ported from Nitter: renderReply lists every name ("Replying to @a @b")
+        // and renderTweet draws the line unless the only name is the author's. The post
+        // keeps one name, the first that is not the author, so a thread of the author's
+        // own ("@author @other") still names the other account.
+        // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderReply
+        val replyNames = body.tagContent("class=\"replying-to\"")
             ?.let(::htmlToText)
-            ?.substringAfter('@', "")
-            ?.substringBefore(' ')
-            ?.trim()
+            ?.split(' ', '\n')
+            ?.filter { it.startsWith("@") && it.length > 1 }
+            ?.map { it.drop(1).trim() }
+            .orEmpty()
+        val replyTo = (replyNames.firstOrNull { !it.equals(handle, ignoreCase = true) }
+            ?: replyNames.firstOrNull())
             ?.takeIf { it.isNotBlank() }
 
         return Post(
@@ -206,9 +214,27 @@ class HtmlTimelineParser {
             ?.trim()
             ?.takeIf { it.isNotBlank() }
 
+    // AGPL-3.0, ported from Nitter, renderQuote: `if not quote.available` the block is
+    // `quote unavailable` around an `unavailable-quote` link that holds the tombstone, else
+    // the quote's text, else "This tweet is unavailable". Its link goes to "//status/0"
+    // (no author, no id), so the quote has nothing to open.
+    // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderQuote
+    // not ported: the quote's articlePreview (renderArticleCard), its renderReply line and
+    // its tweet-date row (a quote here shows neither).
     private fun parseQuote(quoteChunk: String, host: String): QuotedPost? {
+        if (quoteChunk.startsWith("class=\"quote unavailable\"")) {
+            val tombstone = quoteChunk.elementText("class=\"unavailable-quote\"", "</a>")
+            return QuotedPost("", "", "", "", unavailable = tombstone ?: "This tweet is unavailable")
+        }
         val link = quoteChunk.attributeNear("class=\"quote-link\"", "href=\"", 200) ?: return null
+        // AGPL-3.0, ported from Nitter, renderQuoteMedia: the quote's media sit in a
+        // `quote-media-container` after its text.
+        // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderQuoteMedia
+        val quoteMedia = quoteChunk.indexOf("class=\"quote-media-container\"").takeIf { it >= 0 }
         return QuotedPost(
+            media = quoteMedia?.let { at ->
+                extractMedia(quoteChunk.substring(at, quoteChunk.blockEnd(at).takeIf { it > 0 } ?: quoteChunk.length), host)
+            }.orEmpty(),
             handle = quoteChunk.attributeNear("class=\"username\"", "title=\"", 400)
                 ?.removePrefix("@").orEmpty(),
             name = quoteChunk.attributeNear("class=\"fullname\"", "title=\"", 400)

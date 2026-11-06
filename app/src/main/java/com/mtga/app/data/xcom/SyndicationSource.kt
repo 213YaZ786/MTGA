@@ -132,7 +132,8 @@ class SyndicationSource(
                     text = fullText(quote),
                     permalink = "https://x.com/$quoteHandle/status/" +
                         quote["id_str"]?.string().orEmpty(),
-                    textCut = isCut(quote)
+                    textCut = isCut(quote),
+                    media = readMedia(quote["mediaDetails"])
                 )
             },
             stats = PostStats(
@@ -185,8 +186,14 @@ class SyndicationSource(
         return details.mapNotNull { entry ->
             val obj = entry as? JsonObject ?: return@mapNotNull null
             val still = obj["media_url_https"]?.string() ?: return@mapNotNull null
+            // The answer carries original_info {width, height} for every media (checked on a
+            // NASA post of 2026-11-06), and for a video video_info.aspect_ratio [w, h] as well.
+            val original = obj["original_info"] as? JsonObject
+            val ratio = (obj["video_info"] as? JsonObject)?.get("aspect_ratio") as? JsonArray
+            val width = original?.get("width")?.int() ?: ratio?.getOrNull(0)?.int()
+            val height = original?.get("height")?.int() ?: ratio?.getOrNull(1)?.int()
             when (obj["type"]?.string()) {
-                "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO)
+                "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO, width = width, height = height)
                 "video", "animated_gif" -> {
                     val best = (obj["video_info"] as? JsonObject)
                         ?.let { it["variants"] as? JsonArray }
@@ -201,7 +208,9 @@ class SyndicationSource(
                             MediaType.GIF
                         } else {
                             MediaType.VIDEO
-                        }
+                        },
+                        width = width,
+                        height = height
                     )
                 }
                 else -> null

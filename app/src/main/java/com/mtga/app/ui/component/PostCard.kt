@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import com.mtga.app.ui.theme.LocalDisplayPrefs
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -34,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -48,6 +50,13 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.mtga.app.ui.icon.MtgaIcons
+import android.icu.text.CompactDecimalFormat
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -129,6 +138,8 @@ fun PostCard(
                             name = quote.name,
                             text = quote.text,
                             note = quote.note,
+                            media = quote.media,
+                            unavailable = quote.unavailable,
                             onClick = { onOpenLink(quote.permalink) }
                         )
                     }
@@ -212,7 +223,7 @@ private fun NameRow(post: Post, unread: Boolean) {
         )
         // Name and time joined with a comma, as AOSP Dialer's CallLogEntryText.java (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
         Text(
-            ", ${relativeTime(post.publishedAtMillis)}",
+            ", ${getShortTime(post.publishedAtMillis)}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1
@@ -278,7 +289,7 @@ private fun HeldMedia(type: MediaType, modifier: Modifier) {
 @Composable
 internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (Int) -> Unit) {
     // Compact trades some picture for a list that moves faster.
-    val ratio = if (LocalDisplayPrefs.current.compact) 2f else 16f / 9f
+    val compact = LocalDisplayPrefs.current.compact
     val hold = rememberMediaPolicy().hold
     // Only the first video or GIF of the post chosen by the list plays inline.
     val inlineIndex = if (LocalInlinePlaying.current == post.id) {
@@ -286,12 +297,21 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
     } else {
         -1
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    // The pictures of a post apart by SMS's TileGap (PersonActions.kt), as the saved media grid.
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         post.media.forEachIndexed { index, item ->
             // Wi-Fi only on a metered network: nothing is fetched until the
             // reader taps. One tap loads the preview, the next opens it.
             var revealed by remember(item.previewUrl) { mutableStateOf(false) }
             val waiting = hold && !revealed
+            // The picture's own ratio, from 3:4 tall to 2:1 wide, 16:9 when the source gave no
+            // size (Nitter, RSS); compact keeps its 2:1.
+            val sized = (item.width ?: 0) > 0 && (item.height ?: 0) > 0
+            val ratio = when {
+                compact -> 2f
+                sized -> largestAspectRatio(listOf(item)).coerceIn(3f / 4f, 2f)
+                else -> 16f / 9f
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -308,7 +328,7 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                     AsyncImage(
                         model = source.preview,
                         contentDescription = null,
-                        contentScale = ContentScale.FillWidth,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
                     )
                     if (index == inlineIndex) {
@@ -367,9 +387,31 @@ internal fun QuoteBlock(
     name: String,
     text: String,
     onClick: () -> Unit,
-    note: CommunityNote? = null
+    note: CommunityNote? = null,
+    media: List<MediaItem> = emptyList(),
+    /** The tombstone's text when the quoted post is gone: nothing else is drawn. */
+    unavailable: String? = null
 ) {
     val tap = rememberHaptics()
+    // AGPL-3.0, ported from Nitter, renderQuote: a quote that is not available is drawn as
+    // its unavailable text alone, with no link of its own here (nothing to open).
+    // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderQuote
+    if (unavailable != null) {
+        Surface(
+            shape = ShapeDefaults.Large,
+            color = MaterialTheme.colorScheme.innerZone,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                unavailable.ifBlank { "This post is unavailable." },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            )
+        }
+        return
+    }
     Surface(
         onClick = { tap.tick(); onClick() },
         shape = ShapeDefaults.Large,
@@ -391,6 +433,72 @@ internal fun QuoteBlock(
                     maxLines = 6,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+            // renderQuote: `if quote.media.len > 0: renderQuoteMedia`, after the text.
+            // Each mediaItem is drawn as MTGA's own MediaBlock draws one of a post's, which is
+            // where this code comes from (the same media policy, Coil and corners): Wi-Fi only
+            // holds the thumb until a tap, then a tap opens the quoted post as the quote does.
+            // Nitter's renderPhotoAttachment draws a thumb as a still-image link and
+            // renderVideoAttachment its poster with the overlay-duration over it.
+            // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/ui/component/PostCard.kt#L279-L350
+            // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderPhotoAttachment
+            // Equal widths, a lone picture at its own ratio (3:4 to 2:1, 16:9 unknown), a row's
+            // ratio 4 over the count.
+            // not ported: the download button, the inline video and the saved copy of
+            // MediaBlock (a quote's media are not saved, its video plays in its own post),
+            // named and the webp thumbs, altText, video-download of Nitter.
+            val hold = rememberMediaPolicy().hold
+            if (media.isNotEmpty()) renderQuoteMedia(media) { photo, count ->
+                var revealed by remember(photo.previewUrl) { mutableStateOf(false) }
+                val waiting = hold && !revealed
+                val ratio = when {
+                    count > 1 -> 4f / count
+                    (photo.width ?: 0) > 0 && (photo.height ?: 0) > 0 ->
+                        largestAspectRatio(listOf(photo)).coerceIn(3f / 4f, 2f)
+                    else -> 16f / 9f
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(ShapeDefaults.Medium)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable { if (waiting) revealed = true else { tap.tick(); onClick() } }
+                ) {
+                    if (waiting && count > 1) {
+                        // A tile of a row is too small for HeldMedia's three lines: its icon only.
+                        Box(Modifier.fillMaxWidth().aspectRatio(ratio), contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (photo.type == MediaType.PHOTO) MtgaIcons.Download else MtgaIcons.Play,
+                                contentDescription = "Tap to load",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else if (waiting) {
+                        HeldMedia(photo.type, Modifier.fillMaxWidth().aspectRatio(ratio))
+                    } else {
+                        AsyncImage(
+                            model = photo.previewUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
+                        )
+                    }
+                    if (photo.type != MediaType.PHOTO) {
+                        Text(
+                            photo.durationLabel ?: if (photo.type == MediaType.GIF) "GIF" else "Video",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface,
+                                    ShapeDefaults.ExtraSmall
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
             note?.let { NoteBlock(it, maxLines = 3) }
         }
@@ -670,18 +778,77 @@ private fun Stat(icon: androidx.compose.ui.graphics.vector.ImageVector, value: I
     }
 }
 
-internal fun Post.contextLine(): String? = when {
-    isPinned -> "Pinned"
-    kind == PostKind.REPOST -> relatedHandle?.let { "Reposted by $it" } ?: "Repost"
-    kind == PostKind.REPLY -> relatedHandle?.let { "Replying to @$it" } ?: "Reply"
-    else -> null
+// AGPL-3.0, ported from Nitter, renderTweet: the "Replying to" line is drawn only when
+// `tweet.reply.len > 1 or tweet.reply[0] != tweet.user.username or pinned`, so a thread
+// of the author's own carries no line. The post holds one reply name (relatedHandle,
+// the first that is not the author's when there are several), and "Pinned" wins above
+// the reply branch.
+// https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderTweet
+// not ported: index == 0 / afterTweet (thread position, MTGA draws each post alone),
+// renderHeader's retweet and pinned header (the repost and pin lines below), the
+// rest of renderTweet (PostCard's body draws text, card, media, poll, quote, note, stats).
+internal fun Post.contextLine(): String? {
+    val tweet = this
+    val reply = tweet.relatedHandle
+    val username = tweet.authorHandle
+    val pinned = tweet.isPinned
+    return when {
+        pinned -> "Pinned"
+        tweet.kind == PostKind.REPOST -> reply?.let { "Reposted by $it" } ?: "Repost"
+        tweet.kind == PostKind.REPLY && reply != null && reply.equals(username, ignoreCase = true) -> null
+        tweet.kind == PostKind.REPLY -> reply?.let { "Replying to @$it" } ?: "Reply"
+        else -> null
+    }
 }
 
-internal fun compactCount(value: Int): String = when {
-    value >= 1_000_000 -> "${value / 100_000 / 10.0}M"
-    value >= 1_000 -> "${value / 100 / 10.0}K"
-    else -> value.toString()
+// Counts as the system writes them short: 1.2K, 12K, 1M, in the device's language.
+// Squawker (MIT) holds `numberFormat = NumberFormat.compact(locale: ...)` and calls
+// numberFormat.format(count) for replies, reposts and likes; Android's
+// CompactDecimalFormat with CompactStyle.SHORT is its counterpart. Under 1000 the count
+// is written as it is and the formatter is not touched; [numberFormat] is a parameter so
+// a JVM test can stand in for ICU, which the JVM does not have.
+// https://github.com/j-fbriere/squawker/blob/master/lib/tweet/tweet.dart#L384
+// not ported: numberLocaleFor and Intl.getCurrentLocale (Dart intl locale fix-ups,
+// Locale.getDefault() needs none).
+internal fun compactCount(
+    value: Int,
+    numberFormat: (Long) -> String = { count ->
+        CompactDecimalFormat.getInstance(Locale.getDefault(), CompactDecimalFormat.CompactStyle.SHORT)
+            .format(count)
+    }
+): String = if (value < 1_000) value.toString() else numberFormat(value.toLong())
+
+// The time on a post's name line, as Nitter writes it: another year "6 Nov 2025", at
+// least a day "Nov 6", then "5h", "12m", "30s" and "now". Month names come from the
+// device locale (DateTimeFormatter's default format locale).
+// AGPL-3.0, ported from Nitter:
+// https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getShortTime
+// getShortTime(tweet), its one line wrapper, is the Long overload below.
+internal fun getShortTime(time: ZonedDateTime, now: ZonedDateTime = ZonedDateTime.now()): String {
+    if (time.year == 0) return ""
+    val since = Duration.between(time, now)
+    val result: String
+
+    if (now.year != time.year) {
+        result = time.format(DateTimeFormatter.ofPattern("d MMM yyyy"))
+    } else if (since.toDays() >= 1) {
+        result = time.format(DateTimeFormatter.ofPattern("MMM d"))
+    } else if (since.toHours() >= 1) {
+        result = "${since.toHours()}h"
+    } else if (since.toMinutes() >= 1) {
+        result = "${since.toMinutes()}m"
+    } else if (since.seconds > 1) {
+        result = "${since.seconds}s"
+    } else {
+        result = "now"
+    }
+    return result
 }
+
+// AGPL-3.0, ported from Nitter: getShortTime(tweet) hands the post's own time to
+// getShortTime, here its epoch millis. https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getShortTime
+internal fun getShortTime(millis: Long): String =
+    if (millis <= 0L) "" else getShortTime(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
 
 /** Compact relative time. Absolute weeks take over past a week. */
 internal fun relativeTime(millis: Long): String {
@@ -699,5 +866,40 @@ internal fun relativeTime(millis: Long): String {
         hours < 24 -> "${hours}h"
         days < 7 -> "${days}d"
         else -> "${days / 7}w"
+    }
+}
+
+// Squawker (MIT), TweetMedia: largestAspectRatio is the media's sizes.large.w over
+// sizes.large.h, the largest of them (reduce(math.max)), `?? 1` for a missing side. Only
+// called for a media whose size is known: MediaBlock keeps its 16:9 for the others.
+// https://github.com/j-fbriere/squawker/blob/master/lib/tweet/_media.dart#L143
+internal fun largestAspectRatio(media: List<MediaItem>): Float =
+    media.map { e -> (e.width ?: 1).toFloat() / (e.height ?: 1) }.reduce { a, b -> Math.max(a, b) }
+
+// AGPL-3.0, ported from Nitter, renderQuoteMedia: `tdiv(class="quote-media-container"):
+// renderMedia(quote.media, prefs, path)`, the quote's media in a container of their own.
+// https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderQuoteMedia
+// not ported: prefs and path (the media policy is read where each mediaItem is drawn, by the
+// caller, in QuoteBlock).
+@Composable
+internal fun renderQuoteMedia(media: List<MediaItem>, renderItem: @Composable RowScope.(MediaItem, Int) -> Unit) {
+    Box { renderMedia(media, renderItem) }
+}
+
+// AGPL-3.0, ported from Nitter, renderMedia: nothing for an empty list, else the media in
+// groups (a row each, gallery-row) and every mediaItem drawn by its kind. Here one row of up
+// to four, equal widths, ten dp apart (the visual the user validated).
+// https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderMedia
+// not ported: the groups of two for three or more media (distribute(2)), the margin between
+// groups and mixed-row (a single row), the single video or gif drawn by renderVideo and
+// renderGif (a tile like the others), bigThumb, prefs and path.
+@Composable
+private fun renderMedia(media: List<MediaItem>, renderItem: @Composable RowScope.(MediaItem, Int) -> Unit) {
+    if (media.isEmpty()) return
+    val groups = if (media.size < 3) listOf(media) else listOf(media.take(4))
+    for (mediaGroup in groups) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            for (mediaItem in mediaGroup) renderItem(mediaItem, media.size)
+        }
     }
 }

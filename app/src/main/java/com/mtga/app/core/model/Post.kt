@@ -83,7 +83,13 @@ data class Post(
             // the same text seen again is not.
             fullTextDownloaded = if (fuller) fresh.fullTextDownloaded else fullTextDownloaded || fresh.fullTextDownloaded,
             links = if (fresh.text.fullerThan(text)) fresh.links.ifEmpty { links } else links,
-            media = media.ifEmpty { fresh.media },
+            // A source that gives the pictures' sizes (FxTwitter, x.com) lends them to the
+            // stored copy of the same media that has none (Nitter, RSS).
+            media = media.ifEmpty { fresh.media }.let { stored ->
+                if (stored.size != fresh.media.size) stored else stored.zip(fresh.media) { old, new ->
+                    if (old.width == null && old.height == null) old.copy(width = new.width, height = new.height) else old
+                }
+            },
             quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
             card = fresh.card ?: card,
             poll = fresh.poll ?: poll,
@@ -140,7 +146,15 @@ data class MediaItem(
     val previewUrl: String,
     val downloadUrl: String,
     val type: MediaType,
-    val durationLabel: String? = null
+    val durationLabel: String? = null,
+    /**
+     * The picture's own size in pixels where the source gives it (FxTwitter's width and
+     * height, x.com's original_info), null otherwise (Nitter, RSS). PostCard draws the
+     * media at this ratio, as Squawker's TweetMedia does from sizes.large.w and h.
+     * Null by default so stored caches still read.
+     */
+    val width: Int? = null,
+    val height: Int? = null
 )
 
 @Serializable
@@ -155,12 +169,26 @@ data class QuotedPost(
     /** As [Post.fullTextDownloaded], for the quoted post's own text, with the same old key. */
     @OptIn(ExperimentalSerializationApi::class)
     @JsonNames("textChecked")
-    val fullTextDownloaded: Boolean = false
+    val fullTextDownloaded: Boolean = false,
+    /** The photos and videos of the quoted post, drawn under its text as Nitter's renderQuoteMedia does. */
+    val media: List<MediaItem> = emptyList(),
+    /**
+     * The tombstone's text when the quoted post is gone (deleted, withheld, protected):
+     * Nitter's renderQuote "unavailable-quote", Squawker's TweetWithCard.tombstone. Null
+     * for a quote that can be read. The other fields are then blank.
+     */
+    val unavailable: String? = null
 ) {
-    /** Same rule as the post itself: the fuller text wins, and a note is kept. */
+    /**
+     * Same rule as the post itself: the fuller text wins, and a note is kept. A quote that
+     * could be read is never replaced by a tombstone, a tombstone gives way to a real quote.
+     */
     fun mergedWith(fresh: QuotedPost?): QuotedPost {
         if (fresh == null) return this
+        if (fresh.unavailable != null && unavailable == null) return this
+        if (unavailable != null && fresh.unavailable == null) return fresh
         return copy(
+            media = media.ifEmpty { fresh.media },
             text = fullerText(text, fresh.text),
             note = fresh.note ?: note,
             textCut = if (fresh.text.fullerThan(text)) fresh.textCut else textCut && fresh.textCut,
