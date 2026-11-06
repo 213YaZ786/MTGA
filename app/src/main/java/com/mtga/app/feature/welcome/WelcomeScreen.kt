@@ -46,9 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.mtga.app.core.system.BatteryExemption
-import com.mtga.app.core.update.UpdateMode
-import com.mtga.app.core.update.Updates
-import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.feature.settings.SOURCE_OPTIONS
@@ -84,14 +81,15 @@ import org.koin.compose.koinInject
  * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#rememberSetupTiles
  * with the settings logic of MTGA's former WelcomeScreen
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#WelcomeScreen
- * Steps: Follow, Save media (required), Updates, New posts, then one per source.
+ * Only the choices the reader must make (the user, 2026-11-06: a tile only for an important call, the best preset
+ * for the rest): Save media (spends data, required), Newest from X (X sees the reader's address), New posts (a
+ * permission and checks with the app closed). Updates stay on Install through Store, the other four sources on,
+ * following is done in Accounts.
  */
 @Composable
 fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTile> {
     val settings: SettingsStore = koinInject()
-    val accounts: AccountStore = koinInject()
     val context = LocalContext.current
-    val followed by accounts.accounts.collectAsState()
     var checks by remember { mutableIntStateOf(0) }
 
     // On first launch nothing is picked: this is the only setting that spends
@@ -102,19 +100,16 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
     var chosen by remember {
         mutableStateOf(settings.current.takeIf { it.welcomeSeen }?.autoDownloadMedia)
     }
-    // Updates and new post notifications start from the current settings;
-    // each asks for the permission it needs when turned on, not before.
-    var updates by remember { mutableStateOf(settings.current.updates) }
+    // New post notifications start from the current settings and ask for
+    // the permission they need when turned on, not before.
     val sync: SettingsViewModel = koinViewModel()
     var notify by remember { mutableStateOf(settings.current.backgroundSync && settings.current.notifyNewPosts) }
     LifecycleResumeEffect(Unit) {
         checks++
-        updates = settings.current.updates
         notify = settings.current.backgroundSync && settings.current.notifyNewPosts
         onPauseOrDispose { }
     }
-    val canInstall = remember(checks) { Updates.canInstall(context) }
-    // The choice dialog open ("media" or "updates"), "" when none.
+    // The choice dialog open ("media"), "" when none.
     var choosing by rememberSaveable { mutableStateOf("") }
 
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { checks++ }
@@ -132,12 +127,6 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
         ) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-    }
-    val chooseUpdates: (UpdateMode) -> Unit = { mode ->
-        updates = mode
-        settings.update { it.copy(updates = mode) }
-        if (mode == UpdateMode.INSTALL && !Updates.canInstall(context)) Updates.allowInstalls(context)
-        checks++
     }
     val turnOnNotify = {
         notify = true
@@ -175,30 +164,7 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
             selected = chosen
         )
     }
-    if (choosing == "updates") {
-        ChoiceDialog(
-            title = "Updates",
-            options = listOf(UpdateMode.OFF to "Off", UpdateMode.NOTIFY to "Notify me", UpdateMode.INSTALL to "Install"),
-            onPick = chooseUpdates,
-            onDismiss = { choosing = "" },
-            selected = updates
-        )
-    }
-
-    val installBlocked = updates == UpdateMode.INSTALL && !canInstall
-
     return listOf(
-        SetupTile(
-            id = "follow", name = "Follow", title = "Follow an account", icon = MtgaIcons.Person,
-            state = if (followed.isEmpty()) "None yet" else "${followed.size} followed",
-            summary = "Every X account has a handle, the name after the @, like @nytimes. It sits under the display name " +
-                "on a profile and after x.com/ in a profile link. Three ways to follow: in Accounts, type the handle or " +
-                "paste the link, then tap Follow; share a profile from the X app or a browser to MTGA; or import a list " +
-                "from Fritter or Squawker in Settings, under Data. Folders give one stream each: create them in Accounts " +
-                "and file each account with its chip. Tap to open Accounts.",
-            done = followed.isNotEmpty(), required = false,
-            onClick = { onFinish(true) }
-        ),
         SetupTile(
             id = "media", name = "Save media", title = "Save media automatically", icon = MtgaIcons.Download,
             state = when (chosen) {
@@ -211,21 +177,6 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
                 "never, on Wi-Fi only, or on Wi-Fi or mobile data. Changeable in Settings.",
             done = chosen != null, required = true,
             onClick = { choosing = "media" }
-        ),
-        SetupTile(
-            id = "updates", name = "Updates", title = "Updates", icon = MtgaIcons.Refresh,
-            state = when {
-                installBlocked -> "Install, not allowed"
-                updates == UpdateMode.OFF -> "Off"
-                updates == UpdateMode.NOTIFY -> "Notify me"
-                else -> "Install"
-            },
-            summary = "What happens when a new version is out: nothing, a notice, or the install itself. Install needs " +
-                "Android's leave to install apps: choosing Install asks for it while it is missing. Changeable in Settings.",
-            done = updates != UpdateMode.OFF && (updates != UpdateMode.INSTALL || canInstall),
-            required = false, error = installBlocked,
-            // The choice always opens, so Install can be left from here; choosing Install asks the leave (chooseUpdates).
-            onClick = { choosing = "updates" }
         ),
         SetupTile(
             id = "notify", name = "New posts", title = "New posts", icon = MtgaIcons.Bell,
@@ -247,7 +198,8 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
 @Composable
 private fun SourceChoices(settings: SettingsStore): List<SetupTile> {
     val current by settings.settings.collectAsState()
-    return SOURCE_OPTIONS.map { option ->
+    // Only the source that shows the reader to X is a call to make; the others stay on, the best preset.
+    return SOURCE_OPTIONS.filter { it.title == "Newest posts from X" }.map { option ->
         val on = option.isOn(current)
         val (name, icon) = when (option.title) {
             "Newest posts from X" -> "Newest from X" to MtgaIcons.Pulse
