@@ -265,7 +265,8 @@ internal fun WelcomeContent(tiles: List<SetupTile>, reopened: Boolean, onStart: 
         ) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Spacer(Modifier.height(40.dp))
-            LoadingMark(size = 120.dp, running = false)
+            // The old guide's mark, turning at its size (https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#PageContent).
+            LoadingMark(size = 160.dp)
             Spacer(Modifier.height(20.dp))
             // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
             Text("Welcome to MTGA", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
