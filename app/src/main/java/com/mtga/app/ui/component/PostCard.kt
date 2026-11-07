@@ -60,8 +60,8 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
- * A post, laid out the way a reader expects one: who, when, what, then the
- * media, then the numbers. Media carries its own download control, since
+ * A post: a header with the avatar, the name, then the handle and time, and
+ * the content under it on the whole width of the card. Media carries its own download control, since
  * saving a picture is the single most common thing people want from a client
  * like this and burying it in a long press is hostile.
  */
@@ -100,9 +100,12 @@ fun PostCard(
         ) {
             post.contextLine()?.let { ContextLine(it, icon = if (post.isPinned) MtgaIcons.Pin else null) }
 
+            // Header as PostDetailScreen.kt's PostBody (https://raw.githubusercontent.com/213YaZ786/MTGA/main/app/src/main/java/com/mtga/app/feature/post/PostDetailScreen.kt#PostBody):
+            // the avatar, then the name with @handle under it. The time joins the handle line, and the dot the name.
+            // not ported: PostBody's profile-tap Surface (the card's own tap opens the post).
             Row(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Avatar(
                     post.avatarUrl,
@@ -111,44 +114,40 @@ fun PostCard(
                     sharedKey = if (copy) null else post.id
                 )
 
-                Column(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)
-                ) {
-                    NameRow(post, unread)
-
-                    if (post.text.isNotBlank()) {
-                        Text(post.text, style = MaterialTheme.typography.bodyLarge)
-                    }
-
-                    if (post.media.isNotEmpty()) {
-                        MediaBlock(post = post, onDownload = onDownload, onOpen = onOpenMedia)
-                    }
-
-                    // Nitter's order: poll, link card, quote, then the note.
-                    post.poll?.let { PollBlock(it) }
-
-                    post.card?.let { card ->
-                        LinkCardBlock(card = card, onClick = { card.url?.let(onOpenLink) })
-                    }
-
-                    post.quoted?.let { quote ->
-                        QuoteBlock(
-                            handle = quote.handle,
-                            name = quote.name,
-                            text = quote.text,
-                            note = quote.note,
-                            media = quote.media,
-                            unavailable = quote.unavailable,
-                            onClick = { onOpenLink(quote.permalink) }
-                        )
-                    }
-
-                    post.note?.let { NoteBlock(it, maxLines = 6) }
-
-                    if (showStats) post.stats?.let { StatsRow(it) }
-                }
+                NameRow(post, unread, Modifier.weight(1f))
             }
+
+            // The content takes the whole width of the card, under the header.
+            if (post.text.isNotBlank()) {
+                Text(post.text, style = MaterialTheme.typography.bodyLarge)
+            }
+
+            if (post.media.isNotEmpty()) {
+                MediaBlock(post = post, onDownload = onDownload, onOpen = onOpenMedia)
+            }
+
+            // Nitter's order: poll, link card, quote, then the note.
+            post.poll?.let { PollBlock(it) }
+
+            post.card?.let { card ->
+                LinkCardBlock(card = card, onClick = { card.url?.let(onOpenLink) })
+            }
+
+            post.quoted?.let { quote ->
+                QuoteBlock(
+                    handle = quote.handle,
+                    name = quote.name,
+                    text = quote.text,
+                    note = quote.note,
+                    media = quote.media,
+                    unavailable = quote.unavailable,
+                    onClick = { onOpenLink(quote.permalink) }
+                )
+            }
+
+            post.note?.let { NoteBlock(it, maxLines = 6) }
+
+            if (showStats) post.stats?.let { StatsRow(it) }
         }
     }
     }
@@ -203,34 +202,33 @@ internal fun Avatar(
 }
 
 @Composable
-private fun NameRow(post: Post, unread: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun NameRow(post: Post, unread: Boolean, modifier: Modifier = Modifier) {
+    // Ported from PostDetailScreen.kt's PostBody header (https://raw.githubusercontent.com/213YaZ786/MTGA/main/app/src/main/java/com/mtga/app/feature/post/PostDetailScreen.kt#PostBody)
+    // and this file's former NameRow: the name on the first line, @handle and time under it.
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                post.authorName.ifBlank { "@${post.authorHandle}" },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            // Arrived since the last visit and not yet scrolled past. The dot sits on
+            // the line it marks, centred on it, as Fossify Messages' unread_count_badge (https://github.com/FossifyOrg/Messages/blob/main/app/src/main/res/layout/item_conversation.xml).
+            NewDot(unread, Modifier.padding(start = 8.dp))
+        }
+        // Handle and time joined with a comma, as AOSP Dialer's CallLogEntryText.java (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
+        // Without a name the first line already shows the handle, so only the time stays.
+        val time = getShortTime(post.publishedAtMillis)
         Text(
-            post.authorName,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-        Text(
-            " @${post.authorHandle}",
+            if (post.authorName.isBlank()) time else "@${post.authorHandle}, $time",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
+            overflow = TextOverflow.Ellipsis
         )
-        // Name and time joined with a comma, as AOSP Dialer's CallLogEntryText.java (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
-        Text(
-            ", ${getShortTime(post.publishedAtMillis)}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        // Arrived since the last visit and not yet scrolled past. The dot sits on
-        // the line it marks, centred on it, as Fossify Messages' unread_count_badge (https://github.com/FossifyOrg/Messages/blob/main/app/src/main/res/layout/item_conversation.xml).
-        NewDot(unread, Modifier.padding(start = 8.dp))
     }
 }
 
