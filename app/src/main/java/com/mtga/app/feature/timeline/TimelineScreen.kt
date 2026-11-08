@@ -2,17 +2,22 @@ package com.mtga.app.feature.timeline
 
 import com.mtga.app.data.marks.PostMarks
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.foundation.layout.Spacer
-import com.mtga.app.core.common.AppError
-import com.mtga.app.core.common.present
-import com.mtga.app.ui.component.ZoneAlertDialog
-import com.mtga.app.ui.component.QuietButton
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import com.mtga.app.ui.glass.rememberGlassBackdrop
 import com.mtga.app.ui.glass.glassSource
 import com.mtga.app.ui.glass.LocalGlassBackdrop
 import com.mtga.app.ui.glass.LocalGlass
-import com.mtga.app.ui.component.ZoneSurface
+import com.mtga.app.ui.component.BannerAction
+import com.mtga.app.ui.component.DropdownMenuGroup
+import com.mtga.app.ui.component.FailureDialog
+import com.mtga.app.ui.component.FeedBanner
+import com.mtga.app.ui.component.GlassMenu
+import com.mtga.app.ui.component.MenuPill
+import com.mtga.app.ui.component.ScrollUpButton
+import com.mtga.app.ui.component.SelectableDropdownMenuItem
 import com.mtga.app.ui.component.rememberRefreshHaptics
 import com.mtga.app.ui.component.LoadingMark
 import com.mtga.app.ui.component.PullIndicator
@@ -21,7 +26,6 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.foundation.border
 import com.mtga.app.ui.component.EmptyZone
 import com.mtga.app.ui.component.boldBorder
-import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
@@ -82,7 +86,6 @@ import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.core.model.Post
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.ChallengePill
-import com.mtga.app.ui.component.FolderDialog
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
@@ -94,8 +97,8 @@ import org.koin.compose.koinInject
  * Home: everything you follow in one stream, newest first.
  *
  * Pull down to refresh. A post that arrived since the last visit wears a
- * dot until you have scrolled past it. The pulse icon turns red when a
- * source fails and opens Diagnostics.
+ * dot until you have scrolled past it. The banner's red triangle appears when
+ * a source fails and opens what went wrong.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,9 +150,15 @@ fun TimelineScreen(
 
 
     var showFailures by remember { mutableStateOf(false) }
+    // The failure message names the network and where the fault likely lies. MTGA has no silent downloads state to add
+    // to it, so silentDownloads stays false.
+    // https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/feature/timeline/TimelineScreen.kt#TimelineScreen
     if (showFailures) {
         FailureDialog(
-            failed = state.errors.toList(),
+            failed = state.errors.values.toList(),
+            followed = state.followedCount,
+            silentDownloads = false,
+            site = "X",
             onRetry = {
                 showFailures = false
                 viewModel.refresh()
@@ -158,34 +167,96 @@ fun TimelineScreen(
         )
     }
 
-    var choosingFolder by remember { mutableStateOf(false) }
-    if (choosingFolder) {
-        FolderDialog(
-            title = "Show on Home",
-            folders = state.folders,
-            selected = state.folder,
-            everything = "Every account",
-            onSelect = { name ->
-                choosingFolder = false
-                // A name typed under New folder creates it, empty, and Home
-                // shows it so the reader sees where the next filing lands.
-                if (name == LIKED || name == ARCHIVED) {
-                    special = name
-                } else {
-                    special = null
-                    viewModel.showFolder(name?.let(viewModel::createFolder))
+    // The feed choice, in the banner's middle: one pill with the folder icon, the feed's name and a chevron, which opens a
+    // menu under it: All and the folders, then Liked and Archived, the shown one checked (Material 3 Expressive's grouped
+    // menu in glass, GlassMenu). Picking does what the folder dialog did.
+    // The pill is an item of the list that records listBackdrop: floating on it, it would draw the recording that holds
+    // it, a layer inside itself, and Android's renderer overflows its stack at the first frame. So MenuPill draws it with
+    // no backdrop, as a zone, and the menu lives in a window of its own.
+    // https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/feature/timeline/TimelineScreen.kt#TimelineScreen
+    var feedsOpen by remember { mutableStateOf(false) }
+    val showFeed: (String?) -> Unit = { name ->
+        feedsOpen = false
+        // Liked and Archived are views of the marks, not folders. Any other name is a folder that exists already.
+        if (name == LIKED || name == ARCHIVED) {
+            special = name
+        } else {
+            special = null
+            viewModel.showFolder(name)
+        }
+    }
+    val feedPill: @Composable () -> Unit = {
+        // The screen keeps its heading for TalkBack: this wrapper is a heading named "Home", and the pill inside it
+        // stays its own node, a button that says the feed and whether its menu is open.
+        Box(Modifier.semantics { heading(); contentDescription = "Home" }) {
+            Box {
+                MenuPill(
+                    icon = MtgaIcons.Folder,
+                    label = state.folder ?: "All",
+                    expanded = feedsOpen,
+                    trailingIcon = MtgaIcons.ExpandMore,
+                    onClick = { feedsOpen = true }
+                )
+                GlassMenu(expanded = feedsOpen, onDismissRequest = { feedsOpen = false }) {
+                    // No Clear row: a feed is chosen, not cleared.
+                    DropdownMenuGroup(index = 0, count = 2) {
+                        SelectableDropdownMenuItem(selected = state.folder == null, onClick = { showFeed(null) }, text = "All")
+                        state.folders.forEach { name ->
+                            SelectableDropdownMenuItem(selected = state.folder == name, onClick = { showFeed(name) }, text = name)
+                        }
+                    }
+                    DropdownMenuGroup(index = 1, count = 2) {
+                        listOf(LIKED, ARCHIVED).forEach { name ->
+                            SelectableDropdownMenuItem(selected = state.folder == name, onClick = { showFeed(name) }, text = name)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val banner: @Composable () -> Unit = {
+        FeedBanner(
+            // Nobody followed: no feed to choose, the plain title keeps the row from being empty.
+            centre = if (state.followedCount > 0) {
+                feedPill
+            } else {
+                {
+                    Text(
+                        "Home",
+                        style = MaterialTheme.typography.headlineSmall.copy(color = MaterialTheme.colorScheme.primary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() }
+                    )
                 }
             },
-            onDismiss = { choosingFolder = false },
-            extras = listOf(LIKED, ARCHIVED)
+            subtitle = subtitle(state),
+            leading = if (state.errors.isNotEmpty()) {
+                {
+                    BannerAction(
+                        icon = MtgaIcons.Warning,
+                        label = "What went wrong",
+                        onClick = { showFailures = true },
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            } else {
+                null
+            },
+            trailing = if (state.followedCount > 0) {
+                {
+                    BannerAction(
+                        icon = MtgaIcons.Search,
+                        label = "Search saved posts",
+                        onClick = onOpenSearch
+                    )
+                }
+            } else {
+                null
+            }
         )
-    }
-    // Offered once the reader has made a folder. With Main alone there is
-    // nothing to choose, and the title stays a title.
-    val chooseFolder: (() -> Unit)? = if (state.folders.size > 1 || special != null || marked.liked.isNotEmpty() || marked.archived.isNotEmpty()) {
-        { choosingFolder = true }
-    } else {
-        null
     }
 
     // A post is read once it has gone past the top of the screen. Everything
@@ -197,13 +268,13 @@ fun TimelineScreen(
 
     // No top bar at all. A bar that folds away and comes back still owns a
     // band of the screen the whole time it is on it, which on a phone is
-    // several lines of a post. The title and its two actions are the first
-    // zone of the list instead: they scroll away with everything else, one
+    // several lines of a post. The banner (the feed pill and its two actions) is the first
+    // row of the list instead: they scroll away with everything else, one
     // flick or the back to top button brings them back, and the reading area
     // is the whole window.
     val pull = rememberPullToRefreshState()
     // In glass, the list is recorded as it scrolls, for the controls that
-    // float over it (the refresh disc, the folder and back to top buttons)
+    // float over it (the refresh disc and the back to top button)
     // to bend it.
     val look = LocalGlass.current
     val listBackdrop = rememberGlassBackdrop()
@@ -214,13 +285,20 @@ fun TimelineScreen(
         // Home is empty, failed or full, and whatever the scroll position.
         Box(Modifier.fillMaxSize()) {
         when {
-            state.followedCount == 0 -> EmptyState(
-                title = "Nothing followed yet",
-                message = "Find a few accounts and they will all appear here in one stream.",
-                actionLabel = "Open Accounts",
-                onAction = onOpenAccounts,
-                modifier = Modifier.padding(padding)
-            )
+            state.followedCount == 0 -> Column(
+                Modifier.fillMaxSize().padding(padding).padding(horizontal = LocalReadableInset.current)
+            ) {
+                banner()
+                // The weight gives it the rest of the screen, so it sits in the middle of what is left under the
+                // banner rather than against it.
+                EmptyState(
+                    title = "Nothing followed yet",
+                    message = "Find a few accounts and they will all appear here in one stream.",
+                    actionLabel = "Open Accounts",
+                    onAction = onOpenAccounts,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
             // Pull works here too. Before 1.3.2 this screen was a dead end: a
             // failed refresh at launch left Home stuck until a restart.
@@ -244,18 +322,16 @@ fun TimelineScreen(
                 // A list, because the pull gesture needs something scrollable.
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = LocalDockPadding.current)
+                    contentPadding = PaddingValues(
+                        start = LocalReadableInset.current,
+                        end = LocalReadableInset.current,
+                        top = padding.calculateTopPadding(),
+                        bottom = LocalDockPadding.current
+                    )
                 ) {
-                    // The header stays, so a folder whose accounts all failed
+                    // The banner stays, so a folder whose accounts all failed
                     // is not a dead end: the reader can still switch away.
-                    item(key = "home-header") {
-                        HomeHeader(
-                            state = state,
-                            onOpenSearch = onOpenSearch,
-                            onShowFailures = { showFailures = true },
-                            onChooseFolder = chooseFolder
-                        )
-                    }
+                    item(key = "home-header") { banner() }
                     item(key = "nothing") {
                         EmptyState(
                             title = "Nothing could be loaded",
@@ -332,14 +408,7 @@ fun TimelineScreen(
                     ),
                     modifier = Modifier.fillMaxSize().then(if (look != null) Modifier.glassSource(listBackdrop, look) else Modifier)
                 ) {
-                    item(key = "home-header") {
-                        HomeHeader(
-                            state = state,
-                            onOpenSearch = onOpenSearch,
-                            onShowFailures = { showFailures = true },
-                            onChooseFolder = chooseFolder
-                        )
-                    }
+                    item(key = "home-header") { banner() }
 
                     if (state.posts.isEmpty() && !state.loading && state.folder != null) {
                         item(key = "folder-empty") {
@@ -378,20 +447,18 @@ fun TimelineScreen(
                 }
                 }
 
-                // The folder switch never leaves: it is how the reader moves
-                // from one stream to another, and a control that only appears
-                // once you have scrolled is a control nobody finds. The way
-                // back to the top stacks with it, and only once the way back
-                // is a real chore.
+                // The way back to the top shows only once it is a real chore.
+                // The feed is chosen from the banner now, so nothing stacks with it.
                 val showBackToTop by remember {
                     derivedStateOf { listState.firstVisibleItemIndex >= BACK_TO_TOP_AFTER }
                 }
-                FolderButton(
-                    folderIcon = MtgaIcons.Folder,
-                    upIcon = MtgaIcons.ArrowUp,
-                    onClick = { choosingFolder = true },
-                    showBackToTop = showBackToTop,
-                    onBackToTop = { scope.launch { listState.animateScrollToItem(0) } }
+                ScrollUpButton(
+                    visible = showBackToTop,
+                    icon = MtgaIcons.ArrowUp,
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp + LocalReadableInset.current, bottom = LocalDockPadding.current + 16.dp)
                 )
             }
         }
@@ -404,112 +471,6 @@ fun TimelineScreen(
                 .padding(bottom = LocalDockPadding.current + 16.dp)
         )
         }
-        }
-    }
-}
-
-/**
- * Home's title, its freshness line and its two actions, as the first zone of
- * the list. Centred, because a title is data and not a row of a list.
- *
- * The actions sit on the title's own line and the freshness line runs under
- * them, so a long "Updated an hour ago" never has to fight the icons for room.
- */
-@Composable
-private fun HomeHeader(
-    state: TimelineUiState,
-    onOpenSearch: () -> Unit,
-    onShowFailures: () -> Unit,
-    /** Null until the reader has made a folder, see TimelineScreen. */
-    onChooseFolder: (() -> Unit)?
-) {
-    ZoneSurface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = ShapeDefaults.ExtraLarge
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val failing = state.errors.isNotEmpty()
-            if (state.followedCount > 0) {
-                // Shown only when an account failed to load, the one thing
-                // here that needs noticing; a blank of the same width keeps
-                // the title centred otherwise.
-                if (failing) {
-                    BoldIconButton(
-                        onClick = onShowFailures,
-                        modifier = Modifier.size(BUTTON_SIZE),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        ),
-                        edge = MaterialTheme.colorScheme.error
-                    ) {
-                        Icon(MtgaIcons.Pulse, contentDescription = "What went wrong", modifier = Modifier.size(ICON_SIZE))
-                    }
-                } else {
-                    Spacer(Modifier.size(BUTTON_SIZE))
-                }
-            }
-
-            // The two buttons are the same width, so the title lands on the
-            // centre of the zone without being measured against them.
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(ShapeDefaults.Large)
-                    .then(
-                        if (onChooseFolder != null) {
-                            Modifier.clickable(onClickLabel = "Choose which folder to show", onClick = onChooseFolder)
-                        } else {
-                            Modifier
-                        }
-                    )
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (onChooseFolder == null) {
-                    Text("Home", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            state.folder ?: "Home",
-                            style = MaterialTheme.typography.titleLarge,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Icon(
-                            MtgaIcons.ArrowDown,
-                            contentDescription = null,
-                            modifier = Modifier.padding(start = 4.dp).size(20.dp)
-                        )
-                    }
-                }
-                subtitle(state)?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            if (state.followedCount > 0) {
-                BoldIconButton(
-                    onClick = onOpenSearch,
-                    modifier = Modifier.size(BUTTON_SIZE)
-                ) {
-                    Icon(
-                        MtgaIcons.Search,
-                        contentDescription = "Search saved posts",
-                        modifier = Modifier.size(ICON_SIZE)
-                    )
-                }
-            }
         }
     }
 }
@@ -552,14 +513,6 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
     }
 }
 
-/**
- * Matched to the dock at the bottom: its slots are 48 dp across and its icons
- * are Material's default 24 dp. Two controls of the same app should not be two
- * different sizes.
- */
-private val BUTTON_SIZE = 48.dp
-private val ICON_SIZE = 24.dp
-
 private const val LOAD_MORE_THRESHOLD = 5
 
 /** Posts scrolled past before the way back becomes worth a button. */
@@ -583,47 +536,6 @@ private fun EmptyState(
         modifier = modifier.fillMaxSize()
     )
 }
-
-/**
- * What went wrong, in words, and the one thing that helps: which accounts
- * could not be updated and why. Their saved posts stay in the stream.
- */
-@Composable
-private fun FailureDialog(
-    failed: List<Pair<String, AppError>>,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    ZoneAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (failed.size == 1) "1 account could not be updated" else "${failed.size} accounts could not be updated") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                failed.take(FAILURES_SHOWN).forEach { (handle, error) ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("@$handle", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            error.present().explanation,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (failed.size > FAILURES_SHOWN) {
-                    Text(
-                        "and ${failed.size - FAILURES_SHOWN} more",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        },
-        confirmButton = { QuietButton(onClick = onRetry) { Text("Try again") } },
-        dismissButton = { QuietButton(onClick = onDismiss) { Text("Close") } }
-    )
-}
-
-private const val FAILURES_SHOWN = 5
 
 private const val LIKED = "Liked"
 private const val ARCHIVED = "Archived"

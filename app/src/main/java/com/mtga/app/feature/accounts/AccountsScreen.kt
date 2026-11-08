@@ -14,8 +14,15 @@ import androidx.compose.ui.platform.LocalContext
 import com.mtga.app.core.link.PastedText
 import android.widget.Toast
 import android.content.ClipboardManager
-import com.mtga.app.ui.component.BannerAction
-import com.mtga.app.ui.component.ScreenBanner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import com.mtga.app.ui.component.DropdownMenuGroup
+import com.mtga.app.ui.component.DropdownMenuItem
+import com.mtga.app.ui.component.FeedBanner
+import com.mtga.app.ui.component.GlassMenu
+import com.mtga.app.ui.component.MenuPill
+import com.mtga.app.ui.component.SelectableDropdownMenuItem
 import com.mtga.app.ui.component.EmptyZone
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
@@ -95,6 +102,10 @@ fun AccountsScreen(
         )
     }
     var query by rememberSaveable { mutableStateOf("") }
+    // The folder chosen in the banner's menu, null for All. A folder deleted since is All again.
+    var chosenFolder by rememberSaveable { mutableStateOf<String?>(null) }
+    val folder = chosenFolder?.takeIf { it in folders }
+    var foldersOpen by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val context = LocalContext.current
     val haptics = rememberHaptics()
@@ -108,10 +119,11 @@ fun AccountsScreen(
     val trimmed = if ('/' in query) candidate.orEmpty() else query.trim().removePrefix("@")
     val alreadyFollowed = candidate != null &&
         rows.any { it.handle.equals(candidate, ignoreCase = true) }
+    val inFolder = if (folder == null) rows else rows.filter { it.folder == folder }
     val visible = if (trimmed.isEmpty()) {
-        rows
+        inFolder
     } else {
-        rows.filter {
+        inFolder.filter {
             it.handle.contains(trimmed, ignoreCase = true) ||
                 it.name?.contains(trimmed, ignoreCase = true) == true
         }
@@ -185,19 +197,73 @@ fun AccountsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item(key = "banner") {
-                // The screen's name centred in its zone, the folders one tap away in
-                // the same zone, as on every screen that opens with a banner.
+                // The folder choice in the banner's middle as Home's feed pill: one pill, a menu under it with the folders,
+                // then Manage folders last (Gmail's Manage labels), the shown folder checked.
+                // https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/feature/accounts/AccountsScreen.kt#AccountsScreen
+                // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/Menu.kt#DropdownMenuGroup
+                // not ported: AccountsScreen (the screen itself is this file's, only its banner with the folder pill and menu is rebuilt here)
+                // not ported: paste (MTGA's own paste() above reads the clipboard for X handles and stays)
+                // not ported: open (MTGA's own open() above takes a handle only, X has one kind of account)
+                // not ported: the hold menu, the headline and the unread count of LinkedOut's rows (MTGA's rows stay as they are)
+                // not ported: DropdownMenuGroup (the app's ui/component/GlassMenu.kt is its port, used as it is)
                 Box(Modifier.fullBleed(16.dp)) {
-                    ScreenBanner(
-                        title = "Accounts",
-                        subtitle = if (rows.isEmpty()) null else "${rows.size} followed",
-                        trailing = {
-                            BannerAction(
-                                icon = MtgaIcons.Folder,
-                                label = "Folders",
-                                onClick = onOpenFolders
-                            )
-                        }
+                    FeedBanner(
+                        // Nobody followed: no pill, no count, the row stays empty above the field.
+                        centre = if (rows.isNotEmpty()) {
+                            {
+                                // The pill is an item of the list that may record the backdrop: MenuPill draws it with none
+                                // and the menu lives in a window of its own (TimelineScreen's feedPill, same pitfall).
+                                // The wrapper is the screen's heading for TalkBack, the pill inside stays its own button.
+                                Box(Modifier.semantics { heading(); contentDescription = "Accounts" }) {
+                                    Box {
+                                        MenuPill(
+                                            icon = MtgaIcons.Folder,
+                                            label = folder ?: "All",
+                                            expanded = foldersOpen,
+                                            trailingIcon = MtgaIcons.ExpandMore,
+                                            onClick = { foldersOpen = true }
+                                        )
+                                        GlassMenu(expanded = foldersOpen, onDismissRequest = { foldersOpen = false }) {
+                                            DropdownMenuGroup(index = 0, count = 2) {
+                                                SelectableDropdownMenuItem(
+                                                    selected = folder == null,
+                                                    onClick = { chosenFolder = null; foldersOpen = false },
+                                                    text = "All"
+                                                )
+                                                folders.forEach { name ->
+                                                    SelectableDropdownMenuItem(
+                                                        selected = folder == name,
+                                                        onClick = { chosenFolder = name; foldersOpen = false },
+                                                        text = name
+                                                    )
+                                                }
+                                            }
+                                            DropdownMenuGroup(index = 1, count = 2) {
+                                                DropdownMenuItem(
+                                                    text = "Manage folders",
+                                                    onClick = { foldersOpen = false; onOpenFolders() },
+                                                    leadingIcon = {
+                                                        Icon(MtgaIcons.Tune, contentDescription = null, modifier = Modifier.size(24.dp))
+                                                    },
+                                                    trailingIcon = {
+                                                        Icon(
+                                                            MtgaIcons.ChevronRight,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(20.dp),
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Nothing to see, but TalkBack still finds the screen's name.
+                            { Box(Modifier.size(1.dp).semantics { heading(); contentDescription = "Accounts" }) }
+                        },
+                        subtitle = if (rows.isEmpty()) null else "${rows.size} followed"
                     )
                 }
             }

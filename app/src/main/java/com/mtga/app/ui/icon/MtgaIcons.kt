@@ -213,6 +213,53 @@ object MtgaIcons {
             )
         }.build()
 
+    // The failure mark. A triangle reads as "attention" at 22 dp, a circle does not. Material Symbols Rounded, fill 1
+    // (width and height 24dp, viewportWidth and viewportHeight 960, path fillColor white): rounded corners.
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/warning/materialsymbolsrounded/warning_fill1_24px.xml
+    // https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/ui/icon/LinkedOutIcons.kt#Warning
+    val Warning: ImageVector by lazy {
+        val pathData = "M109,840Q98,840 89,834.5Q80,829 75,820Q70,811 69.5,800.5Q69,790 75,780L445,140Q451,130 460.5,125" +
+            "Q470,120 480,120Q490,120 499.5,125Q509,130 515,140L885,780Q891,790 890.5,800.5Q890,811 885,820" +
+            "Q880,829 871,834.5Q862,840 851,840L109,840ZM480,720Q497,720 508.5,708.5Q520,697 520,680Q520,663 508.5,651.5" +
+            "Q497,640 480,640Q463,640 451.5,651.5Q440,663 440,680Q440,697 451.5,708.5Q463,720 480,720Z" +
+            "M480,600Q497,600 508.5,588.5Q520,577 520,560L520,440Q520,423 508.5,411.5Q497,400 480,400Q463,400 451.5,411.5" +
+            "Q440,423 440,440L440,560Q440,577 451.5,588.5Q463,600 480,600Z"
+        ImageVector.Builder("Warning", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
+    // Material Symbols outlined, a vector file read as it is written: <vector> width and height 24dp, viewportWidth and
+    // viewportHeight 960, then its <path> with fillColor white and pathData; the Icon composable tints it.
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/tune/materialsymbolsoutlined/tune_24px.xml
+    val Tune: ImageVector by lazy {
+        val pathData = "M440,840L440,600L520,600L520,680L840,680L840,760L520,760L520,840L440,840ZM120,760L120,680L360,680" +
+            "L360,760L120,760ZM280,600L280,520L120,520L120,440L280,440L280,360L360,360L360,600L280,600ZM440,520L440,440" +
+            "L840,440L840,520L440,520ZM600,360L600,120L680,120L680,200L840,200L840,280L680,280L680,360L600,360Z" +
+            "M120,280L120,200L520,200L520,280L120,280Z"
+        ImageVector.Builder("Tune", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/chevron_right/materialsymbolsoutlined/chevron_right_24px.xml
+    // (android:autoMirrored="true"; width and height 24dp, viewportWidth and viewportHeight 960, path fillColor white)
+    val ChevronRight: ImageVector by lazy {
+        val pathData = "M504,480L320,296L376,240L616,480L376,720L320,664L504,480Z"
+        ImageVector.Builder("ChevronRight", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f, autoMirror = true)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/expand_more/materialsymbolsoutlined/expand_more_24px.xml
+    // (width and height 24dp, viewportWidth and viewportHeight 960, path fillColor white)
+    val ExpandMore: ImageVector by lazy {
+        val pathData = "M480,615L240,375L296,319L480,503L664,319L720,375L480,615Z"
+        ImageVector.Builder("ExpandMore", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
     val Paste: ImageVector by lazy {
         build(
             "Paste",
