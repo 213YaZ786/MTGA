@@ -22,12 +22,20 @@ object Routes {
     const val FEED_PATTERN = "feed/{handle}"
     const val DEBUG_LOG = "debuglog"
     const val SEARCH = "search"
+
+    /** Search with a query already typed: the optional [q], as POST_PATTERN has its optional from. */
+    const val SEARCH_PATTERN = "search?q={q}"
     const val SAVED_MEDIA = "savedmedia"
     const val FOLDERS = "folders"
 
     const val POST_PATTERN = "post/{id}?from={from}"
 
     fun feed(handle: String): String = "feed/$handle"
+
+    // Written as post below is, with its optional argument: https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/navigation/Destinations.kt#post
+    /** Search opened on [from], a tag with its # or $, which the route carries percent encoded. */
+    fun search(from: String?): String =
+        if (from.isNullOrBlank()) "search" else "search?q=${android.net.Uri.encode(from)}"
 
     /** [from] is the account whose cache holds the post, a lookup hint. */
     fun post(id: String, from: String?): String =

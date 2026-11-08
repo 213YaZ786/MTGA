@@ -1,6 +1,7 @@
 package com.mtga.app.data.html
 
 import com.mtga.app.core.model.ProfileStats
+import com.mtga.app.core.text.Entities
 
 /**
  * The profile card of a Nitter page: banner, location, website, join date
@@ -95,14 +96,8 @@ object ProfileCardParser {
         return substring(start, end).takeIf { it.isNotBlank() }
     }
 
-    private fun decode(text: String): String = text
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&#x27;", "'")
-        .replace("&nbsp;", " ")
+    // The shared decoder ported from jsoup: every named, decimal and hexadecimal reference, once.
+    private fun decode(text: String): String = Entities.unescape(text)
 
     private val TAG = Regex("<[^>]*>")
     private const val CARD_WINDOW = 12_000

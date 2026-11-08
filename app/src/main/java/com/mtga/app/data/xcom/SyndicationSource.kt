@@ -7,6 +7,7 @@ import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
 import com.mtga.app.core.network.HostThrottle
+import com.mtga.app.core.text.Entities
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -103,7 +104,7 @@ class SyndicationSource(
             }
             if (response.status.value != 200) return@runCatching null
             val tweet = (json.parseToJsonElement(response.bodyAsText()) as? JsonObject)?.get("tweet") as? JsonObject
-            tweet?.get("text")?.string()?.takeIf { it.isNotBlank() }
+            tweet?.get("text")?.string()?.let(Entities::unescape)?.takeIf { it.isNotBlank() }
         }.getOrNull()
     }
 
@@ -156,7 +157,7 @@ class SyndicationSource(
         val noteText = note?.get("text")?.string()
             ?: ((note?.get("note_tweet_results") as? JsonObject)?.get("result") as? JsonObject)
                 ?.get("text")?.string()
-        return trimTrailingLink(noteText ?: obj["text"]?.string().orEmpty(), obj)
+        return Entities.unescape(trimTrailingLink(noteText ?: obj["text"]?.string().orEmpty(), obj))
     }
 
     /**

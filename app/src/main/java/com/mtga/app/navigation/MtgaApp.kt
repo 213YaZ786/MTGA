@@ -206,11 +206,21 @@ private fun MtgaNavHost(navController: NavHostController) {
                 )
                 }
             }
-            composable(Routes.SEARCH) {
+            composable(
+                route = Routes.SEARCH_PATTERN,
+                arguments = listOf(
+                    navArgument("q") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) { entry ->
                 CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                 ReadableScroll {
                     SearchScreen(
                         onBack = { navController.popBackStack() },
+                        initialQuery = entry.arguments?.getString("q"),
                         onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.cacheOwner())) }
                     )
                 }
@@ -256,6 +266,7 @@ private fun MtgaNavHost(navController: NavHostController) {
                         from = entry.arguments?.getString("from"),
                         onBack = { navController.popBackStack() },
                         onOpenProfile = { handle -> navController.navigate(Routes.feed(handle)) },
+                        onOpenHashtag = { tag -> navController.navigate(Routes.search(tag)) },
                         onOpenPost = { post -> navController.navigate(Routes.post(post.id, post.authorHandle)) }
                     )
                 }

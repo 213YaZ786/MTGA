@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -77,7 +79,15 @@ fun MediaViewer(
         // train opens without touching the network.
         val source = rememberMediaSource(postId, index, item)
         when (item.type) {
-            MediaType.PHOTO -> ZoomableImage(model = source.playback, onZoomChanged = onZoomChanged)
+            // ZoomableImage is the reader kit's and draws its picture with no description, so the
+            // author's alt text (Nitter's genImg alt) is given on the box around it for TalkBack.
+            MediaType.PHOTO -> Box(
+                Modifier.fillMaxSize().semantics(mergeDescendants = true) {
+                    item.altText?.let { contentDescription = it }
+                }
+            ) {
+                ZoomableImage(model = source.playback, onZoomChanged = onZoomChanged)
+            }
             MediaType.VIDEO, MediaType.GIF -> {
                 // A saved copy the reader deleted since fails to open: the
                 // network address takes over for this page.

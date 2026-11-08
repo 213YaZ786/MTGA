@@ -48,6 +48,8 @@ import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Poll
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
+import com.mtga.app.core.model.VerifiedType
+import com.mtga.app.feature.post.colourHashtags
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.mtga.app.ui.icon.MtgaIcons
 import android.icu.text.CompactDecimalFormat
@@ -119,7 +121,12 @@ fun PostCard(
 
             // The content takes the whole width of the card, under the header.
             if (post.text.isNotBlank()) {
-                Text(post.text, style = MaterialTheme.typography.bodyLarge)
+                // The hashtags and cashtags in the link colour, as the post's page draws them.
+                val tagColor = MaterialTheme.colorScheme.primary
+                Text(
+                    remember(post.text, tagColor) { colourHashtags(post.text, tagColor) },
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
 
             if (post.media.isNotEmpty()) {
@@ -215,13 +222,25 @@ private fun NameRow(post: Post, unread: Boolean, modifier: Modifier = Modifier) 
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
+            // Nitter's marks after the name: the verified circle (verifiedIcon) then the lock of a
+            // protected account (linkUser).
+            VerifiedIcon(post, Modifier.padding(start = 4.dp))
+            if (post.isProtected) {
+                Icon(
+                    MtgaIcons.Lock,
+                    contentDescription = "Protected account",
+                    modifier = Modifier.padding(start = 4.dp).size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             // Arrived since the last visit and not yet scrolled past. The dot sits on
             // the line it marks, centred on it, as Fossify Messages' unread_count_badge (https://github.com/FossifyOrg/Messages/blob/main/app/src/main/res/layout/item_conversation.xml).
             NewDot(unread, Modifier.padding(start = 8.dp))
         }
         // Handle and time joined with a comma, as AOSP Dialer's CallLogEntryText.java (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
         // Without a name the first line already shows the handle, so only the time stays.
-        val time = getShortTime(post.publishedAtMillis)
+        // An edited post says so after the time, where Nitter writes "Last edited" (renderTweet).
+        val time = getShortTime(post.publishedAtMillis).let { if (post.edited) "$it, edited" else it }
         Text(
             if (post.authorName.isBlank()) time else "@${post.authorHandle}, $time",
             style = MaterialTheme.typography.bodyMedium,
@@ -229,6 +248,33 @@ private fun NameRow(post: Post, unread: Boolean, modifier: Modifier = Modifier) 
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+// AGPL-3.0, ported from Nitter, verifiedIcon: when the user's verifiedType is not none, a circle
+// (icon "circle", verified-icon-circle) with the check over it (icon "ok", verified-icon-check),
+// both titled "Verified <lower> account", where lower is the type's name in lower case. The three
+// types differ by colour only: blue is primary, business tertiary, government onSurfaceVariant.
+// https://github.com/zedeus/nitter/blob/master/src/views/renderutils.nim#verifiedIcon
+// The circle is drawn as this file's Avatar draws its round box: a size, a background in a
+// CircleShape, the content centred.
+// https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/ui/component/PostCard.kt#Avatar
+// not ported: the CSS of verified-icon (its sizes and the page colours), icon's span markup, Avatar's
+// picture, its initial and its shared element key.
+@Composable
+private fun VerifiedIcon(user: Post, modifier: Modifier = Modifier) {
+    if (user.verified == VerifiedType.NONE) return
+    val lower = user.verified.name.lowercase()
+    val (circle, check) = when (user.verified) {
+        VerifiedType.BUSINESS -> MaterialTheme.colorScheme.tertiary to MaterialTheme.colorScheme.onTertiary
+        VerifiedType.GOVERNMENT -> MaterialTheme.colorScheme.onSurfaceVariant to MaterialTheme.colorScheme.surface
+        else -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.onPrimary
+    }
+    Box(
+        modifier = modifier.size(16.dp).background(circle, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(MtgaIcons.CheckRounded, contentDescription = "Verified $lower account", modifier = Modifier.size(12.dp), tint = check)
     }
 }
 
@@ -325,7 +371,8 @@ internal fun MediaBlock(post: Post, onDownload: (MediaItem) -> Unit, onOpen: (In
                     val source = rememberMediaSource(post.id, index, item)
                     AsyncImage(
                         model = source.preview,
-                        contentDescription = null,
+                        // The author's description for TalkBack, never drawn: Nitter's genImg alt.
+                        contentDescription = item.altText,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
                     )
@@ -476,7 +523,7 @@ internal fun QuoteBlock(
                     } else {
                         AsyncImage(
                             model = photo.previewUrl,
-                            contentDescription = null,
+                            contentDescription = photo.altText,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxWidth().aspectRatio(ratio)
                         )

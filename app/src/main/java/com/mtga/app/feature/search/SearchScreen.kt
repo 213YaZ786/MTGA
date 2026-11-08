@@ -51,6 +51,8 @@ import org.koin.compose.koinInject
 fun SearchScreen(
     onBack: () -> Unit,
     onOpenPost: (Post) -> Unit,
+    /** A query typed when the screen opens, a tapped hashtag or cashtag. */
+    initialQuery: String? = null,
     viewModel: SearchViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -63,7 +65,12 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     var viewing by remember { mutableStateOf<Pair<Post, Int>?>(null) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // A tag tapped in a post fills the field once, when nothing is typed yet (the view model outlives a rotation).
+    LaunchedEffect(initialQuery) {
+        if (initialQuery != null && viewModel.typed.value.isEmpty()) viewModel.setQuery(initialQuery)
+    }
+    // With a query already in the field the keyboard stays down: the reader came to read the results.
+    LaunchedEffect(Unit) { if (initialQuery == null) focusRequester.requestFocus() }
 
     viewing?.let { (post, index) ->
         MediaViewer(

@@ -6,6 +6,7 @@ import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
+import com.mtga.app.core.text.Entities
 
 /**
  * Parses a twstalker profile page.
@@ -225,15 +226,8 @@ class TwstalkerParser {
             .trim()
     }
 
-    fun decodeEntities(input: String): String = input
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&#160;", " ")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
+    // The shared decoder ported from jsoup: every named, decimal and hexadecimal reference, once.
+    fun decodeEntities(input: String): String = Entities.unescape(input)
 
     companion object {
         const val HOST = "twstalker.com"

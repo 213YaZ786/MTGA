@@ -4,15 +4,25 @@ import com.mtga.app.core.model.LinkCard
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.Poll
+import com.mtga.app.core.model.PollOption
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
+import com.mtga.app.core.model.VerifiedType
+import com.mtga.app.core.model.parseVerifiedType
+import com.mtga.app.core.text.Entities
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Duration
+import java.time.Instant
 import java.util.Locale
+
+/** Nitter's Slice[int]: the first and last index of a display range, in code points. */
+internal typealias Slice = IntRange
 
 /**
  * Reads the posts of a logged out x.com profile page straight out of the page.
@@ -164,7 +174,9 @@ internal object XPagePayload {
         val media = media(tweet.array("media_entities2"))
         val note = tweet.obj("note_tweet")?.obj("note_tweet_results")?.obj("result")
         val noteText = note?.string("text")
-        val raw = noteText ?: details?.string("full_text").orEmpty()
+        // X escapes &, < and > in the legacy text and numbers its entity indices over the decoded
+        // text, so the text is decoded first, once, by the shared decoder ported from jsoup.
+        val raw = Entities.unescape(noteText ?: details?.string("full_text").orEmpty())
         // A note tweet whose text is missing is a long post given cut (FxEmbed's
         // processor.ts takes the text of note_tweet_results.result, else only
         // the cut legacy text): marked so the completion does not guess by length.
@@ -172,7 +184,7 @@ internal object XPagePayload {
         // When the note has its text, its entity_set replaces the legacy
         // entities, as FxEmbed does, because the legacy offsets and links
         // belong to the cut text. Only the links are read here, so the links of
-        // a long post expand through readableText.
+        // a long post expand through expandTextEntities.
         // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/providers/twitter/processor.ts#L517-L537
         val urls = if (noteText != null) {
             note?.obj("entity_set")?.array("urls").orEmpty()
@@ -180,23 +192,52 @@ internal object XPagePayload {
             tweet.array("url_entities").orEmpty()
         }
         val quoted = quoted(tweet)
+        val poll = parsePoll(tweet.obj("card"))
+        // AGPL-3.0, ported from Nitter, parseGraphUser: is_blue_verified (or the same flag inside
+        // verification) makes the author blue, then verification.verified_type names the type;
+        // parseUser reads protected, or privacy.protected.
+        // https://github.com/zedeus/nitter/blob/master/src/parser.nim#parseGraphUser
+        fun flag(element: JsonElement?) = (element as? JsonPrimitive)?.content == "true"
+        val verification = user.obj("verification")
+        val blue = flag(user["is_blue_verified"]) || flag(verification?.get("is_blue_verified"))
+        val verified = parseVerifiedType(
+            verification?.string("verified_type").orEmpty(),
+            if (blue) VerifiedType.BLUE else VerifiedType.NONE
+        )
+        // https://github.com/zedeus/nitter/blob/master/src/parserutils.nim#expandTweetEntitiesV2
+        // textRange = js{"details", "display_text_range"}, textSlice = textRange{0}.getInt .. textRange{1}.getInt
+        val textRange = details?.array("display_text_range")
+        val displayRange = textRange?.let { range ->
+            val first = (range.getOrNull(0) as? JsonPrimitive)?.content?.toIntOrNull()
+            val last = (range.getOrNull(1) as? JsonPrimitive)?.content?.toIntOrNull()
+            if (first != null && last != null) first..last else null
+        }
 
         return Post(
             id = id,
             authorHandle = handle,
             authorName = user.obj("core")?.string("name") ?: handle,
             avatarUrl = user.obj("avatar")?.string("image_url"),
-            text = readableText(raw, urls, hasAttachment = media.isNotEmpty() || quoted != null),
+            // A note tweet already leaves out the mentions before its text, so only the legacy text
+            // has a display range (Nitter's expandTweetEntitiesV2 reads details.display_text_range).
+            text = expandTextEntities(
+                raw, JsonArray(urls), if (noteText == null) displayRange else null, emptyList(),
+                hasRedundantLink = media.isNotEmpty() || quoted != null
+            ),
             links = urls.mapNotNull { (it as? JsonObject)?.string("expanded_url") }.distinct(),
             publishedAtMillis = details?.long("created_at_ms")
                 ?: SyndicationSource.snowflakeToMillis(id),
             permalink = "https://x.com/$handle/status/$id",
             kind = if (quoted != null) PostKind.QUOTE else PostKind.ORIGINAL,
             isPinned = pinned,
+            verified = verified,
+            isProtected = flag(user["protected"]) || flag(user.obj("privacy")?.get("protected")),
             textCut = cut,
             media = media,
             quoted = quoted,
-            card = card(tweet.obj("card"), urls),
+            // Nitter reads a card named like a poll as the poll and any other as a link card.
+            card = if (poll != null) null else card(tweet.obj("card"), urls),
+            poll = poll,
             stats = tweet.obj("counts")?.let { counts ->
                 PostStats(
                     replies = counts.int("reply_count"),
@@ -208,38 +249,73 @@ internal object XPagePayload {
         )
     }
 
-    /**
-     * The post text as a reader sees it. t.co links the author typed become
-     * their display form, which [com.mtga.app.feature.post.linkify] matches
-     * back to the real address in [Post.links]. The last t.co link, when it
-     * only points at the post's own media or quote, is dropped, as x.com
-     * itself does.
-     */
-    internal fun readableText(raw: String, urls: List<JsonElement>, hasAttachment: Boolean): String {
-        var text = raw.trimEnd()
-        val shown = urls.mapNotNull { it as? JsonObject }
-        val trailing = TRAILING_TCO.find(text)
-        if (trailing != null && hasAttachment) {
-            val link = trailing.value.trim()
-            val typed = shown.firstOrNull { it.string("url") == link }
+    // AGPL-3.0, ported from Nitter, expandTextEntities: the post's text cut to its display range
+    // (textSlice, counted in code points as the runes of replacedWith: safeStart, safeEnd), the
+    // t.co links the author typed (urls) replaced by their display form, which
+    // [com.mtga.app.feature.post.linkify] matches back to the real address in [Post.links], and
+    // the last t.co link dropped when it only points at the post's own media or quote
+    // (hasRedundantLink, extractUrls' hideTwitter), as x.com itself does. Its user_mentions loop
+    // is kept: a mention that starts before the display range is hidden. Where a source gives no
+    // display range, the mentions the text starts with are read as the user_mentions, since X
+    // puts the replied accounts first, and one of them being replyTo hides them all.
+    // https://github.com/zedeus/nitter/blob/master/src/parserutils.nim#expandTextEntities
+    // not ported: hasCard and the rewrite of the card's url, hasArticle, the media entities, the
+    // hashtags and symbols (replacements of kind rkHashtag, the post card colours them in
+    // linkify), the mentions' own links (rkMention), replacements.deduplicate and sort, and
+    // tweet.reply (the "Replying to" names come from the source's own field).
+    internal fun expandTextEntities(
+        text: String,
+        entities: JsonArray,
+        textSlice: Slice?,
+        replyTo: List<String>,
+        hasRedundantLink: Boolean
+    ): String {
+        var slice = textSlice
+        if (slice == null && replyTo.isNotEmpty()) {
+            val mention = Regex("""\s*@(\w{1,15})""")
+            var idx = 0
+            var name = false
+            while (true) {
+                val mentions = mention.matchAt(text, idx) ?: break
+                if (replyTo.any { it.equals(mentions.groupValues[1], ignoreCase = true) }) name = true
+                idx = mentions.range.last + 1
+            }
+            while (name && idx < text.length && text[idx].isWhitespace()) idx++
+            if (name) slice = idx..Int.MAX_VALUE
+        }
+        val runes = text.codePoints().toArray()
+        val runeLen = runes.size
+        val safeStart = maxOf(0, slice?.first ?: 0)
+        val safeEnd = minOf(runeLen, slice?.last ?: runeLen)
+        var result = if (safeStart < safeEnd) String(runes, safeStart, safeEnd - safeStart) else ""
+        result = result.trimEnd()
+
+        val urls = entities.mapNotNull { it as? JsonObject }
+        val trailing = TRAILING_TCO.find(result)
+        if (trailing != null && hasRedundantLink) {
+            val url = trailing.value.trim()
+            val u = urls.find { it.string("url") == url }
             // A link to another post's media counts as the attachment too:
             // it is what the video under the text shows.
-            val pointsAtMedia = typed?.string("expanded_url")
+            val pointsAtMedia = u?.string("expanded_url")
                 ?.let { MEDIA_PATH.containsMatchIn(it) } ?: true
-            if (pointsAtMedia) text = text.substring(0, trailing.range.first).trimEnd()
+            if (pointsAtMedia) result = result.substring(0, trailing.range.first).trimEnd()
         }
-        for (entity in shown) {
-            val short = entity.string("url") ?: continue
-            val display = entity.string("display_url") ?: continue
-            text = text.replace(short, display)
+        for (u in urls) {
+            val urlStr = u.string("url") ?: continue
+            val display = u.string("display_url") ?: continue
+            if (urlStr.isEmpty() || urlStr !in result) continue
+            result = result.replace(urlStr, display)
         }
-        return text
+        return result
     }
 
     // AGPL-3.0, ported from Nitter, parseLegacyMediaEntities: the media of a tweet by type,
     // "photo", "video", "animated_gif", each with its url and thumb (media_url_https).
     // https://github.com/zedeus/nitter/blob/master/src/parser.nim#L313-L331
-    // not ported: addMedia (a list add), ext_alt_text (no alt text shown), the video's
+    // ext_alt_text is read for the three types (a photo's and a gif's altText, a video's title)
+    // and given to TalkBack, never drawn.
+    // not ported: addMedia (a list add), the video's
     // additional_media_info.source_user and attribution link (no attribution shown), the gif's
     // video_info.variants[0] (the best mp4 is taken for a gif as for a video).
     // The size is added, read as the post's own: original_info, else Squawker's sizes.large
@@ -255,8 +331,9 @@ internal object XPagePayload {
             large?.int("w") to large?.int("h"),
             aspect?.getOrNull(0) to aspect?.getOrNull(1)
         ).firstNotNullOfOrNull { (w, h) -> if (w != null && h != null && w > 0 && h > 0) w to h else null }
+        val alt = obj.string("ext_alt_text")?.takeIf { it.isNotBlank() }
         when (obj.string("type")) {
-            "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO, width = size?.first, height = size?.second)
+            "photo" -> MediaItem(still, "$still?name=orig", MediaType.PHOTO, width = size?.first, height = size?.second, altText = alt)
             "video", "animated_gif" -> {
                 val best = obj.obj("video_info")?.array("variants").orEmpty()
                     .mapNotNull { it as? JsonObject }
@@ -270,7 +347,8 @@ internal object XPagePayload {
                     type = if (gif) MediaType.GIF else MediaType.VIDEO,
                     durationLabel = if (gif) null else obj.obj("video_info")?.long("duration_millis")?.let(::duration),
                     width = size?.first,
-                    height = size?.second
+                    height = size?.second,
+                    altText = alt
                 )
             }
             else -> null
@@ -299,8 +377,10 @@ internal object XPagePayload {
         val handle = result.obj("core")?.obj("user_results")?.obj("result")
             ?.obj("core")?.string("screen_name") ?: return null
         val id = result.string("rest_id") ?: return null
-        val text = result.obj("note_tweet")?.obj("note_tweet_results")?.obj("result")?.string("text")
-            ?: result.obj("details")?.string("full_text").orEmpty()
+        val text = Entities.unescape(
+            result.obj("note_tweet")?.obj("note_tweet_results")?.obj("result")?.string("text")
+                ?: result.obj("details")?.string("full_text").orEmpty()
+        )
         return QuotedPost(
             handle = handle,
             name = result.obj("core")?.obj("user_results")?.obj("result")
@@ -332,6 +412,60 @@ internal object XPagePayload {
                 ?: image("summary_photo_image_large") ?: image("photo_image_full_size_large"),
             url = expanded ?: short,
             large = legacy.string("name").orEmpty().contains("large")
+        )
+    }
+
+    // AGPL-3.0, ported from Nitter, parsePoll: the card is named pollNchoice_*, each choice has a
+    // choiceN_label and a choiceN_count in its binding values, the poll ends at end_datetime_utc,
+    // the leader is the index of the largest value and the votes are the values' sum. X's own
+    // counts_are_final is read too, which ends the poll before its time. The percentage of an
+    // option is renderPoll's perc, the value over the votes.
+    // https://github.com/zedeus/nitter/blob/master/src/parser.nim#parsePoll
+    // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderPoll
+    // not ported: getStrVal's default argument as a template (read inline), the poll image card's
+    // photo (jsCard image_large of a "poll...image" card, the post card has no place for it), the
+    // status's text for a poll with a time left (`$(time - now())` up to the first comma, written
+    // here as the largest unit).
+    private fun parsePoll(js: JsonObject?): Poll? {
+        val legacy = js?.obj("legacy") ?: return null
+        val name = legacy.string("name").orEmpty()
+        if ("poll" !in name || name.length < 5) return null
+        val vals = legacy.array("binding_values").orEmpty()
+            .mapNotNull { it as? JsonObject }
+            .associateBy({ it.string("key").orEmpty() }, { it.obj("value") })
+
+        val values = mutableListOf<Long>()
+        val options = mutableListOf<String>()
+        // name format is pollNchoice_*
+        for (i in '1'..name[4]) {
+            val choice = "choice$i"
+            values.add(vals[choice + "_count"]?.string("string_value")?.toLongOrNull() ?: 0L)
+            options.add(vals[choice + "_label"]?.string("string_value").orEmpty())
+        }
+        if (options.isEmpty()) return null
+
+        val time = vals["end_datetime_utc"]?.string("string_value")?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val final = (vals["counts_are_final"]?.get("boolean_value") as? JsonPrimitive)?.content == "true"
+        val status = if (time != null && time.isAfter(Instant.now()) && !final) {
+            val timeLeft = Duration.between(Instant.now(), time)
+            when {
+                timeLeft.toDays() > 0 -> timeLeft.toDays().let { "$it day" + if (it == 1L) "" else "s" }
+                timeLeft.toHours() > 0 -> timeLeft.toHours().let { "$it hour" + if (it == 1L) "" else "s" }
+                else -> timeLeft.toMinutes().let { "$it minute" + if (it == 1L) "" else "s" }
+            }
+        } else {
+            "Final results"
+        }
+
+        val votes = values.sum()
+        val leader = values.indexOf(values.max())
+        return Poll(
+            options = List(options.size) { i ->
+                val perc = if (values[i] > 0) values[i] * 100.0 / votes else 0.0
+                PollOption(options[i], Math.round(perc).toInt(), votes > 0 && i == leader)
+            },
+            votes = votes,
+            status = status
         )
     }
 

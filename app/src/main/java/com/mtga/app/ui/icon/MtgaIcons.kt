@@ -260,6 +260,34 @@ object MtgaIcons {
             .build()
     }
 
+    // Material Symbols Rounded "lock", fill 1: the protected account's mark after a name, as Nitter's linkUser draws
+    // its lock. A vector file read as it is written (width and height 24dp, viewportWidth and viewportHeight 960, path
+    // fillColor white).
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/lock/materialsymbolsrounded/lock_fill1_24px.xml
+    val Lock: ImageVector by lazy {
+        val pathData = "M240,880Q207,880 183.5,856.5Q160,833 160,800L160,400Q160,367 183.5,343.5Q207,320 240,320L280,320" +
+            "L280,240Q280,157 338.5,98.5Q397,40 480,40Q563,40 621.5,98.5Q680,157 680,240L680,320L720,320" +
+            "Q753,320 776.5,343.5Q800,367 800,400L800,800Q800,833 776.5,856.5Q753,880 720,880L240,880Z" +
+            "M480,680Q513,680 536.5,656.5Q560,633 560,600Q560,567 536.5,543.5Q513,520 480,520Q447,520 423.5,543.5" +
+            "Q400,567 400,600Q400,633 423.5,656.5Q447,680 480,680Z" +
+            "M360,320L600,320L600,240Q600,190 565,155Q530,120 480,120Q430,120 395,155Q360,190 360,240L360,320Z"
+        ImageVector.Builder("Lock", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
+    // Material Symbols Rounded "check": the tick inside the verified circle, as Nitter's verifiedIcon puts its "ok"
+    // over the "circle" (the circle itself is drawn by PostCard in the type's colour).
+    // https://github.com/google/material-design-icons/blob/master/symbols/android/check/materialsymbolsrounded/check_24px.xml
+    val CheckRounded: ImageVector by lazy {
+        val pathData = "M382,606L721,267Q733,255 749,255Q765,255 777,267Q789,279 789,295.5Q789,312 777,324L410,692" +
+            "Q398,704 382,704Q366,704 354,692L182,520Q170,508 170.5,491.5Q171,475 183,463Q195,451 211.5,451" +
+            "Q228,451 240,463L382,606Z"
+        ImageVector.Builder("CheckRounded", 24.dp, 24.dp, viewportWidth = 960f, viewportHeight = 960f)
+            .addPath(pathData = PathParser().parsePathString(pathData).toNodes(), fill = SolidColor(Color.White))
+            .build()
+    }
+
     val Paste: ImageVector by lazy {
         build(
             "Paste",

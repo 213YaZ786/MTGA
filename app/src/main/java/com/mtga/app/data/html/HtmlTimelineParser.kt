@@ -13,6 +13,11 @@ import com.mtga.app.core.model.PostId
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
+import com.mtga.app.core.model.VerifiedType
+import com.mtga.app.core.model.parseVerifiedType
+import com.mtga.app.core.text.Entities
+import com.mtga.app.data.xcom.XPagePayload
+import kotlinx.serialization.json.JsonArray
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -161,6 +166,16 @@ class HtmlTimelineParser {
             ?.let(::decodeEntities)
             ?: handle
 
+        // AGPL-3.0, ported from Nitter, verifiedIcon and linkUser read back: the author's name row
+        // holds `<div class="verified-icon blue|business|government">` after the name, and the
+        // protected account's lock `<span class="icon-lock">` inside the name's link. The row ends
+        // where the date begins, so a quote's or a retweeter's marks are never taken.
+        // https://github.com/zedeus/nitter/blob/master/src/views/renderutils.nim#verifiedIcon
+        // https://github.com/zedeus/nitter/blob/master/src/views/renderutils.nim#linkUser
+        val nameRow = body.substringAfter("class=\"tweet-name-row\"", "").substringBefore("class=\"tweet-date\"")
+        val verified = Regex("""class="verified-icon (\w+)"""").find(nameRow)
+            ?.let { parseVerifiedType(it.groupValues[1], VerifiedType.NONE) } ?: VerifiedType.NONE
+
         val contentHtml = body.tagContent("class=\"tweet-content")
         val text = contentHtml?.let(::htmlToText).orEmpty()
 
@@ -186,7 +201,9 @@ class HtmlTimelineParser {
             authorName = name,
             avatarUrl = body.attributeNear("class=\"tweet-avatar\"", "src=\"", 300)
                 ?.let { absolute(it, host) },
-            text = text,
+            // Where Nitter's text still starts with the accounts replied to, they are hidden as X
+            // hides them (expandTextEntities' display range), "Replying to" says them already.
+            text = XPagePayload.expandTextEntities(text, JsonArray(emptyList()), null, replyNames, false),
             links = contentHtml?.let(::extractLinks).orEmpty(),
             publishedAtMillis = parseTimestamp(body),
             permalink = absolute(permalinkPath.substringBefore("#"), host),
@@ -198,6 +215,12 @@ class HtmlTimelineParser {
             },
             relatedHandle = replyTo ?: if (isRepost) retweeterOf(chunk) else null,
             isPinned = "class=\"pinned\"" in chunk,
+            verified = verified,
+            isProtected = "icon-lock" in nameRow,
+            // AGPL-3.0, ported from Nitter, renderTweet: a post with edits that is the latest
+            // links "Last edited <time>" to its history in place of the plain time.
+            // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderTweet
+            edited = "Last edited" in body.substringAfter("class=\"tweet-published\"", "").substringBefore("</p>"),
             media = extractMedia(body, host),
             quoted = if (quoteAt > 0) parseQuote(chunk.substring(quoteAt), host) else null,
             card = parseCard(body, host),
@@ -371,21 +394,14 @@ class HtmlTimelineParser {
      * Photos, videos and gifs each announce themselves differently. Nitter
      * generously provides a download URL for video, which is the hard part.
      */
-    private fun extractMedia(body: String, host: String): List<MediaItem> {
+    internal fun extractMedia(body: String, host: String): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
 
         var cursor = 0
         while (true) {
             val at = body.indexOf("class=\"still-image\"", cursor).takeIf { it >= 0 } ?: break
-            val original = body.attributeBackwardsOrForward(at, "href=\"")
-            val preview = body.attributeNear(at, "src=\"", 400)
-            if (original != null || preview != null) {
-                val full = original ?: preview!!
-                items += MediaItem(
-                    previewUrl = absolute(preview ?: full, host),
-                    downloadUrl = absolute(full, host),
-                    type = MediaType.PHOTO
-                )
+            renderPhotoAttachment(body, at)?.let {
+                items += it.copy(previewUrl = absolute(it.previewUrl, host), downloadUrl = absolute(it.downloadUrl, host))
             }
             cursor = at + 20
         }
@@ -402,7 +418,10 @@ class HtmlTimelineParser {
             // renderVideoUnavailable (no <video> in them, nothing to download).
             val nextVideo = body.indexOf("<video", at + 6, ignoreCase = true).takeIf { it >= 0 } ?: body.length
             val attachment = body.substring(at, nextVideo)
-            val isGif = attachment.attributeNear(0, "class=\"", 60)?.contains("gif") == true
+            // The page marks a gif with class="gif", Nitter's RSS (renderRssMedia) writes it as a
+            // video that is autoplay, muted and loop, which a plain video never is.
+            val isGif = attachment.attributeNear(0, "class=\"", 60)?.contains("gif") == true ||
+                Regex("""^<video[^>]*\sloop[\s=>/]""", RegexOption.IGNORE_CASE).containsMatchIn(attachment)
             val poster = attachment.attributeNear(0, "poster=\"", 300)
             val source = attachment.sourceAfter(0) ?: attachment.attributeNear(0, "data-url=\"", 300)
             val download = attachment.attributeNear("class=\"video-download\"", "href=\"", 300)
@@ -419,6 +438,29 @@ class HtmlTimelineParser {
         }
 
         return items.distinctBy { it.downloadUrl }
+    }
+
+    // AGPL-3.0, ported from Nitter, renderPhotoAttachment, read the other way round: the page
+    // is the output of `a(href=getOrigPicUrl(photo.url), class="still-image"): genImg(thumb,
+    // alt=photo.altText)`, so the photo's url is the anchor's href, its thumb the img's src and
+    // its altText the img's alt. The alt is read inside the img's own tag only. The addresses
+    // come back as the page wrote them, the caller makes them absolute.
+    // https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderPhotoAttachment
+    // not ported: bigThumb, named, mediumWebp and smallWebp (the thumb's size is the server's
+    // choice, kept as it came), renderAltText (the "ALT" line under the picture, not drawn).
+    private fun renderPhotoAttachment(photo: String, still: Int): MediaItem? {
+        // The anchor is one tag, read from its opening bracket before the still-image mark up to its
+        // closing bracket after, so the href is this photo's in either attribute order and no
+        // neighbour's href can win.
+        val a = photo.lastIndexOf("<a ", still)
+        val tag = if (a < 0) "" else photo.substring(a, maxOf(a, photo.indexOf('>', still)))
+        val href = Regex("""\shref="([^"]*)"""").find(tag)?.groupValues?.get(1)?.let(::decodeEntities)
+        val thumb = photo.attributeNear(still, "src=\"", 400)
+        val genImg = photo.indexOf("<img", still).takeIf { it >= 0 && it - still < 400 }
+        val alt = genImg?.let { Regex("""<img[^>]*\salt="([^"]*)"""").matchAt(photo, it) }
+        val altText = alt?.groupValues?.get(1)?.let(::decodeEntities)?.takeIf { it.isNotBlank() }
+        val url = href ?: thumb ?: return null
+        return MediaItem(thumb ?: url, url, MediaType.PHOTO, altText = altText)
     }
 
     private fun String.sourceAfter(from: Int): String? {
@@ -530,16 +572,6 @@ class HtmlTimelineParser {
         return decodeEntities(substring(start, end))
     }
 
-    /** still-image puts href before the img, so look back a little then ahead. */
-    private fun String.attributeBackwardsOrForward(at: Int, attribute: String): String? {
-        val from = maxOf(0, at - 200)
-        val slice = substring(from, minOf(length, at + 300))
-        val attrAt = slice.indexOf(attribute).takeIf { it >= 0 } ?: return null
-        val start = attrAt + attribute.length
-        val end = slice.indexOf('"', start).takeIf { it >= 0 } ?: return null
-        return decodeEntities(slice.substring(start, end))
-    }
-
     private fun extractLinks(html: String): List<String> {
         val results = mutableListOf<String>()
         var cursor = 0
@@ -580,16 +612,10 @@ class HtmlTimelineParser {
             .trim()
     }
 
-    private fun decodeEntities(input: String): String = input
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&nbsp;", " ")
-        .replace("&bull;", "•")
-        .replace("&#8226;", "•")
-        .replace("&amp;", "&")
+    // Every named, decimal and hexadecimal reference, decoded once and in one pass (so "&amp;lt;"
+    // gives "&lt;"), by the shared decoder ported from jsoup. A no-break space is a plain space
+    // here, as this parser always made it, so the text keeps splitting on it.
+    private fun decodeEntities(input: String): String = Entities.unescape(input).replace(' ', ' ')
 
     private fun absolute(raw: String, host: String): String = when {
         raw.startsWith("http") -> raw

@@ -11,7 +11,11 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
 import com.mtga.app.core.model.QuotedPost
+import com.mtga.app.core.model.VerifiedType
+import com.mtga.app.core.model.parseVerifiedType
+import com.mtga.app.core.text.Entities
 import com.mtga.app.data.xcom.SyndicationSource
+import com.mtga.app.data.xcom.XPagePayload
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -53,7 +57,7 @@ object FxTwitterParser {
      * https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json
      */
     fun statusText(body: String): String? =
-        parse(body)?.obj("status")?.string("text")?.takeIf { it.isNotBlank() }
+        parse(body)?.obj("status")?.string("text")?.let(Entities::unescape)?.takeIf { it.isNotBlank() }
 
     /** The profile card from the author block of [body]'s first own post. */
     fun profile(body: String, handle: String): Profile? {
@@ -100,12 +104,40 @@ object FxTwitterParser {
         val repostedBy = obj.obj("reposted_by")?.string("screen_name")
         val replyTo = obj.obj("replying_to")?.string("screen_name")
         val quote = obj.obj("quote")
+        val decoded = Entities.unescape(obj.string("text").orEmpty())
+        // raw_text.display_text_range is counted over raw_text.text, the post as X wrote it, while
+        // "text" has its links expanded. The mentions a reply starts with come before any link, so
+        // the range's start is the length of the prefix X hides, cut from "text" as Nitter's
+        // expandTextEntities cuts its textSlice. Without a range, or when "text" does not start with
+        // that prefix, the leading mentions of the account replied to are taken out instead.
+        // https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json
+        val rawText = obj.obj("raw_text")
+        val hiddenStart = ((rawText?.get("display_text_range") as? JsonArray)?.getOrNull(0) as? JsonPrimitive)
+            ?.content?.toIntOrNull()
+        val hidden = rawText?.string("text")?.let(Entities::unescape)?.let { raw ->
+            raw.substring(0, raw.offsetByCodePoints(0, minOf(hiddenStart ?: 0, raw.codePointCount(0, raw.length))))
+        }?.takeIf { it.isNotEmpty() && decoded.startsWith(it) }
+        val textSlice = hidden?.let { it.codePointCount(0, it.length)..Int.MAX_VALUE }
+        // FxEmbed's author.verification: verified, and its type (organization, government,
+        // individual), which Nitter's three marks are named after: business is an organization.
+        // https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json
+        val verification = author.obj("verification")
+        val kind = verification?.string("type")
+        val verified = if ((verification?.get("verified") as? JsonPrimitive)?.content != "true") {
+            VerifiedType.NONE
+        } else {
+            parseVerifiedType(if (kind == "organization") "business" else kind.orEmpty(), VerifiedType.BLUE)
+        }
         return Post(
             id = id,
             authorHandle = handle,
             authorName = author.string("name") ?: handle,
             avatarUrl = author.string("avatar_url"),
-            text = obj.string("text").orEmpty(),
+            text = XPagePayload.expandTextEntities(
+                decoded, JsonArray(emptyList()), textSlice,
+                if (textSlice == null && hiddenStart == null) listOfNotNull(replyTo) else emptyList(),
+                hasRedundantLink = false
+            ),
             links = links(obj),
             publishedAtMillis = obj.long("created_timestamp")?.times(1000) ?: SyndicationSource.snowflakeToMillis(id),
             permalink = obj.string("url") ?: "https://x.com/$handle/status/$id",
@@ -116,6 +148,11 @@ object FxTwitterParser {
                 else -> PostKind.ORIGINAL
             },
             relatedHandle = repostedBy ?: replyTo,
+            verified = verified,
+            isProtected = (author["protected"] as? JsonPrimitive)?.content == "true",
+            // FxEmbed's edited_at: a time once the post was edited, null otherwise.
+            // https://github.com/FxEmbed/FxEmbed/blob/main/src/types/types.d.ts
+            edited = obj.string("edited_at").isNullOrEmpty().not(),
             media = media(obj.obj("media")),
             quoted = quote?.let(::quoted),
             card = card(obj),
@@ -139,7 +176,7 @@ object FxTwitterParser {
         return QuotedPost(
             handle = handle,
             name = author.string("name") ?: handle,
-            text = quote.string("text").orEmpty(),
+            text = Entities.unescape(quote.string("text").orEmpty()),
             permalink = quote.string("url") ?: "https://x.com/$handle/status/$id",
             note = note(quote["community_note"]),
             media = media(quote.obj("media"))
@@ -202,7 +239,9 @@ object FxTwitterParser {
                     downloadUrl = url,
                     type = MediaType.PHOTO,
                     width = item.int("width"),
-                    height = item.int("height")
+                    height = item.int("height"),
+                    // APIPhoto.altText, https://github.com/FxEmbed/FxEmbed/blob/main/src/types/types.d.ts
+                    altText = item.string("altText")?.takeIf { it.isNotBlank() }
                 )
                 "video", "gif" -> {
                     val gif = item.string("type") == "gif"
@@ -217,7 +256,8 @@ object FxTwitterParser {
                         type = if (gif) MediaType.GIF else MediaType.VIDEO,
                         durationLabel = if (gif) null else item.double("duration")?.let(::duration),
                         width = item.int("width"),
-                        height = item.int("height")
+                        height = item.int("height"),
+                        altText = item.string("altText")?.takeIf { it.isNotBlank() }
                     )
                 }
                 else -> null
@@ -254,7 +294,7 @@ object FxTwitterParser {
     private fun note(element: JsonElement?): CommunityNote? {
         val note = element as? JsonObject ?: return null
         val text = note.string("text") ?: return null
-        return CommunityNote(text = text)
+        return CommunityNote(text = Entities.unescape(text))
     }
 
     private fun duration(seconds: Double): String {

@@ -100,6 +100,8 @@ fun PostDetailScreen(
     onBack: () -> Unit,
     onOpenProfile: (String) -> Unit,
     onOpenPost: (Post) -> Unit,
+    /** A tap on a hashtag or a cashtag, with its # or $: opens Search with it. */
+    onOpenHashtag: (String) -> Unit = {},
     viewModel: PostDetailViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -139,6 +141,7 @@ fun PostDetailScreen(
                     post = post,
                     thread = state.thread,
                     onOpenProfile = onOpenProfile,
+                    onOpenHashtag = onOpenHashtag,
                     onOpenPost = onOpenPost,
                     onRetry = viewModel::retryThread,
                     onVerify = viewModel::verify,
@@ -186,6 +189,7 @@ private fun ConversationView(
     post: Post,
     thread: ThreadState,
     onOpenProfile: (String) -> Unit,
+    onOpenHashtag: (String) -> Unit,
     onOpenPost: (Post) -> Unit,
     onRetry: () -> Unit,
     onVerify: (AppError.ChallengeRequired) -> Unit,
@@ -247,6 +251,7 @@ private fun ConversationView(
                 post = post,
                 showCounts = settings.showCounts,
                 onOpenProfile = onOpenProfile,
+                onOpenHashtag = onOpenHashtag,
                 onOpenMedia = { index -> viewing = post to index },
                 shareLink = shareLink
             )
@@ -353,6 +358,7 @@ private fun PostBody(
     post: Post,
     showCounts: Boolean,
     onOpenProfile: (String) -> Unit,
+    onOpenHashtag: (String) -> Unit,
     onOpenMedia: (Int) -> Unit,
     shareLink: String
 ) {
@@ -408,7 +414,7 @@ private fun PostBody(
         if (post.text.isNotBlank()) {
             val linkColor = MaterialTheme.colorScheme.primary
             val annotated = remember(post.id, post.text, post.links, linkColor) {
-                linkify(post.text, post.links, linkColor, onOpenProfile)
+                linkify(post.text, post.links, linkColor, onOpenProfile, onOpenHashtag)
             }
             SelectionContainer {
                 Text(
@@ -448,7 +454,7 @@ private fun PostBody(
         post.note?.let { note ->
             val noteLinkColor = MaterialTheme.colorScheme.primary
             val noteText = remember(post.id, note, noteLinkColor) {
-                linkify(note.text, note.links, noteLinkColor, onOpenProfile)
+                linkify(note.text, note.links, noteLinkColor, onOpenProfile, onOpenHashtag)
             }
             SelectionContainer { NoteBlock(note, text = noteText) }
         }

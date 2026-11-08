@@ -55,7 +55,21 @@ data class Post(
      */
     @OptIn(ExperimentalSerializationApi::class)
     @JsonNames("textChecked")
-    val fullTextDownloaded: Boolean = false
+    val fullTextDownloaded: Boolean = false,
+    /**
+     * The author's verified mark, drawn after the name as Nitter's verifiedIcon does. Nitter's
+     * VerifiedType, none by default so files stored before the field existed still load.
+     * https://github.com/zedeus/nitter/blob/master/src/views/renderutils.nim#verifiedIcon
+     */
+    val verified: VerifiedType = VerifiedType.NONE,
+    /** The author's account is protected: Nitter's lock after the name (linkUser). False by default. */
+    val isProtected: Boolean = false,
+    /**
+     * The post was edited: Nitter's "Last edited" next to the time (renderTweet), FxTwitter's
+     * edited_at. Shown as ", edited" after the time. False by default so stored files still load.
+     * https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderTweet
+     */
+    val edited: Boolean = false
 ) {
     /**
      * The same post seen again, possibly from a richer source. x.com gives the
@@ -87,9 +101,15 @@ data class Post(
             // stored copy of the same media that has none (Nitter, RSS).
             media = media.ifEmpty { fresh.media }.let { stored ->
                 if (stored.size != fresh.media.size) stored else stored.zip(fresh.media) { old, new ->
-                    if (old.width == null && old.height == null) old.copy(width = new.width, height = new.height) else old
+                    val sized = if (old.width == null && old.height == null) old.copy(width = new.width, height = new.height) else old
+                    // The same goes for the description a picture was given.
+                    if (sized.altText == null) sized.copy(altText = new.altText) else sized
                 }
             },
+            // A source that knows the author's marks lends them to the stored copy that has none.
+            verified = if (verified != VerifiedType.NONE) verified else fresh.verified,
+            isProtected = isProtected || fresh.isProtected,
+            edited = edited || fresh.edited,
             quoted = quoted?.let { q -> q.mergedWith(fresh.quoted) } ?: fresh.quoted,
             card = fresh.card ?: card,
             poll = fresh.poll ?: poll,
@@ -133,6 +153,20 @@ private val CUT_WINDOW = 240..290
 @Serializable
 enum class PostKind { ORIGINAL, REPOST, REPLY, QUOTE }
 
+/** Nitter's VerifiedType: the three kinds of verified mark, which differ by colour only. */
+@Serializable
+enum class VerifiedType { NONE, BLUE, BUSINESS, GOVERNMENT }
+
+// AGPL-3.0, ported from Nitter, parseVerifiedType: the type named by a source's string, or the
+// current one when the string is none of them (parseEnum raising ValueError).
+// https://github.com/zedeus/nitter/blob/master/src/parser.nim#parseVerifiedType
+internal fun parseVerifiedType(s: String, current: VerifiedType): VerifiedType =
+    try {
+        VerifiedType.valueOf(s.uppercase())
+    } catch (e: IllegalArgumentException) {
+        current
+    }
+
 @Serializable
 enum class MediaType { PHOTO, VIDEO, GIF }
 
@@ -154,7 +188,14 @@ data class MediaItem(
      * Null by default so stored caches still read.
      */
     val width: Int? = null,
-    val height: Int? = null
+    val height: Int? = null,
+    /**
+     * The description the author wrote for the picture: Nitter's img alt, FxTwitter's
+     * altText, x.com's ext_alt_text. Given to TalkBack as the picture's contentDescription,
+     * never drawn. Null by default so stored caches still read.
+     * https://github.com/zedeus/nitter/blob/master/src/views/tweet.nim#renderPhotoAttachment
+     */
+    val altText: String? = null
 )
 
 @Serializable
