@@ -155,6 +155,8 @@ dependencies {
     testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
+    // The Material You scheme of the palette draft (tests only), as GutapK's catalogue pins it.
+    implementation(libs.materialkolor.utilities)
     testImplementation(libs.roborazzi.compose)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

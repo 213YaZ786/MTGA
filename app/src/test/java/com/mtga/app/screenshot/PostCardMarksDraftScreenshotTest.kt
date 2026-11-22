@@ -97,7 +97,7 @@ class PostCardMarksDraftScreenshotTest : ScreenshotBase() {
     fun stopKoinAgain() = stopKoin()
 
     // The card writes the age against the clock, so the posts are dated from it.
-    private val now = System.currentTimeMillis()
+    private val now = FIXED_NOW
 
     // No stats on the samples: the draft's copy of the card has no stats row, and the two pictures must differ only by
     // the marks.

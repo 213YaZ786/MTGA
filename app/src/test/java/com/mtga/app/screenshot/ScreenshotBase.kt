@@ -22,8 +22,15 @@ import com.mtga.app.ui.glass.LocalGlass
 import com.mtga.app.ui.glass.glassGround
 import com.mtga.app.ui.glass.rememberGlassLook
 import com.mtga.app.ui.theme.MtgaTheme
+import android.os.SystemClock
 import org.junit.Rule
+import org.junit.rules.ExternalResource
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import java.util.TimeZone
+
+// The one instant every screenshot test draws at: 2026-11-08T12:00:00Z, the day the pictures were first recorded.
+const val FIXED_NOW = 1_794_139_200_000L
 
 /**
  * What every screenshot test of this app shares: a screen drawn on a phone and a tablet, by day and by night, and
@@ -41,10 +48,34 @@ import org.robolectric.RuntimeEnvironment
  * window too (WindowCaptureTest.composeDialog), for the picture of a dialog as it is today.
  * https://github.com/takahirom/roborazzi/blob/main/sample-android/src/test/java/com/github/takahirom/roborazzi/sample/WindowCaptureTest.kt#WindowCaptureTest
  */
+// The clock, ported from Robolectric: ShadowSystem#currentTimeMillis answers SystemClock.uptimeMillis() in the
+// classes it instruments (com.mtga.app here, so relativeTime and the other reads in the app answer FIXED_NOW), and the
+// paused looper's clock is moved by SystemClock.setCurrentTimeMillis (ShadowPausedSystemClock#setCurrentTimeMillis).
+// https://github.com/robolectric/robolectric/blob/master/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSystem.java#currentTimeMillis
+// https://github.com/robolectric/robolectric/blob/master/shadows/framework/src/main/java/org/robolectric/shadows/ShadowPausedSystemClock.java#setCurrentTimeMillis
+// Not intercepted: java.time's now() (getShortTime's default `ZonedDateTime.now()` in PostCard.kt) reads the JDK's own
+// clock, which Robolectric does not instrument.
 @OptIn(ExperimentalRoborazziApi::class)
+@Config(instrumentedPackages = ["com.mtga.app"])
 abstract class ScreenshotBase {
 
-    @get:Rule
+    // Outer to the compose rule (order 0 runs first), so the clock and the zone are set before the activity starts.
+    @get:Rule(order = 0)
+    val fixedClock = object : ExternalResource() {
+        private var zone: TimeZone? = null
+
+        override fun before() {
+            zone = TimeZone.getDefault()
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+            SystemClock.setCurrentTimeMillis(FIXED_NOW)
+        }
+
+        override fun after() {
+            TimeZone.setDefault(zone)
+        }
+    }
+
+    @get:Rule(order = 1)
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     // Now in Android's DefaultTestDevices, phone and tablet.
@@ -100,6 +131,46 @@ abstract class ScreenshotBase {
                     compose.onRoot().captureRoboImage(path, roborazziOptions = options)
                 }
             }
+        }
+    }
+
+    // Edge pictures of a draft, phone and day only: the screen at 200 % text and on a 360 dp phone. The font scale is
+    // set before the content and put back after, as captureRoboImage does with its fontScale
+    // https://github.com/takahirom/roborazzi/blob/main/roborazzi-compose/src/main/java/com/github/takahirom/roborazzi/RoborazziCompose.kt#captureRoboImage
+    // and the device by qualifiers, as captureMultiDevice
+    // https://github.com/android/nowinandroid/blob/main/core/screenshot-testing/src/main/kotlin/com/google/samples/apps/nowinandroid/core/testing/util/ScreenshotHelper.kt#captureMultiDevice
+    protected fun captureEdge(name: String, interact: () -> Unit = {}, body: @Composable () -> Unit) {
+        val savedQualifiers = RuntimeEnvironment.getQualifiers()
+        val savedFontScale = RuntimeEnvironment.getFontScale()
+        try {
+            listOf(
+                Triple("font200", "w411dp-h914dp-420dpi", 2f),
+                Triple("narrow", "w360dp-h760dp-xhdpi", 1f)
+            ).forEach { (edge, qualifiers, fontScale) ->
+                RuntimeEnvironment.setQualifiers(qualifiers)
+                RuntimeEnvironment.setFontScale(fontScale)
+                val picture = pictures++
+                compose.activity.setContent {
+                    CompositionLocalProvider(LocalInspectionMode provides true) {
+                        MtgaTheme(darkTheme = false, dynamicColor = false) {
+                            val look = rememberGlassLook(MaterialTheme.colorScheme, true, quiet = true)
+                            CompositionLocalProvider(LocalGlass provides look, LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                                key(picture) {
+                                    Box(Modifier.fillMaxSize().glassGround(look, MaterialTheme.colorScheme.background)) {
+                                        ReadableScroll { body() }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                compose.waitForIdle()
+                interact()
+                compose.onRoot().captureRoboImage("src/test/screenshots/${name}_edge_${edge}.png", roborazziOptions = options)
+            }
+        } finally {
+            RuntimeEnvironment.setQualifiers(savedQualifiers)
+            if (RuntimeEnvironment.getFontScale() != savedFontScale) RuntimeEnvironment.setFontScale(savedFontScale)
         }
     }
 }

@@ -21,6 +21,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,11 +105,16 @@ fun FolderButton(
         val saved = if (settings.folderButtonX >= 0f) Offset(settings.folderButtonX * roomX, settings.folderButtonY * roomY) else null
         var dragging by remember { mutableStateOf<Offset?>(null) }
         var pressed by remember { mutableStateOf(false) }
-        val at = dragging ?: saved ?: usual
-        val current by rememberUpdatedState(at)
+        // The live place is read only in the offset lambdas (a State), never in composition; after a release the
+        // placed value stays in [dragging] while [settling], until the settings carry it (no snap back for a frame).
+        // https://github.com/androidx/androidx/blob/androidx-main/compose/animation/animation-core/samples/src/main/java/androidx/compose/animation/core/samples/AnimatableSamples.kt#AnimatableAnimateToGenericsType
+        var settling by remember { mutableStateOf(false) }
+        val resting = rememberUpdatedState(saved ?: usual)
+        fun at(): Offset = dragging ?: resting.value
+        val lifted by remember { derivedStateOf { dragging != null && !settling } }
         val lift by animateFloatAsState(
             when {
-                dragging != null -> 1.14f
+                lifted -> 1.14f
                 pressed -> 0.92f
                 else -> 1f
             },
@@ -117,18 +125,32 @@ fun FolderButton(
         // Above the folder button when there is room for it, else below.
         val upSize = with(density) { 48.dp.toPx() }
         val gap = with(density) { 10.dp.toPx() }
-        val upX = at.x + (side - upSize) / 2f
-        val upY = if (at.y >= upSize + gap) at.y - upSize - gap else at.y + side + gap
+        // Held until the settings carry the placed value, then let go.
+        LaunchedEffect(settings.folderButtonX, settings.folderButtonY, settling) {
+            if (settling) {
+                if (saved == null || abs(saved.x - at().x) >= 1f || abs(saved.y - at().y) >= 1f) delay(500)
+                dragging = null
+                settling = false
+            }
+        }
+        // Only the flip between above and below is animated (0 above, 1 below), never the place itself, which
+        // follows the finger at once; read in the offset lambda.
+        val below by remember { derivedStateOf { at().y < upSize + gap } }
+        val flip = animateFloatAsState(if (below) 1f else 0f, spring(dampingRatio = 1f, stiffness = 400f), label = "upFlip")
         ScrollUpButton(
             visible = showBackToTop,
             icon = upIcon,
             onClick = onBackToTop,
-            modifier = Modifier.offset { IntOffset(upX.roundToInt(), upY.roundToInt()) }
+            modifier = Modifier.offset {
+                val upX = at().x + (side - upSize) / 2f
+                val upY = at().y - upSize - gap + flip.value * (side + 2f * gap + upSize)
+                IntOffset(upX.roundToInt(), upY.roundToInt())
+            }
         )
 
         val shape = CircleShape
         val base = Modifier
-            .offset { IntOffset(at.x.roundToInt(), at.y.roundToInt()) }
+            .offset { IntOffset(at().x.roundToInt(), at().y.roundToInt()) }
             .size(FolderButtonSize)
             .graphicsLayer {
                 val scale = lift * entrance.value
@@ -163,7 +185,8 @@ fun FolderButton(
                         }
                         // Held: picked up, it follows the finger.
                         haptics.firm()
-                        var where = current
+                        settling = false
+                        var where = at()
                         dragging = where
                         drag(down.id) { change ->
                             val d = change.positionChange()
@@ -179,7 +202,7 @@ fun FolderButton(
                                 folderButtonY = if (roomY > 0f) placed.y / roomY else 1f
                             )
                         }
-                        dragging = null
+                        settling = true
                     }
                 }
         ) {

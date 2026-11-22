@@ -19,8 +19,12 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.mtga.app.ui.component.DropdownMenuGroup
 import com.mtga.app.ui.component.DropdownMenuItem
-import com.mtga.app.ui.component.FeedBanner
+import com.mtga.app.ui.component.AppBarWithSearch
+import com.mtga.app.ui.component.BoldIconButton
+import com.mtga.app.ui.component.FolderSwitch
+import com.mtga.app.ui.component.SearchCapsuleField
 import com.mtga.app.ui.component.GlassMenu
+import com.mtga.app.ui.component.LocalBannerProbe
 import com.mtga.app.ui.component.MenuPill
 import com.mtga.app.ui.component.SelectableDropdownMenuItem
 import com.mtga.app.ui.component.EmptyZone
@@ -183,6 +187,31 @@ fun AccountsScreen(
         AccountsViewModel.asHandle(text)?.let { open(it) } ?: focus.clearFocus()
     }
 
+    // The field's keyboard action and its two buttons, shared by the capsule's field and the lone field.
+    // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/accounts/AccountsScreen.kt#AccountsScreen
+    // not ported: AccountsScreen (the screen is this file; only the field's pieces are gathered here)
+    // not ported: paste, open (above, unchanged: the buttons call them)
+    val searchActions = KeyboardActions(onSearch = {
+        when {
+            candidate != null && !alreadyFollowed -> open(candidate)
+            visible.size == 1 -> open(visible.first().handle)
+            else -> focus.clearFocus()
+        }
+    })
+    val fieldActions: @Composable () -> Unit = {
+        if (query.isNotEmpty()) {
+            BoldIconButton(onClick = { query = "" }) {
+                Icon(MtgaIcons.Close, contentDescription = "Clear")
+            }
+        }
+        // Always there, and the clipboard is read only on a tap:
+        // reading it to decide whether to show the button would be
+        // a read too, and Android raises its notice on every one.
+        BoldIconButton(onClick = { paste() }) {
+            Icon(MtgaIcons.Paste, contentDescription = "Paste a link or a handle")
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -196,7 +225,8 @@ fun AccountsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item(key = "banner") {
+            // Nobody followed: no banner row, the field is the first row under the status bar.
+            if (rows.isNotEmpty()) item(key = "banner") {
                 // The folder choice in the banner's middle as Home's feed pill: one pill, a menu under it with the folders,
                 // then Manage folders last (Gmail's Manage labels), the shown folder checked.
                 // https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/feature/accounts/AccountsScreen.kt#AccountsScreen
@@ -206,21 +236,32 @@ fun AccountsScreen(
                 // not ported: open (MTGA's own open() above takes a handle only, X has one kind of account)
                 // not ported: the hold menu, the headline and the unread count of LinkedOut's rows (MTGA's rows stay as they are)
                 // not ported: DropdownMenuGroup (the app's ui/component/GlassMenu.kt is its port, used as it is)
-                Box(Modifier.fullBleed(16.dp)) {
-                    FeedBanner(
-                        // Nobody followed: no pill, no count, the row stays empty above the field.
-                        centre = if (rows.isNotEmpty()) {
-                            {
-                                // The pill is an item of the list that may record the backdrop: MenuPill draws it with none
-                                // and the menu lives in a window of its own (TimelineScreen's feedPill, same pitfall).
-                                // The wrapper is the screen's heading for TalkBack, the pill inside stays its own button.
+                // Point 41: one glass capsule, the real search field in its middle, nothing under it (the count of accounts
+                // is in the field's words and in the menu's rows).
+                // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/SearchBar.kt#AppBarWithSearch
+                // not ported: AppBarWithSearch (the app's AppBarWithSearch in ui/component/FeedBanner.kt is its port, used as it is)
+                Box(Modifier.fullBleed(16.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    AppBarWithSearch(
+                        inputField = {
+                            SearchCapsuleField(
+                                searchIcon = MtgaIcons.Search,
+                                value = query,
+                                onValueChange = { query = it },
+                                hints = listOf("Search ${rows.size} accounts or open a handle", "Search ${rows.size} accounts"),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = searchActions
+                            )
+                        },
+                        actions = { fieldActions() },
+                        navigationIcon = {
+                                // The wrapper is the screen's heading for TalkBack, the switch inside stays its own button.
                                 Box(Modifier.semantics { heading(); contentDescription = "Accounts" }) {
                                     Box {
-                                        MenuPill(
+                                        FolderSwitch(
                                             icon = MtgaIcons.Folder,
+                                            trailingIcon = MtgaIcons.ExpandMore,
                                             label = folder ?: "All",
                                             expanded = foldersOpen,
-                                            trailingIcon = MtgaIcons.ExpandMore,
                                             onClick = { foldersOpen = true }
                                         )
                                         GlassMenu(expanded = foldersOpen, onDismissRequest = { foldersOpen = false }) {
@@ -228,13 +269,15 @@ fun AccountsScreen(
                                                 SelectableDropdownMenuItem(
                                                     selected = folder == null,
                                                     onClick = { chosenFolder = null; foldersOpen = false },
-                                                    text = "All"
+                                                    text = "All",
+                                                    count = rows.size
                                                 )
                                                 folders.forEach { name ->
                                                     SelectableDropdownMenuItem(
                                                         selected = folder == name,
                                                         onClick = { chosenFolder = name; foldersOpen = false },
-                                                        text = name
+                                                        text = name,
+                                                        count = rows.count { it.folder == name }
                                                     )
                                                 }
                                             }
@@ -258,45 +301,22 @@ fun AccountsScreen(
                                         }
                                     }
                                 }
-                            }
-                        } else {
-                            // Nothing to see, but TalkBack still finds the screen's name.
-                            { Box(Modifier.size(1.dp).semantics { heading(); contentDescription = "Accounts" }) }
-                        },
-                        subtitle = if (rows.isEmpty()) null else "${rows.size} followed"
+                        }
                     )
                 }
             }
-            item(key = "search") {
+            // Nobody followed: the field alone, as point 17 decided; otherwise it is in the banner's capsule.
+            if (rows.isEmpty()) item(key = "search") {
                 GlassSearchField(
                     value = query,
                     onValueChange = { query = it },
                     placeholder = "Search or open a handle",
                     leadingIcon = { Icon(MtgaIcons.Search, contentDescription = null) },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(MtgaIcons.Close, contentDescription = "Clear")
-                                }
-                            }
-                            // Always there, and the clipboard is read only on a tap:
-                            // reading it to decide whether to show the button would be
-                            // a read too, and Android raises its notice on every one.
-                            IconButton(onClick = { paste() }) {
-                                Icon(MtgaIcons.Paste, contentDescription = "Paste a link or a handle")
-                            }
-                        }
-                    },
+                    trailingIcon = { Row(verticalAlignment = Alignment.CenterVertically) { fieldActions() } },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = {
-                        when {
-                            candidate != null && !alreadyFollowed -> open(candidate)
-                            visible.size == 1 -> open(visible.first().handle)
-                            else -> focus.clearFocus()
-                        }
-                    }),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    keyboardActions = searchActions,
+                    // Nobody followed: the field is the first row, 8 dp under the status bar as Home's slots are.
+                    modifier = Modifier.fillMaxWidth().padding(top = if (rows.isEmpty()) 8.dp else 0.dp, bottom = 8.dp)
                 )
             }
             if (candidate != null && !alreadyFollowed) {

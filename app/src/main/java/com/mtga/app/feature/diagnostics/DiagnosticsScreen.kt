@@ -1,12 +1,21 @@
 package com.mtga.app.feature.diagnostics
 
 import com.mtga.app.ui.component.FloatingTopBar
-import com.mtga.app.ui.component.scrolledFromTop
-import com.mtga.app.ui.component.underFloatingTopBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.mtga.app.ui.component.ZoneAlertDialog
 import com.mtga.app.ui.component.ZoneSurface
+import com.mtga.app.ui.component.FeatherRing
 import com.mtga.app.ui.component.LoadingMark
+import com.mtga.app.ui.component.MBBackgroundView
+import com.mtga.app.ui.component.animateRing
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
@@ -44,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.materialkolor.blend.Blend
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -67,13 +78,17 @@ fun DiagnosticsScreen(
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
 
+    // The bar folds away going down and returns going up, the list full screen.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             // The floating bar, as FeedScreen and FoldersScreen use it: no band behind it, the list fades under it.
             FloatingTopBar(
+                scrollBehavior = scrollBehavior,
                 title = { BarTitle("Connection check") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -84,12 +99,9 @@ fun DiagnosticsScreen(
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(MtgaIcons.Add, contentDescription = "Add instance")
                     }
+                    // Disabled while the servers are checked: the ring in the banner shows the work.
                     IconButton(onClick = viewModel::refresh, enabled = !state.probing) {
-                        if (state.probing) {
-                            LoadingMark(size = 22.dp)
-                        } else {
-                            Icon(MtgaIcons.Refresh, contentDescription = "Re-check")
-                        }
+                        Icon(MtgaIcons.Refresh, contentDescription = "Re-check")
                     }
                 }
             )
@@ -98,10 +110,7 @@ fun DiagnosticsScreen(
         val listState = rememberLazyListState()
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().underFloatingTopBar(
-                barHeight = padding.calculateTopPadding(),
-                scrolled = listState::scrolledFromTop
-            ),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
                 end = 16.dp + LocalReadableInset.current,
@@ -200,12 +209,59 @@ private fun OverallBanner(state: DiagnosticsUiState) {
             "Not checked yet" to "Tap refresh to check each server."
     }
 
+    // The ring over the check comes in and leaves as the pull's does (animateRing in PullIndicator.kt, from MBProgressHUD's
+    // animateIn); the last count is kept while it leaves. Its state, as PullToRefresh's:
+    // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#PullToRefreshState
+    // not ported: animateToHidden (the pull's own settling)
+    // not ported: animateToThreshold (the pull's own settling)
+    // not ported: snapTo (the state's own)
+    val bezelView = remember { MBBackgroundView() }
+    val fill = remember { Animatable(0f) }
+    val shownState by rememberUpdatedState(state)
+    LaunchedEffect(state.probing) {
+        animateRing(bezelView, fill, state.probing) {
+            if (shownState.enabledCount > 0) shownState.checkedCount.toFloat() / shownState.enabledCount else 0f
+        }
+    }
+    var kept by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(state.probing) { if (state.probing) kept = null }
+    LaunchedEffect(state.checkedCount, state.enabledCount, state.probing) {
+        if (state.probing) kept = state.checkedCount to state.enabledCount
+    }
+    val ringOn by remember { derivedStateOf { shownState.probing || bezelView.alpha.value > 0f } }
+
     ZoneSurface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = ShapeDefaults.Large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            // The ring, a determinate CircularProgressIndicator of feathers, zoomed by the bezelView (see above):
+            // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#PullToRefreshState
+            // not ported: animateToHidden (the pull's own settling)
+            // not ported: animateToThreshold (the pull's own settling)
+            // not ported: snapTo (the state's own)
+            if (ringOn) {
+                FeatherRing(
+                    progress = { fill.value },
+                    size = 120.dp,
+                    modifier = Modifier.padding(bottom = 8.dp).graphicsLayer {
+                        alpha = bezelView.alpha.value
+                        scaleX = bezelView.transform.value
+                        scaleY = bezelView.transform.value
+                    }
+                ) {
+                    kept?.let { (done, total) ->
+                        Text("$done of $total", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+                        Text(
+                            "servers",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
             Text(headline, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text(
                 detail,
@@ -384,16 +440,25 @@ object InstanceRowDefaults {
     private val Green = Color(0xFF4CAF50)
     private val Amber = Color(0xFFFFB300)
     private val Red = Color(0xFFE53935)
-    private val Grey = Color(0xFF9E9E9E)
 
-    fun colorFor(status: HealthStatus): Color = when (status) {
-        HealthStatus.HEALTHY -> Green
-        HealthStatus.SLOW -> Amber
-        HealthStatus.DEGRADED -> Amber
-        HealthStatus.DOWN -> Red
-        HealthStatus.DISABLED -> Grey
-        HealthStatus.UNKNOWN -> Grey
-        HealthStatus.CHALLENGED -> Amber
+    // The design colour's hue moved toward the source colour's, as MaterialColors.harmonizeWithPrimary does with
+    // the primary, through the materialkolor port of
+    // https://github.com/material-foundation/material-color-utilities/blob/main/java/blend/Blend.java#harmonize
+    private fun harmonize(designColor: Color, sourceColor: Color): Color =
+        Color(Blend.harmonize(designColor.toArgb(), sourceColor.toArgb()))
+
+    @Composable
+    fun colorFor(status: HealthStatus): Color {
+        val primary = MaterialTheme.colorScheme.primary
+        return when (status) {
+            HealthStatus.HEALTHY -> harmonize(Green, primary)
+            HealthStatus.SLOW -> harmonize(Amber, primary)
+            HealthStatus.DEGRADED -> harmonize(Amber, primary)
+            HealthStatus.DOWN -> harmonize(Red, primary)
+            HealthStatus.DISABLED -> MaterialTheme.colorScheme.outline
+            HealthStatus.UNKNOWN -> MaterialTheme.colorScheme.outline
+            HealthStatus.CHALLENGED -> harmonize(Amber, primary)
+        }
     }
 }
 

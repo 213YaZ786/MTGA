@@ -341,7 +341,9 @@ data class Feed(
     val website: String? = null,
     /** As Nitter words it, for example "Joined March 2007". */
     val joined: String? = null,
-    val stats: ProfileStats? = null
+    val stats: ProfileStats? = null,
+    /** The name's mark when the source states it for the account itself (FxTwitter's user block). */
+    val verified: VerifiedType? = null
 )
 
 /** The numbers on a profile card. Any may be missing. */

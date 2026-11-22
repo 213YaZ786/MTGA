@@ -80,7 +80,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = android.app.Application::class, sdk = [36])
 class AccountsTopDraftScreenshotTest : ScreenshotBase() {
 
-    private val now = System.currentTimeMillis()
+    private val now = FIXED_NOW
 
     // The folders as AccountStore keeps them (FolderNames.ordered): Main first, the rest by name.
     private val folders = listOf("Main", "Friends", "News")

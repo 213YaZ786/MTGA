@@ -15,6 +15,7 @@ import com.mtga.app.data.repository.FeedRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class FeedUiState(
@@ -23,9 +24,15 @@ data class FeedUiState(
     val loadingMore: Boolean = false,
     val feed: Feed? = null,
     val error: AppError? = null,
-    val pagingFailed: Boolean = false
+    val pagingFailed: Boolean = false,
+    /** Sources the running refresh has finished, and how many it reads; 0 of 0 when none runs (TimelineUiState's). */
+    val refreshDone: Int = 0,
+    val refreshTotal: Int = 0
 ) {
     val canLoadMore: Boolean get() = feed?.nextCursor != null
+
+    /** How full the ring is, 0 to 1: the sources read over all of them. */
+    val refreshFill: Float get() = if (refreshTotal > 0) refreshDone.toFloat() / refreshTotal else 0f
 }
 
 class FeedViewModel(
@@ -77,17 +84,20 @@ class FeedViewModel(
         if (handle.isBlank()) return
 
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null)
+            // The pull counts the sources read, as Home counts its accounts (TimelineRepository.refresh's onProgress).
+            val total = repository.total()
+            _state.value = _state.value.copy(loading = true, error = null, refreshDone = 0, refreshTotal = total)
+            val onStep = { _state.update { it.copy(refreshDone = (it.refreshDone + 1).coerceAtMost(total)) } }
 
             // x.com first. It is the quickest and most accurate head of the
             // feed, so it goes on screen while the instances work on depth.
-            repository.loadHead(handle)?.valueOrNull()?.let { head ->
+            repository.loadHead(handle, onStep)?.valueOrNull()?.let { head ->
                 val merged = cache.append(head)
                 accounts.updateDisplayName(handle, head.displayName)
                 _state.value = _state.value.copy(feed = merged)
             }
 
-            val outcome = repository.loadFeed(handle)
+            val outcome = repository.loadFeed(handle, onStep = onStep)
             when (outcome) {
                 is Outcome.Success -> {
                     val merged = cache.append(outcome.value)
@@ -111,7 +121,7 @@ class FeedViewModel(
                 cache.read(handle)?.let { _state.value = _state.value.copy(feed = it) }
             }
             // Then the archives fill the gaps, see FeedRepository.fillGaps.
-            if (repository.fillGapsShown(handle) > 0) {
+            if (repository.fillGapsShown(handle, onStep) > 0) {
                 cache.read(handle)?.let { _state.value = _state.value.copy(feed = it) }
             }
         }

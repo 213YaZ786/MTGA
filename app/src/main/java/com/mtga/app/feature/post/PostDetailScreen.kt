@@ -9,8 +9,8 @@ import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
-import com.mtga.app.ui.component.scrolledFromTop
-import com.mtga.app.ui.component.underFloatingTopBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.mtga.app.ui.component.PostCard
 import com.mtga.app.core.common.present
 import com.mtga.app.core.common.ChallengeKind
@@ -112,12 +112,16 @@ fun PostDetailScreen(
 
     val post = state.post
 
+    // The bar folds away going down and returns going up, the list full screen.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
+                scrollBehavior = scrollBehavior,
                 title = { BarTitle("Post") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -229,10 +233,7 @@ private fun ConversationView(
     val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().underFloatingTopBar(
-            barHeight = contentPadding.calculateTopPadding(),
-            scrolled = listState::scrolledFromTop
-        ),
+        modifier = Modifier.fillMaxSize(),
         // Horizontal padding rather than a narrower list, so a drag in the
         // margins of a wide window scrolls too.
         contentPadding = PaddingValues(

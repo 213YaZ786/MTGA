@@ -51,7 +51,13 @@ class FxTwitterSource(
                     log.record(RequestLog.Kind.PROFILE, url, "not a timeline", bodyBytes = read.text.length, durationMillis = read.millis)
                     return@withContext Outcome.Failure(AppError.ParseFailure(HOST, PARSER_VERSION, read.text.take(200)))
                 }
-                val profile = FxTwitterParser.profile(read.text, handle)
+                // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/types/api-schemas.ts#UserAPIResponseSchema
+                // When no post of the account's own is on the page (or only its stub), /2/profile/<h> answers
+                // {code, message, user}: asked once, on a first page. Its 404 is not "no account", the stored
+                // card stays.
+                val profile = FxTwitterParser.profile(read.text, handle)?.takeIf { it.stats != null || it.joined != null }
+                    ?: (if (cursor == null) user(handle) else null)
+                    ?: FxTwitterParser.profile(read.text, handle)
                 log.record(
                     RequestLog.Kind.PROFILE, url, "ok",
                     httpStatus = 200, bodyBytes = read.text.length, durationMillis = read.millis,
@@ -71,11 +77,24 @@ class FxTwitterSource(
                         avatarUrl = profile?.avatarUrl,
                         bio = profile?.bio,
                         bannerUrl = profile?.bannerUrl,
+                        location = profile?.location,
+                        website = profile?.website,
+                        joined = profile?.joined,
+                        stats = profile?.stats,
+                        verified = profile?.verified,
                         nextCursor = page.bottomCursor?.takeIf { page.posts.isNotEmpty() }?.let(FxCursor::of)
                     )
                 )
             }
         }
+    }
+
+    // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/types/api-schemas.ts#UserAPIResponseSchema
+    /** The user block of `/2/profile/<h>` (UserAPIResponse: code, message, user), or null on any failure. */
+    private suspend fun user(handle: String): FxTwitterParser.Profile? {
+        val url = "https://$HOST/2/profile/$handle"
+        val body = (read(url, RequestLog.Kind.PROFILE) as? Read.Body) ?: return null
+        return FxTwitterParser.profile(body.text, handle)
     }
 
     /** A post with the posts around it and its replies. */

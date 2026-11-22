@@ -65,9 +65,26 @@ class FeedRepository(
      * cursor, so it is fetched alongside [loadFeed] rather than instead of it.
      * Returns null when the setting is off.
      */
-    suspend fun loadHead(handle: String): Outcome<Feed>? {
+    suspend fun loadHead(handle: String, onStep: () -> Unit = {}): Outcome<Feed>? {
         if (!sources.xcom) return null
-        return xcom.fetchLatest(handle)
+        return xcom.fetchLatest(handle).also { onStep() }
+    }
+
+    /**
+     * How many sources a profile's first load reads, for the pull's count: one step per source switched on in Sources
+     * (x.com, FxTwitter, Nitter, the archives), each counted through the onStep of [loadHead], [loadFeed] and
+     * [fillGapsShown] when it answers or gives up, as TimelineRepository.refresh counts through onProgress (done, total).
+     * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/data/repository/TimelineRepository.kt#refresh
+     * not ported: refresh's gate, its parallel fetches and its finished counter (a profile reads its sources in turn)
+     */
+    fun total(): Int {
+        val targets = settings.current
+        var done = 0
+        if (targets.useXcomDirect) done++
+        if (targets.useFxTwitter) done++
+        if (targets.useNitter) done++
+        if (targets.olderFromArchives || targets.useDuckDuckGo) done++
+        return done
     }
 
     /**
@@ -93,10 +110,10 @@ class FeedRepository(
      * and the cache adds only ids it does not hold. What was published
      * before the reader's previous visit is not new. Returns the count added.
      */
-    suspend fun fillGaps(handle: String): Int {
+    suspend fun fillGaps(handle: String, onStep: () -> Unit = {}): Int {
         val sources = sources
         var count = if (sources.fxtwitter) fillFromFx(handle) else 0
-        if (sources.idLists) count += fillFromArchives(handle)
+        if (sources.idLists) count += fillFromArchives(handle).also { onStep() }
         if (sources.fxtwitter) completeCutPosts(handle)
         return count
     }
@@ -171,7 +188,8 @@ class FeedRepository(
     }
 
     /** [fillGaps] with the loading notification, for a profile the reader opened. */
-    suspend fun fillGapsShown(handle: String): Int = notice.during("Looking up older posts") { fillGaps(handle) }
+    suspend fun fillGapsShown(handle: String, onStep: () -> Unit = {}): Int =
+        notice.during("Looking up older posts") { fillGaps(handle, onStep) }
 
     /** Starts the archives' lookup for an account opened by the reader, see ArchiveSource.warm. */
     fun warmArchive(handle: String) {
@@ -198,7 +216,7 @@ class FeedRepository(
         return failed ?: Outcome.Failure(AppError.SourcesOff)
     }
 
-    suspend fun loadFeed(handle: String, cursor: String? = null): Outcome<Feed> {
+    suspend fun loadFeed(handle: String, cursor: String? = null, onStep: () -> Unit = {}): Outcome<Feed> {
         // Cursors are not interchangeable between sources, and handing one to
         // the wrong source silently restarts the feed.
         if (LegacyCursor.fromDroppedSource(cursor)) {
@@ -217,9 +235,12 @@ class FeedRepository(
         var fxFailure: Outcome<Feed>? = null
         if (sources.fxtwitter) {
             val viaFx = fx.timeline(handle, null)
+            onStep()
             // An empty timeline (a protected account, an answer without posts)
             // is not trusted over Nitter's own reading.
             if (viaFx is Outcome.Success && viaFx.value.posts.isNotEmpty()) {
+                // Nitter is not asked: its step is over with the page.
+                if (sources.nitter) onStep()
                 return Outcome.Success(withBeyond(viaFx.value, firstPage = true))
             }
             fxFailure = viaFx
@@ -230,18 +251,18 @@ class FeedRepository(
         if (!sources.nitter) return fxFailure?.takeIf { it is Outcome.Failure } ?: Outcome.Success(empty(handle))
 
         val viaHtml = pool.withInstance { instance -> html.fetchProfile(instance, handle, null) }
-        if (viaHtml is Outcome.Success) return Outcome.Success(withBeyond(viaHtml.value, firstPage = true))
+        if (viaHtml is Outcome.Success) return Outcome.Success(withBeyond(viaHtml.value, firstPage = true)).also { onStep() }
 
         val htmlError = (viaHtml as Outcome.Failure).error
 
         // RSS only helps when the page itself was the problem, and it has no
         // concept of paging, so it can only ever stand in for the first page.
-        if (!worthTryingRss(htmlError)) return viaHtml
+        if (!worthTryingRss(htmlError)) return viaHtml.also { onStep() }
 
         val viaRss = rss.fetchFeed(handle)
-        if (viaRss is Outcome.Success) return Outcome.Success(withBeyond(viaRss.value, firstPage = true))
+        if (viaRss is Outcome.Success) return Outcome.Success(withBeyond(viaRss.value, firstPage = true)).also { onStep() }
 
-        return viaHtml
+        return viaHtml.also { onStep() }
     }
 
     /** A page further down, from the source that wrote [cursor] while it is on. */

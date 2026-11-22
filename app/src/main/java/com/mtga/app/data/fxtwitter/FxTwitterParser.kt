@@ -10,6 +10,7 @@ import com.mtga.app.core.model.PollOption
 import com.mtga.app.core.model.Post
 import com.mtga.app.core.model.PostKind
 import com.mtga.app.core.model.PostStats
+import com.mtga.app.core.model.ProfileStats
 import com.mtga.app.core.model.QuotedPost
 import com.mtga.app.core.model.VerifiedType
 import com.mtga.app.core.model.parseVerifiedType
@@ -21,6 +22,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.Locale
 
 /**
@@ -37,7 +41,23 @@ object FxTwitterParser {
 
     data class Page(val posts: List<Post>, val bottomCursor: String?)
 
-    data class Profile(val name: String?, val avatarUrl: String?, val bio: String?, val bannerUrl: String?)
+    /**
+     * The user block of FxEmbed's spec, APIUser: the card of a profile. Every
+     * field is null when the answer does not carry it.
+     * https://github.com/FxEmbed/FxEmbed/blob/main/docs/specs/fxtwitter-openapi.json#APIUser
+     */
+    data class Profile(
+        val name: String?,
+        val avatarUrl: String?,
+        val bio: String?,
+        val bannerUrl: String?,
+        val location: String? = null,
+        val website: String? = null,
+        /** As Nitter's card words it: "Joined December 2007". */
+        val joined: String? = null,
+        val stats: ProfileStats? = null,
+        val verified: VerifiedType? = null
+    )
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -71,7 +91,29 @@ object FxTwitterParser {
             name = author.string("name"),
             avatarUrl = author.string("avatar_url"),
             bio = author.string("description"),
-            bannerUrl = author.string("banner_url")
+            bannerUrl = author.string("banner_url"),
+            // https://github.com/FxEmbed/FxEmbed/blob/main/packages/atmosphere/src/types/api-schemas.ts#APIUserSchema
+            // (the spec docs/specs/fxtwitter-openapi.json#APIUser is generated from it): profile_embed is
+            // a post's author stub, without full counts, so its numbers are not read.
+            location = author.string("location"),
+            website = author.obj("website")?.let { it.string("url") ?: it.string("display_url")?.let { shown -> "https://$shown" } },
+            joined = author.takeUnless { it.profileEmbed() }?.string("joined")?.let(::getJoinDate),
+            stats = author.takeUnless { it.profileEmbed() }?.let {
+                ProfileStats(
+                    posts = it.long("statuses"),
+                    following = it.long("following"),
+                    followers = it.long("followers"),
+                    likes = it.long("likes")
+                )
+            }?.takeIf { it != ProfileStats() },
+            verified = author.obj("verification")?.let { verification ->
+                val kind = verification.string("type")
+                if ((verification["verified"] as? JsonPrimitive)?.content != "true") {
+                    VerifiedType.NONE
+                } else {
+                    parseVerifiedType(if (kind == "organization") "business" else kind.orEmpty(), VerifiedType.BLUE)
+                }
+            }
         )
     }
 
@@ -301,6 +343,20 @@ object FxTwitterParser {
         val whole = seconds.toLong()
         return String.format(Locale.US, "%d:%02d", whole / 60, whole % 60)
     }
+
+    // https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getJoinDate
+    // FxEmbed's joined is "Wed Dec 19 20:20:32 +0000 2007"; Nitter's card words it "Joined December 2007".
+    private fun getJoinDate(joinDate: String): String? {
+        val user = try {
+            ZonedDateTime.parse(joinDate, DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss Z yyyy", Locale.US))
+        } catch (e: DateTimeParseException) {
+            return null
+        }
+        if (user.year == 0) return null
+        return user.format(DateTimeFormatter.ofPattern("'Joined' MMMM yyyy", Locale.US))
+    }
+
+    private fun JsonObject.profileEmbed(): Boolean = (this["profile_embed"] as? JsonPrimitive)?.content == "true"
 
     private fun parse(body: String): JsonObject? =
         runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()

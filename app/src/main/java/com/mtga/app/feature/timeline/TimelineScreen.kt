@@ -14,13 +14,19 @@ import com.mtga.app.ui.component.BannerAction
 import com.mtga.app.ui.component.DropdownMenuGroup
 import com.mtga.app.ui.component.FailureDialog
 import com.mtga.app.ui.component.FeedBanner
+import com.mtga.app.ui.component.AppBarWithSearch
+import com.mtga.app.ui.component.FolderSwitch
+import com.mtga.app.ui.component.SearchCapsuleHint
+import com.mtga.app.data.accounts.AccountStore
 import com.mtga.app.ui.component.GlassMenu
 import com.mtga.app.ui.component.MenuPill
 import com.mtga.app.ui.component.ScrollUpButton
 import com.mtga.app.ui.component.SelectableDropdownMenuItem
 import com.mtga.app.ui.component.rememberRefreshHaptics
 import com.mtga.app.ui.component.LoadingMark
-import com.mtga.app.ui.component.PullIndicator
+import com.mtga.app.ui.component.LocalBannerProbe
+import com.mtga.app.ui.component.PullRevealBox
+import com.mtga.app.ui.component.ageForms
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.foundation.border
@@ -41,6 +47,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -185,78 +192,100 @@ fun TimelineScreen(
             viewModel.showFolder(name)
         }
     }
-    val feedPill: @Composable () -> Unit = {
+    // The menu moved out of feedPill (MTGA's own TimelineScreen, feedPill's GlassMenu), each folder row with its count of
+    // accounts as the badge of NavigationDrawerItem.
+    // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
+    // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/NavigationDrawer.kt#NavigationDrawerItem
+    // not ported: NavigationDrawerItem (GlassMenu's SelectableDropdownMenuItem carries its badge slot as count)
+    // not ported: TimelineScreen (the screen is this file; only the menu is rebuilt here)
+    val followed by koinInject<AccountStore>().accounts.collectAsState()
+    val feedMenu: @Composable () -> Unit = {
+        GlassMenu(expanded = feedsOpen, onDismissRequest = { feedsOpen = false }) {
+            // No Clear row: a feed is chosen, not cleared.
+            DropdownMenuGroup(index = 0, count = 2) {
+                SelectableDropdownMenuItem(selected = state.folder == null, onClick = { showFeed(null) }, text = "All", count = followed.size)
+                state.folders.forEach { name ->
+                    SelectableDropdownMenuItem(
+                        selected = state.folder == name,
+                        onClick = { showFeed(name) },
+                        text = name,
+                        count = followed.count { it.folder == name }
+                    )
+                }
+            }
+            DropdownMenuGroup(index = 1, count = 2) {
+                listOf(LIKED, ARCHIVED).forEach { name ->
+                    SelectableDropdownMenuItem(selected = state.folder == name, onClick = { showFeed(name) }, text = name)
+                }
+            }
+        }
+    }
+    val feedPill: @Composable (String) -> Unit = { shownLabel ->
         // The screen keeps its heading for TalkBack: this wrapper is a heading named "Home", and the pill inside it
         // stays its own node, a button that says the feed and whether its menu is open.
         Box(Modifier.semantics { heading(); contentDescription = "Home" }) {
             Box {
                 MenuPill(
                     icon = MtgaIcons.Folder,
-                    label = state.folder ?: "All",
+                    label = shownLabel,
                     expanded = feedsOpen,
                     trailingIcon = MtgaIcons.ExpandMore,
                     onClick = { feedsOpen = true }
                 )
-                GlassMenu(expanded = feedsOpen, onDismissRequest = { feedsOpen = false }) {
-                    // No Clear row: a feed is chosen, not cleared.
-                    DropdownMenuGroup(index = 0, count = 2) {
-                        SelectableDropdownMenuItem(selected = state.folder == null, onClick = { showFeed(null) }, text = "All")
-                        state.folders.forEach { name ->
-                            SelectableDropdownMenuItem(selected = state.folder == name, onClick = { showFeed(name) }, text = name)
-                        }
-                    }
-                    DropdownMenuGroup(index = 1, count = 2) {
-                        listOf(LIKED, ARCHIVED).forEach { name ->
-                            SelectableDropdownMenuItem(selected = state.folder == name, onClick = { showFeed(name) }, text = name)
-                        }
-                    }
-                }
+                // The banner composes the pill once per label it tries, to measure it: only the one that stays opens the menu.
+                if (!LocalBannerProbe.current) feedMenu()
+            }
+        }
+    }
+    // The capsule's navigation icon (point 41): the folder switch with the same menu, no probe, one composition.
+    val feedSwitch: @Composable () -> Unit = {
+        Box(Modifier.semantics { heading(); contentDescription = "Home" }) {
+            Box {
+                FolderSwitch(
+                    icon = MtgaIcons.Folder,
+                    trailingIcon = MtgaIcons.ExpandMore,
+                    label = state.folder ?: "All",
+                    expanded = feedsOpen,
+                    onClick = { feedsOpen = true }
+                )
+                feedMenu()
             }
         }
     }
 
+    // https://github.com/androidx/androidx/blob/androidx-main/compose/animation/animation/samples/src/main/java/androidx/compose/animation/samples/AnimatedVisibilitySamples.kt#AnimatedVisibilityWithBooleanVisibleParamNoReceiver
+    // The alert pops in and out (scale and fade) as the failures come and go.
+    // not ported: the sample's Box, its fixed size, background and the toggle button around the visible flag
+    val alert: (@Composable () -> Unit) = {
+        AnimatedVisibility(
+            visible = state.errors.isNotEmpty(),
+            enter = scaleIn() + fadeIn(),
+            exit = scaleOut() + fadeOut()
+        ) {
+            BannerAction(
+                icon = MtgaIcons.Warning,
+                label = "What went wrong",
+                onClick = { showFailures = true },
+                container = MaterialTheme.colorScheme.errorContainer,
+                tint = MaterialTheme.colorScheme.error
+            )
+        }
+    }
     val banner: @Composable () -> Unit = {
-        FeedBanner(
-            // Nobody followed: no feed to choose, the plain title keeps the row from being empty.
-            centre = if (state.followedCount > 0) {
-                feedPill
-            } else {
-                {
-                    Text(
-                        "Home",
-                        style = MaterialTheme.typography.headlineSmall.copy(color = MaterialTheme.colorScheme.primary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() }
-                    )
-                }
-            },
-            subtitle = subtitle(state),
-            leading = if (state.errors.isNotEmpty()) {
-                {
-                    BannerAction(
-                        icon = MtgaIcons.Warning,
-                        label = "What went wrong",
-                        onClick = { showFailures = true },
-                        container = MaterialTheme.colorScheme.errorContainer,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            } else {
-                null
-            },
-            trailing = if (state.followedCount > 0) {
-                {
-                    BannerAction(
-                        icon = MtgaIcons.Search,
-                        label = "Search saved posts",
-                        onClick = onOpenSearch
-                    )
-                }
-            } else {
-                null
+        if (state.followedCount > 0) {
+            // One glass capsule, nothing under it: the folder switch, "Search", the alert on a failure only.
+            // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/SearchBar.kt#AppBarWithSearch
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                AppBarWithSearch(
+                    inputField = { SearchCapsuleHint(MtgaIcons.Search, listOf("Search"), onOpenSearch) },
+                    navigationIcon = feedSwitch,
+                    actions = { alert() }
+                )
             }
-        )
+        } else {
+            // Nobody followed: the same feed pill, "All" with its menu, no age, no Search.
+            FeedBanner(centre = { feedPill("All") }, leading = alert)
+        }
     }
 
     // A post is read once it has gone past the top of the screen. Everything
@@ -278,6 +307,9 @@ fun TimelineScreen(
     // to bend it.
     val look = LocalGlass.current
     val listBackdrop = rememberGlassBackdrop()
+    // The pull's ring fills with the accounts the refresh has finished; the count shows once it is known.
+    val refreshProgress: () -> Float = { state.refreshFill }
+    val refreshCount = if (state.refreshTotal > 0) state.refreshDone to state.refreshTotal else null
     // The page's ground is painted under the whole app, see MainActivity.
     Scaffold(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) { padding ->
         CompositionLocalProvider(LocalGlassBackdrop provides listBackdrop.takeIf { look != null }) {
@@ -302,7 +334,8 @@ fun TimelineScreen(
 
             // Pull works here too. Before 1.3.2 this screen was a dead end: a
             // failed refresh at launch left Home stuck until a restart.
-            state.isEmpty && state.errors.isNotEmpty() -> PullToRefreshBox(
+            // The list pulled down uncovers the mark, under the status bar, where the list starts.
+            state.isEmpty && state.errors.isNotEmpty() -> PullRevealBox(
                 isRefreshing = state.loading,
                 onRefresh = {
                     askedRefresh()
@@ -310,14 +343,9 @@ fun TimelineScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
                 state = pull,
-                // Under the status bar, where the list starts, not behind it.
-                indicator = {
-                    PullIndicator(
-                        state = pull,
-                        isRefreshing = state.loading,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
-                    )
-                }
+                progress = refreshProgress,
+                count = refreshCount,
+                lastUpdated = subtitle(state)
             ) {
                 // A list, because the pull gesture needs something scrollable.
                 LazyColumn(
@@ -345,7 +373,7 @@ fun TimelineScreen(
                 }
             }
 
-            else -> PullToRefreshBox(
+            else -> PullRevealBox(
                 isRefreshing = state.loading,
                 onRefresh = {
                     askedRefresh()
@@ -353,14 +381,9 @@ fun TimelineScreen(
                 },
                 modifier = Modifier.fillMaxSize(),
                 state = pull,
-                // Under the status bar, where the list starts, not behind it.
-                indicator = {
-                    PullIndicator(
-                        state = pull,
-                        isRefreshing = state.loading,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
-                    )
-                }
+                progress = refreshProgress,
+                count = refreshCount,
+                lastUpdated = subtitle(state)
             ) {
                 // Prefetch a page before the reader actually hits the bottom,
                 // so scrolling stays continuous instead of stalling.
@@ -417,7 +440,7 @@ fun TimelineScreen(
                                 message = "File accounts here from Accounts, or show every account.",
                                 actionLabel = "Show every account",
                                 onAction = { viewModel.showFolder(null) },
-                                modifier = Modifier.fillParentMaxHeight(0.7f)
+                                modifier = Modifier.fillParentMaxHeight(0.7f).animateItem()
                             )
                         }
                     }
@@ -475,12 +498,13 @@ fun TimelineScreen(
     }
 }
 
+// The age the pull shows in its ring before release (PullRevealBox's lastUpdated, "Updated" over "3m ago"); null while
+// loading or when nothing was read yet. Was the banner's subtitle, now in the pull (point 41).
+// https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
 private fun subtitle(state: TimelineUiState): String? = when {
     state.followedCount == 0 -> null
-    state.loading -> "Updating"
-    state.lastUpdatedMillis != null -> relativeTime(state.lastUpdatedMillis).let { age ->
-        if (age.isEmpty() || age == "now") "Updated just now" else "Updated $age ago"
-    }
+    state.loading -> null
+    state.lastUpdatedMillis != null -> relativeTime(state.lastUpdatedMillis)
     else -> null
 }
 
@@ -490,9 +514,17 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
-        when {
-            state.loadingMore -> LoadingMark(size = 28.dp)
-            state.pagingFailed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Crossfade between the footer's states (mark, button, text) instead of swapping them at once.
+        val kind = when {
+            state.loadingMore -> 0
+            state.pagingFailed -> 1
+            state.canLoadMore -> 2
+            else -> 3
+        }
+        Crossfade(targetState = kind, label = "timelineFooter") { shown ->
+        when (shown) {
+            0 -> LoadingMark(size = 28.dp)
+            1 -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     "Couldn't load older posts. The server is busy, " +
                         "which usually clears in a minute.",
@@ -502,13 +534,14 @@ private fun TimelineFooter(state: TimelineUiState, onLoadMore: () -> Unit) {
                 )
                 BoldButton(onClick = onLoadMore) { Text("Try again") }
             }
-            state.canLoadMore -> BoldButton(onClick = onLoadMore) { Text("Load older posts") }
+            2 -> BoldButton(onClick = onLoadMore) { Text("Load older posts") }
             else -> Text(
                 "No older posts available.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+        }
         }
     }
 }

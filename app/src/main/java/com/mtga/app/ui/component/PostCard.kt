@@ -262,19 +262,23 @@ private fun NameRow(post: Post, unread: Boolean, modifier: Modifier = Modifier) 
 // not ported: the CSS of verified-icon (its sizes and the page colours), icon's span markup, Avatar's
 // picture, its initial and its shared element key.
 @Composable
-private fun VerifiedIcon(user: Post, modifier: Modifier = Modifier) {
-    if (user.verified == VerifiedType.NONE) return
-    val lower = user.verified.name.lowercase()
-    val (circle, check) = when (user.verified) {
+private fun VerifiedIcon(user: Post, modifier: Modifier = Modifier) = VerifiedIcon(user.verified, modifier)
+
+// The type overload: a profile's header draws the mark from the type alone, at its own [size] (the check is 3/4 of it).
+@Composable
+internal fun VerifiedIcon(verified: VerifiedType, modifier: Modifier = Modifier, size: Dp = 16.dp) {
+    if (verified == VerifiedType.NONE) return
+    val lower = verified.name.lowercase()
+    val (circle, check) = when (verified) {
         VerifiedType.BUSINESS -> MaterialTheme.colorScheme.tertiary to MaterialTheme.colorScheme.onTertiary
         VerifiedType.GOVERNMENT -> MaterialTheme.colorScheme.onSurfaceVariant to MaterialTheme.colorScheme.surface
         else -> MaterialTheme.colorScheme.primary to MaterialTheme.colorScheme.onPrimary
     }
     Box(
-        modifier = modifier.size(16.dp).background(circle, CircleShape),
+        modifier = modifier.size(size).background(circle, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Icon(MtgaIcons.CheckRounded, contentDescription = "Verified $lower account", modifier = Modifier.size(12.dp), tint = check)
+        Icon(MtgaIcons.CheckRounded, contentDescription = "Verified $lower account", modifier = Modifier.size(size * 0.75f), tint = check)
     }
 }
 
@@ -869,7 +873,8 @@ internal fun compactCount(
 // AGPL-3.0, ported from Nitter:
 // https://github.com/zedeus/nitter/blob/master/src/formatters.nim#getShortTime
 // getShortTime(tweet), its one line wrapper, is the Long overload below.
-internal fun getShortTime(time: ZonedDateTime, now: ZonedDateTime = ZonedDateTime.now()): String {
+// The default now reads System.currentTimeMillis, as relativeTime does, so tests with a fixed clock see it.
+internal fun getShortTime(time: ZonedDateTime, now: ZonedDateTime = ZonedDateTime.ofInstant(Instant.ofEpochMilli(System.currentTimeMillis()), ZoneId.systemDefault())): String {
     if (time.year == 0) return ""
     val since = Duration.between(time, now)
     val result: String

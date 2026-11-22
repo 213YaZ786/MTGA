@@ -4,8 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.verify.domain.DomainVerificationManager
-import android.content.pm.verify.domain.DomainVerificationUserState
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -18,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -25,6 +24,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +63,6 @@ import com.mtga.app.ui.component.BoldButton
 import com.mtga.app.ui.component.ChoiceDialog
 import com.mtga.app.ui.component.FloatingFrame
 import com.mtga.app.ui.component.FloatingTop
-import com.mtga.app.ui.component.LargeTitle
 import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.component.SettingsActionTile
@@ -116,7 +124,15 @@ private fun keepLabel(days: Int): String = when (days) {
  * tile): https://github.com/213YaZ786/SMS/blob/main/app/src/main/java/com/yaz/sms/feature/settings/SettingsScreen.kt
  * Sections, switches, actions and the page are laid out as there; MTGA's Settings is a tab of the dock,
  * so the header has no back button.
+ *
+ * The top row folds away going down and returns going up (the user, 2026-11-21), Material 3's
+ * enterAlwaysScrollBehavior (EnterAlwaysScrollBehavior,
+ * https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/AppBar.kt),
+ * called as it is: its nestedScrollConnection on a Box around the frame, its state.heightOffset read
+ * in the row's offset lambda, so no frame recomposes. The content's padding stays the header's
+ * resting height.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onOpenDiagnostics: () -> Unit,
@@ -132,6 +148,8 @@ fun SettingsScreen(
     val offlineCount by viewModel.offlineCount.collectAsState()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val topBarScroll = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val statusTop = WindowInsets.statusBars.getTop(LocalDensity.current)
 
     // Changed in system settings, so read again each time the screen returns.
     var xLinksOn by remember { mutableStateOf(xLinksEnabled(context)) }
@@ -474,16 +492,29 @@ fun SettingsScreen(
         val dockRoom = if (wide && inset >= SideDockClearance) SideDockClearance else 0.dp
         val dockPadding = LocalDockPadding.current
         CompositionLocalProvider(LocalReadableInset provides if (wide) 0.dp else inset) {
-          Box(Modifier.fillMaxSize().padding(start = dockRoom)) {
+          Box(
+              Modifier.fillMaxSize().padding(start = dockRoom)
+                  .nestedScroll(topBarScroll.nestedScrollConnection)
+          ) {
             FloatingFrame(
                 bottom = 0.dp,
                 scroll = if (wide) detailScroll else compactScroll,
-                top = { FloatingTop("Settings") },
-                largeTitle = LargeTitle("Settings")
+                // The content runs whole under the window's top while the row folds.
+                softEdge = false,
+                // "Settings" small and centred on the top line, no large title: the sections start 16 dp under it.
+                top = {
+                    Box(
+                        Modifier
+                            // The row and the status bar's height, so it leaves the window whole.
+                            .onSizeChanged { topBarScroll.state.heightOffsetLimit = -(it.height + statusTop).toFloat() }
+                            .offset { IntOffset(0, topBarScroll.state.heightOffset.roundToInt()) }
+                    ) { FloatingTop("Settings") }
+                }
             ) { padding ->
                 if (wide) {
                     SettingsListDetail(
-                        padding = padding,
+                        // SettingsListDetail adds its own 24 dp: 8 dp less in the header gives the 16.
+                        padding = PaddingValues(top = (padding.calculateTopPadding() - 8.dp).coerceAtLeast(0.dp)),
                         sections = SECTIONS,
                         section = section,
                         onSection = { sectionId = it.id },
@@ -500,7 +531,7 @@ fun SettingsScreen(
                             .padding(horizontal = LocalReadableInset.current)
                     ) {
                         SettingsHeaderSpacer(padding)
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(16.dp))
                         SettingsFoldedSections(SECTIONS, open = openSection, onOpen = { openId = it?.id.orEmpty() }) { which ->
                             val list: List<SettingsTile> = tiles[which].orEmpty() + actions[which].orEmpty()
                             if (list.isNotEmpty()) SettingsTileGrid(list) { tileId = it.id }
@@ -616,34 +647,4 @@ private fun intervalLabel(minutes: Int): String = when {
     else -> "Every ${minutes / 60} hours"
 }
 
-/**
- * Whether Android sends x.com links to MTGA. They can only be enabled by the
- * reader, since only X could verify the domain, so this reads the reader's
- * choice rather than a verification.
- */
-private fun xLinksEnabled(context: Context): Boolean {
-    val manager = context.getSystemService(DomainVerificationManager::class.java) ?: return false
-    val state = runCatching { manager.getDomainVerificationUserState(context.packageName) }
-        .getOrNull() ?: return false
-    if (!state.isLinkHandlingAllowed) return false
-    val xState = state.hostToStateMap["x.com"]
-    return xState == DomainVerificationUserState.DOMAIN_STATE_SELECTED ||
-        xState == DomainVerificationUserState.DOMAIN_STATE_VERIFIED
-}
-
-/** MTGA's own notification page in Android settings. */
-private fun openNotificationSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(intent) }
-}
-
-/** The system screen where supported links are switched on for this app. */
-private fun openLinkSettings(context: Context) {
-    val intent = Intent(
-        Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-        Uri.parse("package:${context.packageName}")
-    )
-    runCatching { context.startActivity(intent) }
-}
+// xLinksEnabled, openNotificationSettings and openLinkSettings live in SystemPages.kt, shared with the welcome guide.

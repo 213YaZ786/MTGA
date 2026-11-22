@@ -6,7 +6,13 @@ import androidx.compose.ui.graphics.Color
 import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.component.BoldButton
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,7 +29,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ButtonDefaults
@@ -46,11 +51,19 @@ import com.mtga.app.core.model.FollowedAccount
 import com.mtga.app.navigation.LocalReadableInset
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.BarTitle
-import com.mtga.app.ui.component.FloatingTopBar
-import com.mtga.app.ui.component.scrolledFromTop
-import com.mtga.app.ui.component.underFloatingTopBar
+import com.mtga.app.ui.component.MovableAction
+import com.mtga.app.ui.component.TopActionSize
+import com.mtga.app.data.settings.SettingsStore
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /**
  * Folders, and what is in them.
@@ -63,9 +76,12 @@ import org.koin.androidx.compose.koinViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun FoldersScreen(
+    // Kept for the caller: the system back gesture does the going back now, the arrow is gone.
     onBack: () -> Unit,
-    viewModel: AccountsViewModel = koinViewModel()
+    viewModel: AccountsViewModel = koinViewModel(),
+    store: SettingsStore = koinInject()
 ) {
     val rows by viewModel.rows.collectAsState()
     val folders by viewModel.folders.collectAsState()
@@ -135,39 +151,34 @@ fun FoldersScreen(
         )
     }
 
-    Scaffold(
-        // The page's ground is painted under the whole app, see MainActivity.
-        containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-        topBar = {
-            FloatingTopBar(
-                title = { BarTitle("Folders") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(MtgaIcons.ArrowBack, contentDescription = "Back") }
-                },
-                actions = {
-                    IconButton(onClick = { creating = true }) {
-                        Icon(MtgaIcons.Add, contentDescription = "New folder")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    // The system gesture goes back, no bar and no arrow. The page's ground is painted under the whole app, see MainActivity.
+    val settings by store.settings.collectAsState()
+    val density = LocalDensity.current
+    val statusTop = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
+    val navigationBottom = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+    Box(Modifier.fillMaxSize()) {
         val listState = rememberLazyListState()
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().underFloatingTopBar(
-                barHeight = padding.calculateTopPadding(),
-                scrolled = listState::scrolledFromTop
-            ),
+            modifier = Modifier.fillMaxSize(),
+            // Room under the last folder for the button: its 48 dp and the 16 dp around it.
             contentPadding = PaddingValues(
                 start = 16.dp + LocalReadableInset.current,
                 end = 16.dp + LocalReadableInset.current,
-                top = 8.dp,
-                bottom = 24.dp
-            ).plus(padding),
+                top = 0.dp,
+                bottom = navigationBottom + 16.dp + TopActionSize + 16.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // The title on the page, no zone, first in the list: it scrolls away with it.
+            item(key = "title") {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = statusTop + 16.dp, bottom = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) { BarTitle("Folders") }
+                }
+            }
             items(folders, key = { it }) { name ->
                 FolderZone(
                     name = name,
@@ -184,6 +195,13 @@ fun FoldersScreen(
                 )
             }
         }
+        MovableAction(
+            icon = MtgaIcons.Add,
+            label = "New folder",
+            snapFraction = settings.foldersButtonSnap,
+            onSnapFraction = { fraction -> store.update { it.copy(foldersButtonSnap = fraction) } },
+            onClick = { creating = true }
+        )
     }
 }
 
@@ -211,15 +229,27 @@ private fun FolderZone(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        when (count) {
+                    // https://github.com/androidx/androidx/blob/androidx-main/compose/animation/animation/samples/src/main/java/androidx/compose/animation/samples/AnimatedContentSamples.kt#SimpleAnimatedContentSample
+                    // not ported: foo, bar, baz (the sample's own demo functions), simpleAnimatedContentSample (used here, inline)
+                    // The label changes by fade through, never at once.
+                    AnimatedContent(
+                        targetState = when (count) {
                             0 -> "Empty"
                             1 -> "1 account"
                             else -> "$count accounts"
                         },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        transitionSpec = {
+                            (fadeIn(tween(110, delayMillis = 90)) togetherWith fadeOut(tween(90)))
+                                .using(SizeTransform(clip = false))
+                        },
+                        label = "folderCount"
+                    ) { label ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 if (name != FollowedAccount.MAIN) {
                     BoldButton(onClick = onRename) { Text("Rename") }
@@ -227,12 +257,24 @@ private fun FolderZone(
                         Icon(MtgaIcons.Delete, contentDescription = "Delete $name", modifier = Modifier.size(20.dp))
                     }
                 }
-                BoldButton(onClick = onToggle) { Text(if (open) "Close" else "Open") }
+                BoldButton(onClick = onToggle) {
+                    // Same fade through as the count label (SimpleAnimatedContentSample).
+                    AnimatedContent(
+                        targetState = open,
+                        transitionSpec = {
+                            (fadeIn(tween(110, delayMillis = 90)) togetherWith fadeOut(tween(90)))
+                                .using(SizeTransform(clip = false))
+                        },
+                        label = "folderToggle"
+                    ) { isOpen ->
+                        Text(if (isOpen) "Close" else "Open")
+                    }
+                }
             }
 
             AnimatedVisibility(visible = open) {
                 Column(Modifier.padding(bottom = 8.dp)) {
-                    if (rows.isEmpty()) {
+                    AnimatedVisibility(visible = rows.isEmpty()) {
                         Text(
                             "Follow an account first, then file it here.",
                             style = MaterialTheme.typography.bodyMedium,
@@ -268,15 +310,25 @@ private fun FolderZone(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f).padding(start = 10.dp)
                                 )
-                                if (here) {
-                                    Icon(MtgaIcons.Check, contentDescription = "Filed here", modifier = Modifier.size(18.dp))
-                                } else {
-                                    Text(
-                                        row.folder,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
-                                    )
+                                // Same fade through (SimpleAnimatedContentSample).
+                                AnimatedContent(
+                                    targetState = here,
+                                    transitionSpec = {
+                                        (fadeIn(tween(110, delayMillis = 90)) togetherWith fadeOut(tween(90)))
+                                            .using(SizeTransform(clip = false))
+                                    },
+                                    label = "filedHere"
+                                ) { isHere ->
+                                    if (isHere) {
+                                        Icon(MtgaIcons.Check, contentDescription = "Filed here", modifier = Modifier.size(18.dp))
+                                    } else {
+                                        Text(
+                                            row.folder,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -295,18 +347,13 @@ private fun NameDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(initial) }
+    val state = com.mtga.app.ui.component.rememberDialogNameState(initial, selectAll = initial.isNotEmpty())
+    val name = state.text.toString()
     ZoneAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            TextField(
-                value = name,
-                onValueChange = { name = it },
-                singleLine = true,
-                placeholder = { Text("Folder name") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            com.mtga.app.ui.component.DialogNameField(state, "Folder name", onDone = { if (name.isNotBlank()) onConfirm(name) })
         },
         confirmButton = {
             BoldButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank(), filled = true) { Text(confirm) }

@@ -42,8 +42,8 @@ import com.mtga.app.ui.component.BoldIconButton
 import com.mtga.app.ui.component.QuietButton
 import com.mtga.app.ui.component.BarTitle
 import com.mtga.app.ui.component.FloatingTopBar
-import com.mtga.app.ui.component.scrolledFromTop
-import com.mtga.app.ui.component.underFloatingTopBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.mtga.app.ui.component.plus
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
@@ -75,12 +75,16 @@ fun SavedMediaScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
+    // The bar folds away going down and returns going up, the grid full screen.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FloatingTopBar(
+                scrollBehavior = scrollBehavior,
                 title = { BarTitle("Saved media") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -110,10 +114,7 @@ fun SavedMediaScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Adaptive(CELL_MIN),
-                modifier = Modifier.fillMaxSize().underFloatingTopBar(
-                    barHeight = padding.calculateTopPadding(),
-                    scrolled = gridState::scrolledFromTop
-                ),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = LocalReadableInset.current + 16.dp,
                     end = LocalReadableInset.current + 16.dp,

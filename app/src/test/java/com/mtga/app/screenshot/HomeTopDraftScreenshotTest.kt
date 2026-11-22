@@ -102,7 +102,7 @@ class HomeTopDraftScreenshotTest : ScreenshotBase() {
     fun stopKoinAgain() = stopKoin()
 
     // The card writes the age against the clock, so the posts are dated from it.
-    private val now = System.currentTimeMillis()
+    private val now = FIXED_NOW
 
     private val unread = Post(
         id = "1850000000000000001",

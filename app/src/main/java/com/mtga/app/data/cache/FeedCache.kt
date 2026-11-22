@@ -460,6 +460,7 @@ internal object FeedMerge {
             website = incoming.website ?: existing.website,
             joined = incoming.joined ?: existing.joined,
             stats = incoming.stats ?: existing.stats,
+            verified = incoming.verified ?: existing.verified,
             nextCursor = when {
                 exhausted -> null
                 keepDeeperCursor -> existing.nextCursor

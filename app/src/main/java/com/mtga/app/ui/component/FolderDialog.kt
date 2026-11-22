@@ -53,7 +53,8 @@ fun FolderDialog(
     extras: List<String> = emptyList()
 ) {
     var creating by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
+    val nameState = rememberDialogNameState()
+    val name = nameState.text.toString()
 
     ZoneAlertDialog(
         onDismissRequest = onDismiss,
@@ -76,13 +77,7 @@ fun FolderDialog(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     )
-                    TextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        singleLine = true,
-                        placeholder = { Text("Folder name") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    DialogNameField(nameState, "Folder name", onDone = { if (name.isNotBlank()) onSelect(name.trim()) })
                 } else {
                     everything?.let { Choice(it, selected == null) { onSelect(null) } }
                     folders.forEach { folder -> Choice(folder, selected == folder) { onSelect(folder) } }

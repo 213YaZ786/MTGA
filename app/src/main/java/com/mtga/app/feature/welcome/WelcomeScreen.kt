@@ -14,23 +14,27 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
-import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -51,15 +55,21 @@ import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.feature.settings.SOURCE_OPTIONS
 import com.mtga.app.feature.settings.SettingsIcons
 import com.mtga.app.feature.settings.SettingsViewModel
-import com.mtga.app.ui.component.BoldButton
-import com.mtga.app.ui.component.ChoiceDialog
+import com.mtga.app.core.update.StoreLink
+import com.mtga.app.core.update.Updates
+import com.mtga.app.feature.settings.openLinkSettings
+import com.mtga.app.feature.settings.openNotificationSettings
+import com.mtga.app.feature.settings.xLinksEnabled
+import com.mtga.app.sync.NewPostNotifier
+import com.mtga.app.ui.component.CheckableDropdownMenuItem
+import com.mtga.app.ui.component.DropdownMenuGroup
+import com.mtga.app.ui.component.GlassMenu
 import com.mtga.app.ui.component.LoadingMark
+import com.mtga.app.ui.component.SelectableDropdownMenuItem
 import com.mtga.app.ui.component.SetupTile
 import com.mtga.app.ui.component.SetupTileDialog
 import com.mtga.app.ui.component.SetupTileGrid
-import com.mtga.app.ui.component.leftText
-import com.mtga.app.ui.component.requiredDone
-import com.mtga.app.ui.component.requiredLeft
+import com.mtga.app.ui.component.rememberHaptics
 import com.mtga.app.ui.icon.MtgaIcons
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -81,10 +91,10 @@ import org.koin.compose.koinInject
  * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#rememberSetupTiles
  * with the settings logic of MTGA's former WelcomeScreen
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#WelcomeScreen
- * Only the choices the reader must make (the user, 2026-11-06: a tile only for an important call, the best preset
- * for the rest): Save media (spends data, required), Newest from X (X sees the reader's address), New posts (a
- * permission and checks with the app closed). Updates stay on Install through Store, the other four sources on,
- * following is done in Accounts.
+ * Only the choices that weigh on the reader (the user, 2026-11-06: a tile only for an important call, the best preset
+ * for the rest): Save media (preset to images and videos on Wi-Fi, menu: posts only), Sources (a menu of checks, X sees
+ * the reader's address), New posts (a permission and checks with the app closed). None is required. Updates stay on
+ * Install through Store, following is done in Accounts.
  */
 @Composable
 fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTile> {
@@ -92,27 +102,58 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
     val context = LocalContext.current
     var checks by remember { mutableIntStateOf(0) }
 
-    // On first launch nothing is picked: this is the only setting that spends
-    // the reader's data without asking again, so it is not left as a default
-    // they never saw. Reopened from Settings, the current choice is shown.
-    // LinkedOut starts blank every time, which locked the last button for a
-    // reader who had already chosen.
-    var chosen by remember {
-        mutableStateOf(settings.current.takeIf { it.welcomeSeen }?.autoDownloadMedia)
+    // Save media is not required any more (the user, 2026-11-08): a first launch starts on "Images and videos" (saved on
+    // Wi-Fi, AutoDownload.UNMETERED), the tile's menu offers "Posts only", and Start never waits. The network choice stays in
+    // Settings. Reopened from Settings, or by a reader who chose before, the current choice is kept: the preset is written
+    // only while the guide has not been seen and nothing was chosen (the stored default is OFF).
+    var chosen by rememberSaveable {
+        mutableStateOf(
+            settings.current.let { start ->
+                if (!start.welcomeSeen && start.autoDownloadMedia == AutoDownload.OFF) AutoDownload.UNMETERED else start.autoDownloadMedia
+            }
+        )
+    }
+    LaunchedEffect(Unit) {
+        if (!settings.current.welcomeSeen && settings.current.autoDownloadMedia == AutoDownload.OFF && chosen != AutoDownload.OFF) {
+            settings.update { it.copy(autoDownloadMedia = chosen, autoDownloadedUntilMillis = 0) }
+        }
     }
     // New post notifications start from the current settings and ask for
     // the permission they need when turned on, not before.
     val sync: SettingsViewModel = koinViewModel()
     var notify by remember { mutableStateOf(settings.current.backgroundSync && settings.current.notifyNewPosts) }
+    // Refused when the reader turned New posts on: it stays so, shown on its tile, until Android allows it.
+    var notifyRefused by rememberSaveable { mutableStateOf(false) }
+    // Read again at each resume, since each of these is changed on an Android page: the sources of the tiles below.
+    var xLinksOn by remember { mutableStateOf(xLinksEnabled(context)) }
+    var exempt by remember { mutableStateOf(BatteryExemption.isExempt(context)) }
+    var storePresent by remember { mutableStateOf(StoreLink.present(context)) }
+    var installsAllowed by remember { mutableStateOf(Updates.canInstall(context)) }
+    // The notification state is NewPostNotifier's own check, so the guide agrees with what a check would do.
+    val notifier = remember { NewPostNotifier(context) }
+    var blocked by remember { mutableStateOf(!notifier.canNotify()) }
+    // Save media's own refusal, as notifyRefused is New posts': set when the permission came back refused.
+    var mediaRefused by rememberSaveable { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         checks++
         notify = settings.current.backgroundSync && settings.current.notifyNewPosts
+        xLinksOn = xLinksEnabled(context)
+        exempt = BatteryExemption.isExempt(context)
+        storePresent = StoreLink.present(context)
+        installsAllowed = Updates.canInstall(context)
+        blocked = !notifier.canNotify()
+        if (!blocked) mediaRefused = false
         onPauseOrDispose { }
     }
-    // The choice dialog open ("media"), "" when none.
+    // The tile whose menu is open ("media", "sources"), "" when none.
     var choosing by rememberSaveable { mutableStateOf("") }
 
-    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { checks++ }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        checks++
+        blocked = !notifier.canNotify()
+        // The error of Save media shows only once the reader was asked and said no, never before.
+        if (!granted && blocked) mediaRefused = true
+    }
     val choose: (AutoDownload) -> Unit = { choice ->
         chosen = choice
         // Same as the Settings dialog: the watermark restarts, so what is on
@@ -130,13 +171,27 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
     }
     val turnOnNotify = {
         notify = true
+        notifyRefused = false
         sync.setBackgroundSync(true)
         sync.setNotifyNewPosts(true)
         // Checks run with the app closed: see BatteryExemption.
         BatteryExemption.request(context)
     }
+    // Allowed on Android's notification page after a refusal: the reader asked for New posts, so it turns on.
+    LifecycleResumeEffect(Unit) {
+        if (notifyRefused && !blocked) {
+            notifyRefused = false
+            turnOnNotify()
+        }
+        onPauseOrDispose { }
+    }
     val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) turnOnNotify() else notify = false
+        blocked = !notifier.canNotify()
+        if (granted) turnOnNotify() else {
+            // Shown on the tile instead of silently turned off: its tap opens Android's notification page.
+            notify = false
+            notifyRefused = true
+        }
     }
     val chooseNotify: (Boolean) -> Unit = { on ->
         when {
@@ -151,77 +206,151 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
         }
     }
 
-    if (choosing == "media") {
-        ChoiceDialog(
-            title = "Save media",
-            options = listOf(
-                AutoDownload.OFF to "Never",
-                AutoDownload.UNMETERED to "On Wi-Fi only",
-                AutoDownload.ANY to "On Wi-Fi or mobile data"
-            ),
-            onPick = choose,
-            onDismiss = { choosing = "" },
-            selected = chosen
-        )
-    }
+    // The Save media tile and its menu, ported from the feed pill's menu of TimelineScreen (a GlassMenu under its anchor, one
+    // DropdownMenuGroup, SelectableDropdownMenuItem per choice, the one chosen checked)
+    // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
+    val sources = SourceChoices(settings, open = choosing == "sources", onOpen = { choosing = "sources" }, onClose = { choosing = "" }).single()
     return listOf(
         SetupTile(
             id = "media", name = "Save media", title = "Save media automatically", icon = MtgaIcons.Download,
-            state = when (chosen) {
-                null -> "Not chosen"
-                AutoDownload.OFF -> "Never"
-                AutoDownload.UNMETERED -> "On Wi-Fi only"
-                AutoDownload.ANY -> "On Wi-Fi or mobile data"
+            state = when {
+                chosen == AutoDownload.OFF -> "Posts only"
+                blocked && mediaRefused -> "Saved, no progress bar"
+                else -> "Images and videos"
             },
-            summary = "Posts saved on the phone open again offline. It spends data without asking again, so choose: " +
-                "never, on Wi-Fi only, or on Wi-Fi or mobile data. Changeable in Settings.",
-            done = chosen != null, required = true,
-            onClick = { choosing = "media" }
+            summary = "Images and videos you save go to the Pictures and Movies folders. Tap to choose.",
+            done = true, required = false,
+            // Saving shows its progress as a notification: refused, the tap opens Android's notification page.
+            error = chosen != AutoDownload.OFF && blocked && mediaRefused,
+            onClick = {
+                if (chosen != AutoDownload.OFF && blocked && mediaRefused) openNotificationSettings(context) else choosing = "media"
+            },
+            // The menu opens under the tile, as the feed pill's menu under its pill: two choices, the one chosen checked.
+            // A choice of Wi-Fi or mobile data made in Settings stays: "Images and videos" does not rewrite it.
+            menu = {
+                GlassMenu(expanded = choosing == "media", onDismissRequest = { choosing = "" }) {
+                    DropdownMenuGroup(index = 0, count = 1) {
+                        SelectableDropdownMenuItem(
+                            selected = chosen != AutoDownload.OFF,
+                            onClick = {
+                                choosing = ""
+                                if (chosen == AutoDownload.OFF) choose(AutoDownload.UNMETERED)
+                                // Already selected, never asked yet: this is where the reader can still be asked.
+                                else if (blocked && !mediaRefused && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            text = "Images and videos"
+                        )
+                        SelectableDropdownMenuItem(
+                            selected = chosen == AutoDownload.OFF,
+                            onClick = {
+                                choosing = ""
+                                if (chosen != AutoDownload.OFF) choose(AutoDownload.OFF)
+                            },
+                            text = "Posts only"
+                        )
+                    }
+                }
+            }
         ),
+        sources,
+        // New posts, X links and Updates follow the rows of Settings, which read the same Android states and open the same
+        // pages: the notification permission and page, the x.com link state, the Store check and the install page
+        // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/settings/SettingsScreen.kt#SettingsScreen
         SetupTile(
             id = "notify", name = "New posts", title = "New posts", icon = MtgaIcons.Bell,
-            state = if (notify) "On" else "Off",
-            summary = "A notification when followed accounts post. Checks run with the app closed, so Android's " +
-                "notification permission and battery exemption are asked when it is turned on. Changeable in Settings.",
-            done = notify, required = false,
-            onClick = { chooseNotify(!notify) }
+            state = when {
+                notifyRefused && blocked -> "Notifications blocked"
+                notify && !exempt -> "Checks may be late"
+                notify -> "On"
+                else -> "Off"
+            },
+            summary = when {
+                notifyRefused && blocked -> "Android blocks this app's notifications. Tap to open its notification page."
+                notify && !exempt -> "Android may hold the checks back while the app is closed. Tap to allow it."
+                notify -> "New posts of the accounts you follow. Tap to turn off."
+                else -> "New posts of the accounts you follow. Tap to turn on."
+            },
+            done = notify && exempt, required = false,
+            error = notifyRefused && blocked,
+            onClick = {
+                when {
+                    notifyRefused && blocked -> openNotificationSettings(context)
+                    notify && !exempt -> BatteryExemption.request(context)
+                    else -> chooseNotify(!notify)
+                }
+            }
+        ),
+        SetupTile(
+            id = "links", name = "X links", title = "X links", icon = SettingsIcons.Link,
+            state = if (xLinksOn) "On" else "Off",
+            summary = "x.com and twitter.com links tapped anywhere open in MTGA once Android's \"Open supported links\" " +
+                "is on for it. Tap to open that page.",
+            done = xLinksOn, required = false,
+            onClick = { openLinkSettings(context) }
         )
-    ) + SourceChoices(settings)
+    ) + if (storePresent) emptyList() else listOf(
+        // Without Store, the app installs its own updates and Android must allow it.
+        SetupTile(
+            id = "update", name = "Updates", title = "Updates", icon = SettingsIcons.Update,
+            state = if (installsAllowed) "Allowed" else "Installs not allowed",
+            summary = if (installsAllowed) "Android lets MTGA install its updates. Tap to open its install page."
+            else "Android does not let MTGA install updates. Tap to open its install page.",
+            done = installsAllowed, required = false, error = !installsAllowed,
+            onClick = { Updates.allowInstalls(context) }
+        )
+    )
 }
 
 /**
- * Each source on or off, any number of them: a tile on is done. The summary says what each one sees. Ported from
+ * The sources as one tile, "Sources" ("N of 5", done while one is on): a tap opens a GlassMenu under it with a
+ * CheckableDropdownMenuItem per source of SOURCE_OPTIONS, any number of them on; the last one left on cannot be turned off.
+ * Ported from
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#SourceChoices
- * where it drew a row per source; it now gives one tile per source, read from the same SOURCE_OPTIONS.
- * Icons are the closest existing ones: none is drawn for a single source.
+ * where it gave a tile per source (then one, "Newest from X"); the menu is the feed pill's menu of
+ * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
+ * with the checks of GlassMenu's CheckableDropdownMenuItem. The summary says what each source sees.
+ * not ported: the per-source name and icon table (one tile has one icon, Settings' Dns of its Sources section)
  */
 @Composable
-private fun SourceChoices(settings: SettingsStore): List<SetupTile> {
+private fun SourceChoices(settings: SettingsStore, open: Boolean, onOpen: () -> Unit, onClose: () -> Unit): List<SetupTile> {
     val current by settings.settings.collectAsState()
-    // Only the source that shows the reader to X is a call to make; the others stay on, the best preset.
-    return SOURCE_OPTIONS.filter { it.title == "Newest posts from X" }.map { option ->
-        val on = option.isOn(current)
-        val (name, icon) = when (option.title) {
-            "Newest posts from X" -> "Newest from X" to MtgaIcons.Pulse
-            "FxTwitter" -> "FxTwitter" to SettingsIcons.Link
-            "Nitter servers" -> "Nitter servers" to SettingsIcons.Dns
-            "Internet Archive" -> "Internet Archive" to SettingsIcons.Timer
-            else -> option.title to MtgaIcons.Search
-        }
+    val haptics = rememberHaptics()
+    val on = SOURCE_OPTIONS.count { it.isOn(current) }
+    return listOf(
         SetupTile(
-            id = "source:${option.title}", name = name, title = option.title, icon = icon,
-            state = if (on) "On" else "Off",
-            summary = option.summary + " Tap to turn it on or off. All of them together find the most posts. " +
-                "Changeable in Settings.",
-            done = on, required = false,
-            onClick = { settings.update { option.set(it, !on) } }
+            id = "sources", name = "Sources", title = "Sources", icon = SettingsIcons.Dns,
+            state = "$on of ${SOURCE_OPTIONS.size}",
+            summary = "Where posts are read from. All of them together find the most posts; each one sees your address, " +
+                "and X sees it when its source is on. Tap to tick or untick them. At least one stays on. " +
+                "Changeable in Settings.\n\n" + SOURCE_OPTIONS.joinToString("\n") { it.title + ": " + it.summary },
+            done = on > 0, required = false,
+            onClick = onOpen,
+            menu = {
+                GlassMenu(expanded = open, onDismissRequest = onClose) {
+                    DropdownMenuGroup(index = 0, count = 1) {
+                        SOURCE_OPTIONS.forEach { option ->
+                            val ticked = option.isOn(current)
+                            CheckableDropdownMenuItem(
+                                checked = ticked,
+                                onCheckedChange = { want ->
+                                    // The last source on stays on: a reader with none would find nothing.
+                                    if (!want && on == 1) haptics.reject() else settings.update { option.set(it, want) }
+                                },
+                                text = option.title
+                            )
+                        }
+                    }
+                }
+            }
         )
-    }
+    )
 }
 
 /**
- * The guide shown on first launch, and again from Settings: the logo, the title, how many steps are left, the tiles,
- * then Start (Done when reopened), which waits for the required ones. [onFinish] receives true when the reader asks
+ * The guide shown on first launch, and again from Settings: the mark, one sentence saying what the app is, the tiles,
+ * then Start (Done when reopened), which waits for the required ones if any. [onFinish] receives true when the reader asks
  * to go to Accounts. Ported from SetupScreen#SetupScreen of
  * https://github.com/florisboard/florisboard/blob/main/app/src/main/kotlin/dev/patrickgold/florisboard/app/setup/SetupScreen.kt
  * through Language's
@@ -250,46 +379,47 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
  * https://github.com/213YaZ786/Language/blob/main/app/src/main/java/com/yaz/language/feature/welcome/WelcomeScreen.kt#WelcomeContent
  * and
  * https://github.com/florisboard/florisboard/blob/main/app/src/main/kotlin/dev/patrickgold/florisboard/app/setup/SetupScreen.kt#SetupScreen
+ * with the centred content block of
+ * https://github.com/SvenTiigi/WhatsNewKit/blob/main/Sources/View/WhatsNewView.swift#body
+ * not ported: WhatsNewView's footer band, secondary action sheet, version store, title and feature helper views (the
+ * app's title and SetupTileGrid take their place), the pinned footer (Start ends the block, as the approved picture).
  */
 @Composable
 internal fun WelcomeContent(tiles: List<SetupTile>, reopened: Boolean, onStart: () -> Unit, onExplain: (SetupTile) -> Unit = {}) {
     val steps = tiles
-    // Drawn over the whole window, so it keeps clear of the system bars itself.
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-    ) {
+    // WhatsNewView's body: the scrolling content is a block centred in the window when shorter than it (the viewport is
+    // the minimum height of the block). Drawn over the whole window, so it keeps clear of the system bars itself.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val screen = maxHeight
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().padding(horizontal = 8.dp)
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         ) {
-            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-            Spacer(Modifier.height(40.dp))
-            // The old guide's mark, turning at its size (https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#PageContent).
-            LoadingMark(size = 160.dp)
-            Spacer(Modifier.height(20.dp))
-            // Every title in the accent (the user, 2026-10-31), as Modules' SettingsSectionTitle.
-            Text("Welcome to MTGA", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(8.dp))
-            Text(steps.leftText(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(24.dp))
-            SetupTileGrid(steps, onExplain)
-
-            Spacer(Modifier.height(32.dp))
-            val ready = steps.requiredDone()
-            BoldButton(filled = true, enabled = ready, onClick = onStart) { Text(if (reopened) "Done" else "Start") }
-            if (!ready) {
-                Spacer(Modifier.height(12.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .widthIn(max = 720.dp).fillMaxWidth().heightIn(min = screen)
+                    .windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 8.dp)
+            ) {
+                // The old guide's mark, turning at its size (https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#PageContent).
+                LoadingMark(size = 160.dp)
+                Spacer(Modifier.height(16.dp))
+                // The model of every app's guide (the user, 2026-11-08): the mark, one sentence saying what the app is, the
+                // tiles, Start. No title, no "Welcome", no "N left": each tile shows its own check, none is required.
                 Text(
-                    "Still needed: " + steps.requiredLeft().joinToString(", ") { it.name },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "X reader",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
+                Spacer(Modifier.height(24.dp))
+                SetupTileGrid(steps, onExplain)
+                Spacer(Modifier.height(40.dp))
+                StartCookie(description = if (reopened) "Done" else "Start", onClick = onStart)
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
-            Spacer(Modifier.height(24.dp))
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }

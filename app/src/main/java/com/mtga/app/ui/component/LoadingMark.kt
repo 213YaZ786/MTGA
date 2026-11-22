@@ -1,11 +1,13 @@
 package com.mtga.app.ui.component
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -13,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
@@ -42,6 +43,15 @@ fun LoadingMark(
     size: Dp = 32.dp,
     running: Boolean = true,
     progress: Float = 0f
+) = LoadingMark(modifier, size, running) { progress }
+
+/** The same mark with [progress] read while drawing, so a gesture moving it does not recompose its caller. */
+@Composable
+fun LoadingMark(
+    modifier: Modifier = Modifier,
+    size: Dp = 32.dp,
+    running: Boolean = true,
+    progress: () -> Float
 ) {
     val accent = MaterialTheme.colorScheme.primary
     val ink = remember(accent) {
@@ -55,17 +65,32 @@ fun LoadingMark(
     val art = remember { FeatherArt() }
     val centre = art.centre
 
-    val transition = rememberInfiniteTransition(label = "falling feathers")
-    val clock by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(FALL_MILLIS, easing = LinearEasing), RepeatMode.Restart),
-        label = "fall"
-    )
-    // A gesture lets the feathers in a third of a fall at most.
-    val time = if (running) clock else progress / 3f
+    // One time source for both ways: the clock continues from where it stands, and a gesture's progress glides from
+    // there, so the feathers never jump when `running` changes. Nothing runs at rest.
+    // https://github.com/androidx/androidx/blob/androidx-main/compose/animation/animation-core/samples/src/main/java/androidx/compose/animation/core/samples/AnimatableSamples.kt#AnimatableAnimateToGenericsType
+    // (the sample's Animatable remembered, moved by animateTo in a coroutine; its tap detection and Offset are not ported:
+    // the target is the clock or the pull, not a touch).
+    val currentProgress by rememberUpdatedState(progress)
+    val clock = remember { Animatable(if (running) 0f else currentProgress() / 3f) }
+    LaunchedEffect(running) {
+        if (running) {
+            // The infinite frame clock, as InfiniteTransition runs on: a test waiting for idle does not wait for it.
+            var last = withInfiniteAnimationFrameMillis { it }
+            while (true) {
+                val now = withInfiniteAnimationFrameMillis { it }
+                val next = clock.value + (now - last).toFloat() / FALL_MILLIS
+                clock.snapTo(if (next >= 1f) next - 1f else next)
+                last = now
+            }
+        } else {
+            // A gesture lets the feathers in a third of a fall at most.
+            snapshotFlow { currentProgress() / 3f }.collectLatest { clock.animateTo(it, tween(90, easing = LinearEasing)) }
+        }
+    }
 
-    Canvas(modifier.size(size).clipToBounds()) {
+    // Not clipped to its box: each feather enters and leaves by its own fade (`seen`), so nothing is cut flat at the edges.
+    Canvas(modifier.size(size)) {
+        val time = clock.value
         val unit = this.size.minDimension / 100f
         FEATHERS.forEachIndexed { i, (lane, scale) ->
             val t = (time + i / FEATHERS.size.toFloat()) % 1f

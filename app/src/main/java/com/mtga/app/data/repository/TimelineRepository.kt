@@ -99,7 +99,8 @@ class TimelineRepository(
     suspend fun refresh(
         only: Set<String>? = null,
         folder: String? = null,
-        onHeads: suspend () -> Unit = {}
+        onHeads: suspend () -> Unit = {},
+        onProgress: (done: Int, total: Int, accounts: Int) -> Unit = { _, _, _ -> }
     ): Merged = coroutineScope {
         val handles = handlesIn(folder)
         if (handles.isEmpty()) return@coroutineScope Merged()
@@ -107,6 +108,11 @@ class TimelineRepository(
         val targets = if (only == null) handles else handles.filter { it.lowercase() in only }
 
         val gate = Semaphore(MAX_PARALLEL_FETCHES)
+        // One step per account in each phase: the heads, then the feeds.
+        val total = targets.size * (if (settings.current.useXcomDirect) 2 else 1)
+        val finished = java.util.concurrent.atomic.AtomicInteger(0)
+        // done and total are steps (the ring's fill); accounts is how many accounts the steps are made of.
+        onProgress(0, total, targets.size)
 
         val errors = mutableMapOf<String, AppError>()
         var oldest: Long? = null
@@ -128,7 +134,7 @@ class TimelineRepository(
             // reads run two at a time and the cache is written one account
             // after the other.
             val heads = targets.map { handle ->
-                async { gate.withPermit { handle to feeds.loadHead(handle) } }
+                async { gate.withPermit { (handle to feeds.loadHead(handle)).also { onProgress(finished.incrementAndGet(), total, targets.size) } } }
             }.map { it.await() }
             for ((handle, head) in heads) {
                 when (head) {
@@ -144,7 +150,7 @@ class TimelineRepository(
 
         val results = targets.map { handle ->
             async {
-                gate.withPermit { handle to feeds.loadFeed(handle) }
+                gate.withPermit { (handle to feeds.loadFeed(handle)).also { onProgress(finished.incrementAndGet(), total, targets.size) } }
             }
         }.map { it.await() }
 

@@ -12,6 +12,7 @@ import com.mtga.app.data.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -34,6 +35,11 @@ data class TimelineUiState(
     val folder: String? = null,
     /** Every folder, Main first. One entry means the reader has made none. */
     val folders: List<String> = emptyList(),
+    /** Accounts the running refresh has finished, and how many it reads; 0 of 0 when none runs. */
+    val refreshDone: Int = 0,
+    val refreshTotal: Int = 0,
+    /** How full the ring is, 0 to 1: the steps (heads, then feeds) over all of them. */
+    val refreshFill: Float = 0f,
 ) {
     val isEmpty: Boolean get() = posts.isEmpty() && !loading
 }
@@ -254,22 +260,34 @@ class TimelineViewModel(
             _state.value = _state.value.copy(posts = cached.posts, canLoadMore = cached.canLoadMore)
         }
 
+        // The accounts finished, reported from the fetching coroutines: the count goes in the state for the pull's ring.
+        // The text counts accounts (steps rounded down to whole accounts), the ring fills with the steps.
+        val onProgress: (Int, Int, Int) -> Unit = { steps, totalSteps, accounts ->
+            _state.update {
+                it.copy(
+                    refreshDone = if (totalSteps > 0) steps * accounts / totalSteps else 0,
+                    refreshTotal = accounts,
+                    refreshFill = if (totalSteps > 0) steps.toFloat() / totalSteps else 0f
+                )
+            }
+        }
+
         val network = if (everything && only == null && asked != null) {
             // Two steps when a folder is on screen: its accounts first, painted
             // as soon as they are in, then everyone else. One pass over every
             // account left the reader looking at stale posts until the last
             // account of the last folder had answered.
-            val shown = repository.refresh(null, asked, paintHeads)
+            val shown = repository.refresh(null, asked, paintHeads, onProgress)
             if (folder == asked) _state.value = _state.value.copy(posts = shown.posts, errors = shown.errors)
             val inShown = accounts.accounts.value.filter { it.folder == asked }.map { it.handle.lowercase() }.toSet()
             val rest = known - inShown
-            val others = if (rest.isEmpty()) repository.cached(null) else repository.refresh(rest, null, paintHeads)
+            val others = if (rest.isEmpty()) repository.cached(null) else repository.refresh(rest, null, paintHeads, onProgress)
             others.copy(
                 errors = shown.errors + others.errors,
                 oldestFetchedAtMillis = listOfNotNull(shown.oldestFetchedAtMillis, others.oldestFetchedAtMillis).minOrNull()
             )
         } else {
-            repository.refresh(only, if (everything) null else asked, paintHeads)
+            repository.refresh(only, if (everything) null else asked, paintHeads, onProgress)
         }
         if (everything && only == null) everythingFetched = true
         // What goes on screen is the folder shown now. It differs from what
@@ -295,6 +313,9 @@ class TimelineViewModel(
         _state.value = _state.value.copy(
             posts = merged.posts,
             loading = false,
+            refreshDone = 0,
+            refreshTotal = 0,
+            refreshFill = 0f,
             errors = errors,
             followedCount = known.size,
             lastUpdatedMillis = lastUpdated,

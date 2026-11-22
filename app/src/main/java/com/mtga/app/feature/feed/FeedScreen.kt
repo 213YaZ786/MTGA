@@ -20,6 +20,7 @@ import coil3.compose.AsyncImage
 import com.mtga.app.ui.component.rememberMediaPolicy
 import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -35,13 +36,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -53,9 +52,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,13 +68,11 @@ import com.mtga.app.core.model.Feed
 import com.mtga.app.core.model.MediaItem
 import com.mtga.app.core.model.MediaType
 import com.mtga.app.core.model.Post
+import com.mtga.app.core.model.VerifiedType
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.Avatar
 import com.mtga.app.ui.component.ChallengePill
-import com.mtga.app.ui.component.BarTitle
-import com.mtga.app.ui.component.FloatingTopBar
-import com.mtga.app.ui.component.scrolledFromTop
-import com.mtga.app.ui.component.underFloatingTopBar
+import com.mtga.app.ui.component.PullRevealBox
 import com.mtga.app.ui.component.ErrorPanel
 import com.mtga.app.ui.component.LocalDockPadding
 import com.mtga.app.ui.component.LocalInlinePlaying
@@ -85,11 +84,11 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
 /**
- * One account: a centred profile header, then its posts.
+ * One account: a profile header (ProfileHeader.kt), then its posts.
  *
  * The header is always there, even before anything loaded, so you can follow
- * an account whose feed is momentarily unreachable. The top bar stays quiet
- * and only shows the name once the header has scrolled away.
+ * an account whose feed is momentarily unreachable. No bar: the pull down
+ * refreshes, back is the system's.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,7 +130,6 @@ fun FeedScreen(
 
     val feed = state.feed
     val name = feed?.displayName?.takeIf { it.isNotBlank() && it != handle }
-    val headerGone by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
 
     viewing?.let { (postId, media, index) ->
         MediaViewer(
@@ -164,64 +162,50 @@ fun FeedScreen(
         if (shouldLoadMore) viewModel.loadMore()
     }
 
-    // The bar folds away as the reader goes down and comes back on the first
-    // upward flick, which returns a band of screen on a phone without hiding
-    // the way back. enterAlways rather than a pinned bar, because this list is
-    // long and the bar is not needed while reading.
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
-
+    // No bar on a profile: back is the system's, refresh is the pull down (Tusky's AccountActivity refreshes its profile by
+    // a swipe, LinkedOut's FeedScreen draws no bar while its header is on screen). [onBack] stays for the navigation host.
+    // Source: https://github.com/tuskyapp/Tusky/blob/develop/app/src/main/java/com/keylesspalace/tusky/components/account/AccountActivity.kt#AccountActivity
+    // and https://github.com/213YaZ786/LinkedOut/blob/main/app/src/main/java/com/linkedout/app/feature/feed/FeedScreen.kt#FeedScreen
+    // not ported: AccountActivity's toolbar, tabs, banner collapsing, menu and its view pager (the user's words: no bar)
+    // not ported: LinkedOut's FeedScreen own header card and back-in-card, refresh button (the pull refreshes, back is the system's)
     Scaffold(
         // The page's ground is painted under the whole app, see MainActivity.
         containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            FloatingTopBar(
-                scrollBehavior = scrollBehavior,
-                title = {
-                    if (headerGone) {
-                        BarTitle(name ?: "@$handle")
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(MtgaIcons.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
-                        if (state.loading) {
-                            LoadingMark(size = 22.dp)
-                        } else {
-                            Icon(MtgaIcons.Refresh, contentDescription = "Refresh")
-                        }
-                    }
-                }
-            )
-        }
+        contentColor = MaterialTheme.colorScheme.onBackground
     ) { padding ->
         Box(Modifier.fillMaxSize()) {
+        val direction = LocalLayoutDirection.current
+        val readable = LocalReadableInset.current
         val inline = rememberInlineTarget(
             listState = listState,
             posts = shown,
             keyOf = { it.id },
             paused = viewing != null
         )
+        // Every load (the first one, a retry, the pull) shows the ring of feathers over the blurred list, counted as
+        // Home's: the sources read so far, "2 of 4" and "sources" in its centre (CircularProgressIndicator's determinate
+        // form, filled by the progress).
+        // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/ProgressIndicator.kt#CircularProgressIndicator
+        PullRevealBox(
+            isRefreshing = state.loading,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize(),
+            progress = if (state.refreshTotal > 0) ({ state.refreshFill }) else null,
+            count = if (state.refreshTotal > 0) state.refreshDone to state.refreshTotal else null,
+            countLabel = "sources"
+        ) {
         CompositionLocalProvider(LocalInlinePlaying provides inline) {
         LazyColumn(
             state = listState,
-            // Horizontal padding rather than a narrower list, so a drag in
-            // the margins of a wide window scrolls too.
+            // The header starts at the window's top, its banner under the status bar, so the top inset is not padded.
+            // The readable inset is on the rows, not the list, so a drag in the margins of a wide window scrolls too
+            // and the banner stays edge to edge.
             contentPadding = PaddingValues(
-                start = LocalReadableInset.current,
-                end = LocalReadableInset.current,
-                bottom = LocalDockPadding.current
-            ).plus(padding),
-            modifier = Modifier.fillMaxSize().underFloatingTopBar(
-                barHeight = padding.calculateTopPadding(),
-                scrolled = listState::scrolledFromTop,
-                foldOffset = { scrollBehavior.state.heightOffset }
-            )
+                start = padding.calculateStartPadding(direction),
+                end = padding.calculateEndPadding(direction),
+                bottom = LocalDockPadding.current + padding.calculateBottomPadding()
+            ),
+            modifier = Modifier.fillMaxSize()
         ) {
             item(key = "header") {
                 ProfileHeader(
@@ -229,6 +213,9 @@ fun FeedScreen(
                     name = name,
                     feed = feed,
                     isFollowing = isFollowing,
+                    verified = feed?.posts?.firstOrNull {
+                        it.authorHandle.equals(handle, ignoreCase = true) && it.verified != VerifiedType.NONE
+                    }?.verified ?: feed?.verified ?: VerifiedType.NONE,
                     onToggleFollow = {
                         // Following answers at once; unfollowing asks first, a stray
                         // tap on "Following" must not drop an account.
@@ -245,7 +232,23 @@ fun FeedScreen(
                             listOf(
                                 MediaItem(
                                     previewUrl = small,
-                                    downloadUrl = largeAvatar(small),
+                                    downloadUrl = originalAvatar(small),
+                                    type = MediaType.PHOTO
+                                )
+                            ),
+                            0
+                        )
+                    },
+                    // Shell.tsx onPressBanner opens the lightbox; the viewer gets the banner at its full size.
+                    // https://github.com/bluesky-social/social-app/blob/main/src/screens/Profile/Header/Shell.tsx#onPressBanner
+                    // not ported: the lightbox's own moderation and alt text (X banners carry none)
+                    onOpenBanner = { small ->
+                        viewing = Triple(
+                            "",
+                            listOf(
+                                MediaItem(
+                                    previewUrl = small,
+                                    downloadUrl = bannerFull(small),
                                     type = MediaType.PHOTO
                                 )
                             ),
@@ -261,7 +264,7 @@ fun FeedScreen(
             state.error?.let {
                 item(key = "error") {
                     ErrorPanel(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(horizontal = readable).padding(16.dp),
                         error = it,
                         onRetry = viewModel::refresh,
                         onOpenDiagnostics = onOpenDiagnostics
@@ -269,16 +272,8 @@ fun FeedScreen(
                 }
             }
 
-            if (shown.isEmpty()) {
-                if (feed == null && state.loading) {
-                    item(key = "loading") {
-                        Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                            LoadingMark(size = 96.dp)
-                        }
-                    }
-                }
-                return@LazyColumn
-            }
+            // The list's own 96 dp mark is gone: the pull's mark above the header shows the load.
+            if (shown.isEmpty()) return@LazyColumn
 
             items(shown, key = { it.id }) { post ->
                 PostCard(
@@ -288,29 +283,38 @@ fun FeedScreen(
                     onDownload = { downloader.download(it, post.authorHandle, post) },
                     showStats = settings.showCounts,
                     onOpenMedia = { index -> viewing = Triple(post.id, post.media, index) },
-                    modifier = Modifier.animateItem()
+                    modifier = Modifier.padding(horizontal = readable).animateItem()
                 )
             }
 
             item(key = "footer") {
                 Box(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = readable).padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    when {
-                        loadingMore -> LoadingMark(size = 28.dp)
-                        canMore -> BoldButton(onClick = { viewModel.loadMore(manual = true) }) {
-                            Text(if (pagingFailed) "Try again" else "Load older posts")
+                    // Crossfade between the footer's states (mark, button, text), as Home's footer.
+                    val kind = when {
+                        loadingMore -> 0
+                        canMore -> if (pagingFailed) 1 else 2
+                        else -> 3
+                    }
+                    Crossfade(targetState = kind, label = "feedFooter") { shown ->
+                        when (shown) {
+                            0 -> LoadingMark(size = 28.dp)
+                            1, 2 -> BoldButton(onClick = { viewModel.loadMore(manual = true) }) {
+                                Text(if (shown == 1) "Try again" else "Load older posts")
+                            }
+                            else -> Text(
+                                "No older posts available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
                         }
-                        else -> Text(
-                            "No older posts available.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
                     }
                 }
             }
+        }
         }
         }
 
@@ -330,154 +334,3 @@ fun FeedScreen(
     }
 }
 
-@Composable
-private fun ProfileHeader(
-    handle: String,
-    name: String?,
-    feed: Feed?,
-    isFollowing: Boolean,
-    onToggleFollow: () -> Unit,
-    onOpenAvatar: (String) -> Unit
-) {
-    val uriHandler = LocalUriHandler.current
-    val hold = rememberMediaPolicy().hold
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        // The banner is a picture like any other, so Wi-Fi only holds it too.
-        val banner = feed?.bannerUrl
-        if (banner != null && !hold) {
-            AsyncImage(
-                model = banner,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(3f)
-                    .clip(ShapeDefaults.Medium)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            )
-        }
-
-        val avatar = feed?.avatarUrl
-        Box(
-            Modifier
-                .clip(CircleShape)
-                .clickable(enabled = avatar != null) { avatar?.let(onOpenAvatar) }
-        ) {
-            Avatar(url = avatar, name = name ?: handle, size = 88.dp)
-        }
-
-        Text(
-            name ?: "@$handle",
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-        if (name != null) {
-            Text(
-                "@$handle",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        feed?.bio?.let { bio ->
-            Text(
-                bio,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 520.dp).padding(top = 4.dp)
-            )
-        }
-
-        // Joined with a comma, as AOSP Dialer's CallLogEntryText.java joinSecondaryTextComponents (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java).
-        val meta = listOfNotNull(feed?.location, feed?.joined).joinToString(", ")
-        if (meta.isNotEmpty()) {
-            Text(
-                meta,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-        feed?.website?.let { site ->
-            Text(
-                site.removePrefix("https://").removePrefix("http://").removePrefix("www.").trimEnd('/'),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { uriHandler.openUri(site) }
-            )
-        }
-        feed?.stats?.let { stats ->
-            val parts = listOfNotNull(
-                stats.posts?.let { "${compactCount(it)} posts" },
-                stats.following?.let { "${compactCount(it)} following" },
-                stats.followers?.let { "${compactCount(it)} followers" }
-            )
-            if (parts.isNotEmpty()) {
-                Text(
-                    parts.joinToString(", "), // as AOSP Dialer's CallLogEntryText.java joinSecondaryTextComponents (https://android.googlesource.com/platform/packages/apps/Dialer/+/refs/heads/main/java/com/android/dialer/calllogutils/CallLogEntryText.java)
-                    style = MaterialTheme.typography.labelLarge,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-        }
-
-        if (isFollowing) {
-            BoldButton(onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Following")
-            }
-        } else {
-            BoldButton(filled = true, onClick = onToggleFollow, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Follow")
-            }
-        }
-
-        feed?.let {
-            Text(
-                sourceLine(it),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(Modifier.height(4.dp))
-    }
-}
-
-/** 870, 12,345, 566K, 53.2M: exact while short, rounded once it would not fit. */
-private fun compactCount(value: Long): String = when {
-    value < 10_000 -> String.format(Locale.getDefault(), "%,d", value)
-    value < 1_000_000 -> "${value / 1_000}K"
-    else -> {
-        val millions = value / 100_000 / 10.0
-        String.format(Locale.getDefault(), "%.1fM", millions).replace(".0M", "M").replace(",0M", "M")
-    }
-}
-
-/** Which server answered and how fresh it is. MTGA always names its source. */
-private fun sourceLine(feed: Feed): String {
-    val age = relativeTime(feed.fetchedAtMillis)
-    val freshness = when {
-        age.isEmpty() -> ""
-        age == "now" -> ", updated just now"
-        else -> ", updated $age ago"
-    }
-    return "Read via ${feed.fetchedFromHost}$freshness"
-}
-
-/**
- * X serves avatars in several sizes behind the same name: "_normal" is 48 px,
- * "_400x400" is the large one. Unknown formats are returned unchanged.
- */
-private fun largeAvatar(url: String): String =
-    url.replace("_normal.", "_400x400.").replace("_bigger.", "_400x400.")
