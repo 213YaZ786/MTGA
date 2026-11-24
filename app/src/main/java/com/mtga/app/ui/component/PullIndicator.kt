@@ -7,33 +7,26 @@ import com.mtga.app.ui.glass.LocalGlass
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.max
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.pullToRefresh
@@ -46,7 +39,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -102,25 +94,18 @@ fun PullIndicator(state: PullToRefreshState, isRefreshing: Boolean, modifier: Mo
 }
 
 /**
- * The pull to refresh that shows the load as a ring of feathers at the screen's centre. The content does not move:
- * while refreshing it is blurred (16 dp) and takes no tap, as Neko's PullRefresh does with its blurBackground; the
- * ring (168 dp, FeatherRing) stands over it, its feathers coming in with the pull (state.distanceFraction) and then
- * filling as the load goes ([progress], 0 to 1). [progress] null means no count: the ring runs round on its own, as
- * one account. [count] (done, total) is the text in the middle, "30 of 40" and "accounts".
+ * The pull to refresh that shows only the app's mark: LoadingMark (the falling feathers) at 72 dp, straight in the layer,
+ * no disc, glass, shadow, blur, ring, count or "Updated". The list does not move: the mark slides down over it from the
+ * top edge and lands just under the folder capsule, over the first post, at the threshold and while refreshing. Its alpha
+ * comes from the pull and is held at 1 while refreshing.
  *
  * The hand feels the threshold as in PullIndicator (the same effect).
  *
- * Sources: Modifier.pullToRefresh on a Box, the indicator outside the content driven by state.distanceFraction, from androidx's
- * https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/samples/src/main/java/androidx/compose/material3/samples/PullToRefreshSamples.kt#PullToRefreshLinearProgressIndicatorSample
- * and https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#pullToRefresh
- * (PullToRefreshBox's Box with the modifier, then content, then indicator); the blur and the disabled click from
- * https://github.com/nekomangaorg/Neko/blob/main/app/src/main/java/org/nekomanga/presentation/components/PullRefresh.kt#PullRefresh
- * (Size.medium is 16 dp, https://github.com/nekomangaorg/Neko/blob/main/app/src/main/java/org/nekomanga/presentation/theme/Constants.kt#Size);
- * the haptics from https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/ui/component/PullIndicator.kt#PullIndicator.
- * not ported: PullIndicator (kept as it is for the other readers; its disc, glass, fade-in alpha and translation are not wanted here)
+ * https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#IndicatorBox
+ * (PullToRefreshBox's Box with Modifier.pullToRefresh, then content, then the indicator driven by state.distanceFraction)
+ * not ported: IndicatorBox's drawWithContent clipRect, shape, containerColor, background and shadowElevation (the mark has none)
  * not ported: pullToRefresh (Material's own modifier is called, not copied)
- * not ported: PullToRefreshLinearProgressIndicatorSample's Scaffold, TopAppBar, Refresh action, LazyColumn and LinearProgressIndicator (the screen's own list and the ring take their place)
- * not ported: PullRefresh's enabled and onRefresh null branch (the callers always refresh), its PullToRefreshBox (Modifier.pullToRefresh is used on a Box), the black dim under API 31 (minSdk is 31), WavyLinearIndicator (the ring takes its place)
+ * not ported: IndicatorBox's SpinnerContainerSize (the mark's own 72 dp takes its place)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +114,8 @@ fun PullRevealBox(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
     state: PullToRefreshState = rememberPullToRefreshState(),
+    // progress, count, countLabel and lastUpdated are ignored since the ring and its count left the pull (point 43): the
+    // signature stays so callers of the other readers still compile.
     progress: (() -> Float)? = null,
     count: Pair<Int, Int>? = null,
     countLabel: String = "accounts",
@@ -146,25 +133,8 @@ fun PullRevealBox(
                 reached = over
             }
     }
-    // not ported: animateToHidden (the pull's own settling, Material's modifier does it)
-    // not ported: animateToThreshold (the pull's own settling, Material's modifier does it)
-    // not ported: snapTo (the state's own, the fill uses Animatable.snapTo)
-    val bezelView = remember { MBBackgroundView() }
-    val fill = remember { Animatable(0f) }
-    val currentProgress by rememberUpdatedState(progress)
-    // The bezelView of the ring comes in when the refresh starts and goes out after it ends, from where it stands
-    // (animateIn, MBProgressHUD: https://github.com/jdg/MBProgressHUD/blob/master/MBProgressHUD.m#animateIn). The fill
-    // is an Animatable moved by animateTo on the load, as PullToRefresh's state moves its distance on the pull:
-    // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#PullToRefreshState
-    LaunchedEffect(isRefreshing) {
-        animateRing(bezelView, fill, isRefreshing, if (progress == null) null else ({ currentProgress?.invoke() ?: 0f }))
-    }
-    // The last count, kept while the ring leaves: the screen's own count is gone when the load is over.
-    var kept by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    LaunchedEffect(isRefreshing) { if (isRefreshing) kept = null }
-    LaunchedEffect(count) { if (count != null) kept = count }
-    // The ring is composed only while something of it is on screen: its infinite motion never runs at rest.
-    val ringOn by remember { derivedStateOf { refreshing || state.distanceFraction > 0f || bezelView.alpha.value > 0f } }
+    // The mark is composed only while something of it is on screen: its infinite motion never runs at rest.
+    val markOn by remember { derivedStateOf { refreshing || state.distanceFraction > 0f } }
     Box(
         modifier.pullToRefresh(
             state = state,
@@ -173,39 +143,53 @@ fun PullRevealBox(
             threshold = threshold
         )
     ) {
-        // PullRefresh's blur on the content, as a layer effect read while drawing (the radius follows the ring's alpha):
-        // https://github.com/nekomangaorg/Neko/blob/main/app/src/main/java/org/nekomanga/presentation/components/PullRefresh.kt#PullRefresh
-        Box(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    val blur = BlurRadius.toPx() * bezelView.alpha.value
-                    if (blur > 0.5f) {
-                        clip = true
-                        renderEffect = BlurEffect(blur, blur, TileMode.Clamp)
-                    }
-                }
-        ) {
-            content()
-        }
-        // The content takes no tap while it is blurred, and gets them back as soon as the refresh is over.
-        if (isRefreshing) Scrim()
-        if (ringOn) {
-            PullRing(state, bezelView, fill, progress != null, kept, countLabel, lastUpdated, isRefreshing, Modifier.align(Alignment.Center))
+        content()
+        if (markOn) {
+            PullMarkBox(
+                distanceFraction = { state.distanceFraction },
+                isRefreshing = isRefreshing,
+                modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars)
+            ) {
+                LoadingMark(size = 72.dp, running = isRefreshing, progress = { state.distanceFraction.coerceIn(0f, 1f) })
+            }
         }
     }
 }
 
-/**
- * A transparent layer over the content that eats taps, as androidx's Scrim does with its dismissModifier
- * (pointerInput and detectTapGestures); TalkBack does not read through it (clearAndSetSemantics). Drags are not taken.
- * https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/Scrim.kt#Scrim
- * not ported: Scrim's colour, alpha animation and onClick dismissal
- */
+// The distance at which the mark's foot lands: the banner's 64 dp, the mark's 72 dp and 4 dp of air, so at the threshold
+// the mark sits just under the folder capsule, over the first post card.
+private val PullMaxDistance = 140.dp
+
+// IndicatorBox of PullToRefresh.kt without its shape, background and elevation: the box places itself with a layer,
+// translationY = distanceFraction * maxDistance - height, read in the layer and not in composition. The alpha comes from
+// the pull (fraction * 2, clamped) and is 1 while refreshing.
 @Composable
-private fun Scrim(modifier: Modifier = Modifier) {
-    val dismissModifier = Modifier.pointerInput(Unit) { detectTapGestures { } }.clearAndSetSemantics { }
-    Box(modifier.fillMaxSize().then(dismissModifier))
+private fun PullMarkBox(
+    distanceFraction: () -> Float,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier,
+    maxDistance: Dp = PullMaxDistance,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(72.dp)
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    placeable.placeWithLayer(
+                        0,
+                        0,
+                        layerBlock = {
+                            translationY = distanceFraction() * maxDistance.roundToPx() - size.height
+                            alpha = if (isRefreshing) 1f else (distanceFraction() * 2f).coerceIn(0f, 1f)
+                        }
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center,
+        content = content
+    )
 }
 
 /** MBProgressHUDAnimation: Zoom picks ZoomIn or ZoomOut by the direction. */
@@ -269,6 +253,7 @@ internal suspend fun animateIn(
  * down within one load; going out, the fill runs to the end, then the bezelView zooms out. The fill is an Animatable
  * moved by animateTo, as PullToRefresh's state moves its distance on the pull:
  * https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/pulltorefresh/PullToRefresh.kt#PullToRefreshState
+ * Still used by the connection check's ring (DiagnosticsScreen), no longer by the pull.
  * not ported: animateToHidden (the pull's own settling, Material's modifier does it)
  * not ported: animateToThreshold (the pull's own settling, Material's modifier does it)
  * not ported: snapTo (the state's own, the fill uses Animatable.snapTo)
@@ -291,79 +276,5 @@ internal suspend fun animateRing(
         if (progress != null) fill.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
         animateIn(bezelView, animatingIn = false)
         fill.snapTo(0f)
-    }
-}
-
-/** Neko's Size.medium, how much the content is blurred while refreshing. */
-private val BlurRadius = 16.dp
-
-/**
- * The ring at the centre: its feathers come in with the pull, then fill with [progress], or turn once round on their
- * own when there is none (one account).
- * Source: PullToRefreshLinearProgressIndicatorSample drives its indicator from state.distanceFraction.
- * not ported: PullIndicator, pullToRefresh (see PullRevealBox)
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PullRing(
-    state: PullToRefreshState,
-    bezelView: MBBackgroundView,
-    fill: Animatable<Float, AnimationVector1D>,
-    counted: Boolean,
-    count: Pair<Int, Int>?,
-    countLabel: String,
-    lastUpdated: String?,
-    refreshing: Boolean,
-    modifier: Modifier = Modifier
-) {
-    // The whole ring shows by the pull or by the zoom, the more of the two, and scales from small as it shows; every
-    // value is read while drawing.
-    val zoom = modifier.graphicsLayer {
-        val shown = max(LinearOutSlowInEasing.transform(state.distanceFraction.coerceIn(0f, 1f)), bezelView.alpha.value)
-        alpha = shown.coerceIn(0f, 1f)
-        val scale = max(0.5f + 0.5f * shown.coerceIn(0f, 1f), bezelView.transform.value)
-        scaleX = scale
-        scaleY = scale
-    }
-    // While pulled and not yet refreshing (the ring's zoom not begun), the last update is what the centre says, as
-    // MJRefresh's header shows lastUpdatedTimeLabel under its state: "Updated" over the age (ageForms' second form).
-    // https://github.com/CoderMJLee/MJRefresh/blob/master/MJRefresh/Custom/Header/MJRefreshStateHeader.m#lastUpdatedTimeLabel
-    // not ported: MJRefreshStateHeader's stateLabel and titles per state, lastUpdatedTimeText's date formats, the stored key
-    val lastUpdatedTimeLabel by remember { derivedStateOf { !refreshing && lastUpdated != null && bezelView.alpha.value == 0f } }
-    val centre: @Composable ColumnScope.() -> Unit = {
-        if (lastUpdatedTimeLabel && lastUpdated != null) {
-            Text(
-                "Updated",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                ageForms(lastUpdated)[1],
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-        } else if (count != null) {
-            Text(
-                "${count.first} of ${count.second}",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                countLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
-    if (counted) {
-        // The fill starts at 0 with the load: the pull only shows the faint track.
-        FeatherRing(progress = { fill.value }, modifier = zoom, centre = centre)
-    } else {
-        // One account: the indeterminate motion, its arc growing from nothing as the ring starts to run.
-        FeatherRing(modifier = zoom, intro = { bezelView.alpha.value }, centre = centre)
     }
 }

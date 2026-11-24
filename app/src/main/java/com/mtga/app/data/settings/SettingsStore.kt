@@ -1,6 +1,8 @@
 package com.mtga.app.data.settings
 
 import com.mtga.app.core.update.UpdateMode
+import com.mtga.app.ui.component.SyncFrequency
+import com.mtga.app.ui.component.defaultSyncFrequency
 import android.content.Context
 import com.mtga.app.core.common.writeTextAtomically
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,7 +119,12 @@ data class Settings(
      * Where the Folders screen's new folder button was left, as a snap fraction of the page's movement bounds
      * (see ui/component/MovableAction), or null until it is moved (then bottom right).
      */
-    val foldersButtonSnap: Float? = null
+    val foldersButtonSnap: Float? = null,
+    /**
+     * How old an account's last read may be at launch before it is read again (reader kit LaunchRefresh), saved by
+     * name. An unknown name in the file falls back to the default with the rest of the settings (see load).
+     */
+    val launchRefresh: SyncFrequency = defaultSyncFrequency
 )
 
 /**

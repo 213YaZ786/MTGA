@@ -15,11 +15,13 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -33,6 +35,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -140,10 +144,13 @@ private class MorphShape(private val morph: Morph, private val bounds: Rect, pri
 @Composable
 internal fun StartCookie(
     description: String,
-    onClick: () -> Unit,
+    onClick: (origin: Offset) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptics = rememberHaptics()
+    // The button's centre in root coordinates, kept up to date as the guide scrolls, passed up at the tap so the reveal
+    // starts from it.
+    var centre by remember { mutableStateOf(Offset.Unspecified) }
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val morph = remember { Morph(Cookie9Sided, CircleShape) }
@@ -169,6 +176,7 @@ internal fun StartCookie(
     Box(
         modifier = modifier
             .size(FabMediumContainerSize)
+            .onGloballyPositioned { centre = it.boundsInRoot().center }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -188,7 +196,7 @@ internal fun StartCookie(
             ) {
                 turns++
                 haptics.toggle(true)
-                onClick()
+                onClick(centre)
             },
         contentAlignment = Alignment.Center
     ) {

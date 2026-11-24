@@ -44,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,7 @@ import com.mtga.app.data.settings.AutoDownload
 import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.feature.settings.SOURCE_OPTIONS
 import com.mtga.app.feature.settings.SettingsIcons
+import com.mtga.app.feature.settings.RefreshDialog
 import com.mtga.app.feature.settings.SettingsViewModel
 import com.mtga.app.core.update.StoreLink
 import com.mtga.app.core.update.Updates
@@ -210,6 +212,8 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
     // DropdownMenuGroup, SelectableDropdownMenuItem per choice, the one chosen checked)
     // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
     val sources = SourceChoices(settings, open = choosing == "sources", onOpen = { choosing = "sources" }, onClose = { choosing = "" }).single()
+    // Refresh at launch: the same dialog and setter as Settings > Reading, so the guide and Settings share one value.
+    val refresh by settings.settings.collectAsState()
     return listOf(
         SetupTile(
             id = "media", name = "Save media", title = "Save media automatically", icon = MtgaIcons.Download,
@@ -255,6 +259,20 @@ fun rememberSetupTiles(onFinish: (openAccounts: Boolean) -> Unit): List<SetupTil
             }
         ),
         sources,
+        SetupTile(
+            id = "refresh", name = "Refresh at launch", title = "Refresh at launch", icon = SettingsIcons.Timer,
+            state = refresh.launchRefresh.tile,
+            summary = "When the app opens, a feed is read again once its last read is older than this. Tap to choose.",
+            done = true, required = false,
+            onClick = { choosing = "refresh" },
+            menu = {
+                if (choosing == "refresh") RefreshDialog(
+                    selected = refresh.launchRefresh,
+                    onPick = sync::setSyncFrequency,
+                    onDismiss = { choosing = "" }
+                )
+            }
+        ),
         // New posts, X links and Updates follow the rows of Settings, which read the same Android states and open the same
         // pages: the notification permission and page, the x.com link state, the Store check and the install page
         // https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/settings/SettingsScreen.kt#SettingsScreen
@@ -359,14 +377,18 @@ private fun SourceChoices(settings: SettingsStore, open: Boolean, onOpen: () -> 
  * https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/welcome/WelcomeScreen.kt#WelcomeScreen
  */
 @Composable
-fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
+fun WelcomeScreen(
+    onFinish: (openAccounts: Boolean) -> Unit,
+    // Start (Done) with the button's centre in root coordinates, for the reveal. The tiles keep onFinish.
+    onStart: (origin: Offset) -> Unit = { onFinish(false) }
+) {
     val settings: SettingsStore = koinInject()
     val reopened = remember { settings.current.welcomeSeen }
     val steps = rememberSetupTiles(onFinish)
     // The tile whose long press is open (its id), "" when none.
     var explained by rememberSaveable { mutableStateOf("") }
 
-    WelcomeContent(steps, reopened, { onFinish(false) }) { explained = it.id }
+    WelcomeContent(steps, reopened, onStart) { explained = it.id }
 
     steps.firstOrNull { it.id == explained }?.let { tile ->
         SetupTileDialog(tile, onDismiss = { explained = "" })
@@ -385,7 +407,7 @@ fun WelcomeScreen(onFinish: (openAccounts: Boolean) -> Unit) {
  * app's title and SetupTileGrid take their place), the pinned footer (Start ends the block, as the approved picture).
  */
 @Composable
-internal fun WelcomeContent(tiles: List<SetupTile>, reopened: Boolean, onStart: () -> Unit, onExplain: (SetupTile) -> Unit = {}) {
+internal fun WelcomeContent(tiles: List<SetupTile>, reopened: Boolean, onStart: (origin: Offset) -> Unit, onExplain: (SetupTile) -> Unit = {}) {
     val steps = tiles
     // WhatsNewView's body: the scrolling content is a block centred in the window when shorter than it (the viewport is
     // the minimum height of the block). Drawn over the whole window, so it keeps clear of the system bars itself.

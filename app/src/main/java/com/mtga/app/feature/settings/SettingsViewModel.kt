@@ -17,6 +17,7 @@ import com.mtga.app.data.settings.SettingsStore
 import com.mtga.app.data.settings.StartTab
 import com.mtga.app.data.settings.ThemeMode
 import com.mtga.app.sync.SyncWorker
+import com.mtga.app.ui.component.SyncFrequency
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -163,6 +164,10 @@ class SettingsViewModel(
     fun setSource(option: SourceOption, enabled: Boolean) = store.update { option.set(it, enabled) }
 
     fun setStartTab(tab: StartTab) = store.update { it.copy(startTab = tab) }
+
+    // As Feeder's setSyncFrequency stores the choice (not ported: its schedulePeriodicRssSync, nothing runs in the background):
+    // https://github.com/spacecowboy/Feeder/blob/master/app/src/main/java/com/nononsenseapps/feeder/archmodel/SettingsStore.kt#setSyncFrequency
+    fun setSyncFrequency(value: SyncFrequency) = store.update { it.copy(launchRefresh = value) }
 
     fun setShareAsNitter(enabled: Boolean) = store.update { it.copy(shareAsNitter = enabled) }
 

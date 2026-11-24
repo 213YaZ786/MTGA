@@ -182,17 +182,11 @@ fun FeedScreen(
             keyOf = { it.id },
             paused = viewing != null
         )
-        // Every load (the first one, a retry, the pull) shows the ring of feathers over the blurred list, counted as
-        // Home's: the sources read so far, "2 of 4" and "sources" in its centre (CircularProgressIndicator's determinate
-        // form, filled by the progress).
-        // https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/ProgressIndicator.kt#CircularProgressIndicator
+        // Every load (the first one, a retry, the pull) shows the app's mark over the list, as Home's.
         PullRevealBox(
             isRefreshing = state.loading,
             onRefresh = viewModel::refresh,
-            modifier = Modifier.fillMaxSize(),
-            progress = if (state.refreshTotal > 0) ({ state.refreshFill }) else null,
-            count = if (state.refreshTotal > 0) state.refreshDone to state.refreshTotal else null,
-            countLabel = "sources"
+            modifier = Modifier.fillMaxSize()
         ) {
         CompositionLocalProvider(LocalInlinePlaying provides inline) {
         LazyColumn(

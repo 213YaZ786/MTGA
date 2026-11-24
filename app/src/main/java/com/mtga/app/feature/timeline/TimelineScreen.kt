@@ -94,7 +94,6 @@ import com.mtga.app.core.model.Post
 import com.mtga.app.feature.media.MediaViewer
 import com.mtga.app.ui.component.ChallengePill
 import com.mtga.app.ui.component.PostCard
-import com.mtga.app.ui.component.relativeTime
 import com.mtga.app.ui.icon.MtgaIcons
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -307,9 +306,6 @@ fun TimelineScreen(
     // to bend it.
     val look = LocalGlass.current
     val listBackdrop = rememberGlassBackdrop()
-    // The pull's ring fills with the accounts the refresh has finished; the count shows once it is known.
-    val refreshProgress: () -> Float = { state.refreshFill }
-    val refreshCount = if (state.refreshTotal > 0) state.refreshDone to state.refreshTotal else null
     // The page's ground is painted under the whole app, see MainActivity.
     Scaffold(containerColor = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) { padding ->
         CompositionLocalProvider(LocalGlassBackdrop provides listBackdrop.takeIf { look != null }) {
@@ -342,10 +338,7 @@ fun TimelineScreen(
                     viewModel.refresh()
                 },
                 modifier = Modifier.fillMaxSize(),
-                state = pull,
-                progress = refreshProgress,
-                count = refreshCount,
-                lastUpdated = subtitle(state)
+                state = pull
             ) {
                 // A list, because the pull gesture needs something scrollable.
                 LazyColumn(
@@ -380,10 +373,7 @@ fun TimelineScreen(
                     viewModel.refresh()
                 },
                 modifier = Modifier.fillMaxSize(),
-                state = pull,
-                progress = refreshProgress,
-                count = refreshCount,
-                lastUpdated = subtitle(state)
+                state = pull
             ) {
                 // Prefetch a page before the reader actually hits the bottom,
                 // so scrolling stays continuous instead of stalling.
@@ -496,16 +486,6 @@ fun TimelineScreen(
         }
         }
     }
-}
-
-// The age the pull shows in its ring before release (PullRevealBox's lastUpdated, "Updated" over "3m ago"); null while
-// loading or when nothing was read yet. Was the banner's subtitle, now in the pull (point 41).
-// https://github.com/213YaZ786/MTGA/blob/main/app/src/main/java/com/mtga/app/feature/timeline/TimelineScreen.kt#TimelineScreen
-private fun subtitle(state: TimelineUiState): String? = when {
-    state.followedCount == 0 -> null
-    state.loading -> null
-    state.lastUpdatedMillis != null -> relativeTime(state.lastUpdatedMillis)
-    else -> null
 }
 
 @Composable
